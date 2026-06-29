@@ -1,0 +1,12 @@
+{% comment %}
+HTMX response after a phase status change: swaps the phase's status control
+(primary), refreshes the Overview progress value out-of-band, and updates every
+sub-phase's status control out-of-band so the override flows down live.
+Context: phase, descendants ({phase, editable} dicts), editable,
+phase_status_choices, progress.
+{% endcomment %}
+{% include "pocs/partials/phase_status_control.html" %}
+{% for d in descendants %}
+  {% include "pocs/partials/phase_status_control.html" with phase=d.phase editable=d.editable oob=True %}
+{% endfor %}
+<p id="poc-progress" hx-swap-oob="true" class="text-2xl font-semibold text-ink mt-1">{{ progress }}%</p>

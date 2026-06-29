@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}{{ phase.name }} · {{ poc.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[9rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% if phase.parent %}
+    <a href="{% url 'pocs:phase_detail' phase.parent.pk %}" class="hover:text-ink truncate max-w-[8rem]">{{ phase.parent.name }}</a>
+    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% endif %}
+  <span class="text-ink font-medium truncate max-w-[9rem]">{{ phase.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  {# Header #}
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-2xl font-semibold text-ink truncate">{{ phase.name }}</h1>
+        <span class="text-xs text-ink-muted">Level {{ phase.level }}</span>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+          {% if phase.status == 'completed' %}bg-brand/10 text-brand-dark
+          {% elif phase.status == 'in_progress' %}bg-info/10 text-info
+          {% else %}bg-line text-ink-muted{% endif %}">
+          {{ phase.get_status_display }}
+        </span>
+      </div>
+      {% if phase.description %}<p class="text-ink-muted mt-1">{{ phase.description }}</p>{% endif %}
+    </div>
+
+    {% if can_edit %}
+      <div class="flex items-center gap-2 shrink-0">
+        <a href="{% url 'pocs:phase_edit' phase.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+        </a>
+        <form method="post" action="{% url 'pocs:phase_delete' phase.pk %}"
+              onsubmit="return confirm('Delete “{{ phase.name|escapejs }}” and everything under it?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+          </button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if is_functional_analysis %}
+    {# ---------- Functional Analysis: admin steps → copy into .md → report ---------- #}
+    <section class="space-y-4" x-data>
+      <div class="bg-brand/5 border border-brand/30 rounded-xl p-4 text-sm text-ink">
+        <p class="font-medium text-ink flex items-center gap-2"><i data-lucide="clipboard-list" class="w-4 h-4"></i> Functional Analysis</p>
+        <p class="text-ink-muted mt-1">Follow the steps below, copy the Markdown skeleton, fill in your actual results, then generate the report.</p>
+      </div>
+
+      {# Admin-defined steps #}
+      <div class="space-y-3">
+        {% for s in fa_steps %}
+          <div class="bg-surface border border-line rounded-xl p-4">
+            <p class="font-medium text-ink">Step {{ forloop.counter }}: {{ s.title }}</p>
+            <dl class="mt-2 space-y-2 text-sm">
+              {% if s.preconditions %}<div><dt class="text-xs uppercase tracking-wide text-ink-muted">Preconditions</dt><dd class="prose prose-sm max-w-none">{{ s.preconditions|markdownify }}</dd></div>{% endif %}
+              {% if s.action %}<div><dt class="text-xs uppercase tracking-wide text-ink-muted">Action</dt><dd class="prose prose-sm max-w-none">{{ s.action|markdownify }}</dd></div>{% endif %}
+              {% if s.expected_result %}<div><dt class="text-xs uppercase tracking-wide text-ink-muted">Expected result</dt><dd class="prose prose-sm max-w-none">{{ s.expected_result|markdownify }}</dd></div>{% endif %}
+              {% if s.acceptance_criteria %}<div><dt class="text-xs uppercase tracking-wide text-ink-muted">Acceptance criteria</dt><dd class="prose prose-sm max-w-none">{{ s.acceptance_criteria|markdownify }}</dd></div>{% endif %}
+            </dl>
+          </div>
+        {% empty %}
+          <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
+            No Functional Analysis steps defined yet.{% if user.is_admin %} <a href="{% url 'pocs:fa_step_list' %}" class="text-brand-dark hover:underline">Define them</a>.{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+
+      {# Compose / report #}
+      <div class="bg-surface border border-line rounded-xl p-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="font-medium text-ink">Your document</h2>
+          <button type="button" @click="navigator.clipboard.writeText($refs.md.value)"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-canvas">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Markdown
+          </button>
+        </div>
+        <form method="post" action="{% url 'reports:phase_markdown' phase.pk %}" class="space-y-3">
+          {% csrf_token %}
+          <textarea x-ref="md" name="markdown" rows="14"
+                    class="w-full rounded-lg border border-line px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ fa_markdown }}</textarea>
+          {% if phase.report_template %}
+            <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+              <i data-lucide="file-output" class="w-4 h-4"></i> Generate report
+            </button>
+          {% else %}
+            <p class="text-xs text-ink-muted">No report template attached to this phase{% if can_edit %} — attach one (edit the phase) to enable report generation{% endif %}.</p>
+          {% endif %}
+        </form>
+      </div>
+    </section>
+
+  {% elif not is_leaf %}
+    {# ---------- Sub-phases (this phase delegates work to them) ---------- #}
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-medium text-ink">Sub-phases <span class="text-ink-muted font-normal">({{ children|length }})</span></h2>
+        {% if can_add_subphase %}
+          <a href="{% url 'pocs:subphase_create' phase.pk %}"
+             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+            <i data-lucide="plus" class="w-4 h-4"></i> Add sub-phase
+          </a>
+        {% endif %}
+      </div>
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for child in children %}
+          <a href="{% url 'pocs:phase_detail' child.pk %}" class="flex items-center gap-3 p-4 hover:bg-canvas transition-soft">
+            <i data-lucide="{% if child.children.exists %}folder{% else %}file{% endif %}" class="w-4 h-4 text-ink-muted"></i>
+            <span class="font-medium text-ink flex-1 truncate">{{ child.name }}</span>
+            {% if child.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info" title="Report available"></i>{% endif %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
+              {% if child.status == 'completed' %}bg-brand/10 text-brand-dark
+              {% elif child.status == 'in_progress' %}bg-info/10 text-info
+              {% else %}bg-line text-ink-muted{% endif %}">{{ child.get_status_display }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% else %}
+    {# ---------- Leaf phase: Tasks + Tests ---------- #}
+    {% if can_add_subphase %}
+      <div class="flex justify-end">
+        <a href="{% url 'pocs:subphase_create' phase.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="plus" class="w-4 h-4"></i> Add sub-phase
+        </a>
+      </div>
+    {% endif %}
+
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-medium text-ink">Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span></h2>
+        {% if can_edit %}
+          <a href="{% url 'pocs:task_create' phase.pk %}"
+             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+            <i data-lucide="plus" class="w-4 h-4"></i> Add task
+          </a>
+        {% endif %}
+      </div>
+      {% if can_edit and tasks %}
+        {# Bulk "autoasignar progreso": set one status on several tasks at once.
+           The per-row checkboxes (in task_row) submit to this form via form="task-bulk". #}
+        <form method="post" action="{% url 'pocs:task_bulk_status' phase.pk %}" id="task-bulk"
+              class="flex flex-wrap items-center gap-2 bg-canvas border border-line rounded-lg px-3 py-2 text-sm">
+          {% csrf_token %}
+          <span class="text-ink-muted">Bulk update selected →</span>
+          <select name="status" class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
+            {% for value, label in task_status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+            <i data-lucide="check-check" class="w-3.5 h-3.5"></i> Apply
+          </button>
+          <span class="text-xs text-ink-muted">(invalid transitions are skipped)</span>
+        </form>
+      {% endif %}
+      <div class="space-y-3">
+        {% for task in tasks %}
+          {% include "pocs/partials/task_row.html" %}
+        {% empty %}
+          <div class="bg-surface border border-line rounded-xl p-10 text-center text-sm text-ink-muted">
+            No tasks yet.{% if can_edit %} Use “Add task” to create one.{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-medium text-ink">Tests <span class="text-ink-muted font-normal">({{ tests|length }})</span></h2>
+        {% if can_add_test %}
+          <a href="{% url 'pocs:test_create' phase.pk %}"
+             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+            <i data-lucide="plus" class="w-4 h-4"></i> Add test
+          </a>
+        {% endif %}
+      </div>
+      <div class="space-y-3">
+        {% for test in tests %}
+          {% include "pocs/partials/test_row.html" %}
+        {% empty %}
+          <div class="bg-surface border border-line rounded-xl p-10 text-center text-sm text-ink-muted">
+            No tests yet.{% if can_add_test %} Use “Add test” to create one.{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+</div>
+{% endblock %}

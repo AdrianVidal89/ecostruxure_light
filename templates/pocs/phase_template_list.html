@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Phase blueprint · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">Phase blueprint</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink">Phase blueprint</h1>
+      <p class="text-ink-muted mt-1">
+        The global phase hierarchy (max 3 levels) inherited by every new POC.
+        Attach a template to enable reports; mark nodes lead-editable to let POC
+        leads modify them.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      {% if roots %}
+        <form method="post" action="{% url 'pocs:phase_template_apply_all' %}"
+              onsubmit="return confirm('Apply this blueprint to ALL POCs? Inherited phases will be updated (name, report template, editable flag) and any missing phases added. Existing tasks/tests are not changed.');">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Apply to all POCs
+          </button>
+        </form>
+      {% endif %}
+      <a href="{% url 'pocs:phase_template_create' %}"
+         class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="plus" class="w-4 h-4"></i> Add phase
+      </a>
+    </div>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-3">
+    {% for node in roots %}
+      {% include "pocs/partials/phase_template_node.html" with node=node %}
+    {% empty %}
+      <p class="p-8 text-center text-sm text-ink-muted">
+        No blueprint phases yet. Add the first top-level phase.
+      </p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

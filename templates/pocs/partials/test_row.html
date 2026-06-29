@@ -1,0 +1,140 @@
+{% load core_extras %}
+{% comment %}
+Single test row (#test-<id>). Re-rendered by HTMX after inline execution saves.
+Context: test (with .can_execute), can_lead, test_verdict_choices, exec_form (only
+set when a save failed, e.g. bad evidence file type).
+{% endcomment %}
+<div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
+     x-data="{ showDef: false, recordOpen: {% if exec_form %}true{% else %}false{% endif %} }">
+
+  {# Header #}
+  <div class="flex items-start gap-3">
+    <div class="min-w-0 flex-1">
+      <p class="font-medium text-ink">{{ test.title }}</p>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-ink-muted">
+        <span class="inline-flex items-center gap-1">
+          <i data-lucide="user" class="w-3.5 h-3.5"></i>
+          {% if test.assigned_to %}{{ test.assigned_to.get_full_name|default:test.assigned_to.username }}{% else %}Unassigned{% endif %}
+        </span>
+        {% if test.executed_at %}
+          <span class="inline-flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> {{ test.executed_at|date:"Y-m-d H:i" }}{% if test.executed_by %} by {{ test.executed_by.username }}{% endif %}</span>
+        {% endif %}
+        <button @click="showDef = !showDef" class="inline-flex items-center gap-1 text-brand-dark hover:underline">
+          <i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span x-text="showDef ? 'Hide details' : 'View details'"></span>
+        </button>
+      </div>
+    </div>
+
+    {# Verdict badge — Passed=green, Failed=red, Blocked=orange, Skipped=gray, Pending=blue #}
+    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
+      {% if test.verdict == 'passed' %}bg-brand/10 text-brand-dark
+      {% elif test.verdict == 'failed' %}bg-danger/10 text-danger
+      {% elif test.verdict == 'blocked' %}bg-warning/10 text-warning
+      {% elif test.verdict == 'skipped' %}bg-line text-ink-muted
+      {% else %}bg-info/10 text-info{% endif %}">
+      {{ test.get_verdict_display }}
+    </span>
+
+    {% if can_lead %}
+      <div class="flex items-center gap-1 shrink-0">
+        <a href="{% url 'pocs:test_edit' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit">
+          <i data-lucide="pencil" class="w-4 h-4"></i>
+        </a>
+        <form method="post" action="{% url 'pocs:test_delete' test.id %}" onsubmit="return confirm('Delete this test?');">
+          {% csrf_token %}
+          <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Delete">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  {# Definition (collapsible) #}
+  <div x-show="showDef" x-cloak class="mt-3 pt-3 border-t border-line space-y-3 text-sm">
+    {% if test.description %}<div><p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Description</p><div class="prose prose-sm max-w-none text-ink">{{ test.description|markdownify }}</div></div>{% endif %}
+    {% if test.acceptance_criteria %}<div><p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Acceptance criteria</p><div class="prose prose-sm max-w-none text-ink">{{ test.acceptance_criteria|markdownify }}</div></div>{% endif %}
+    {% if test.expected_result %}<div><p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Expected result</p><div class="prose prose-sm max-w-none text-ink">{{ test.expected_result|markdownify }}</div></div>{% endif %}
+  </div>
+
+  {# Result + evidence #}
+  <div class="mt-3 pt-3 border-t border-line">
+    <div class="flex items-center justify-between">
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Notes</p>
+      {% if test.can_execute %}
+        <button @click="recordOpen = !recordOpen" class="text-xs font-medium text-brand-dark hover:underline">
+          <span x-show="!recordOpen">Record result</span>
+          <span x-show="recordOpen" x-cloak>Cancel</span>
+        </button>
+      {% endif %}
+    </div>
+
+    <div x-show="!recordOpen">
+      {% if test.actual_result %}
+        <div class="prose prose-sm max-w-none text-ink mt-1">{{ test.actual_result|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted mt-1">No notes yet.</p>
+      {% endif %}
+      {% if test.evidence_file or test.evidence_url %}
+        <div class="flex flex-wrap items-center gap-3 mt-2 text-xs">
+          {% if test.evidence_file %}
+            <a href="{{ test.evidence_file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
+              <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> Evidence file
+            </a>
+          {% endif %}
+          {% if test.evidence_url %}
+            <a href="{{ test.evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
+              <i data-lucide="link" class="w-3.5 h-3.5"></i> Evidence link
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    {# Execution form (HTMX, multipart for the file upload) #}
+    {% if test.can_execute %}
+      <form x-show="recordOpen" x-cloak class="mt-2 space-y-3"
+            hx-post="{% url 'pocs:test_execute' test.id %}"
+            hx-target="#test-{{ test.id }}" hx-swap="outerHTML"
+            hx-encoding="multipart/form-data">
+        {# Validate against the expected result (inherited, read-only). #}
+        <div class="rounded-lg border border-info/30 bg-info/5 p-3">
+          <p class="text-xs font-medium text-info uppercase tracking-wide mb-1">Expected result — validate against this</p>
+          {% if test.expected_result %}
+            <div class="prose prose-sm max-w-none text-ink">{{ test.expected_result|markdownify }}</div>
+          {% else %}
+            <p class="text-sm text-ink-muted">No expected result defined for this test.</p>
+          {% endif %}
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink mb-1">Additional notes <span class="text-ink-muted font-normal">(Markdown — observations only, not a rewrite of the expected result)</span></label>
+          <textarea name="actual_result" rows="4" placeholder="Notes / observations about this run…"
+                    class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ test.actual_result }}</textarea>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-ink mb-1">Verdict</label>
+            <select name="verdict" class="w-full rounded-lg border border-line px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+              {% for value, label in test_verdict_choices %}
+                <option value="{{ value }}" {% if test.verdict == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-ink mb-1">Evidence URL</label>
+            <input type="url" name="evidence_url" value="{{ test.evidence_url|default:'' }}" placeholder="https://…"
+                   class="w-full rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink mb-1">Evidence file <span class="text-ink-muted font-normal">(image, PDF, txt or log)</span></label>
+          <input type="file" name="evidence_file" class="text-sm text-ink-muted">
+          {% if exec_form %}{% for e in exec_form.evidence_file.errors %}<p class="text-xs text-danger mt-1">{{ e }}</p>{% endfor %}{% endif %}
+        </div>
+        <button type="submit" class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+          Save result
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>

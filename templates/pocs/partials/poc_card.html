@@ -1,0 +1,30 @@
+{% comment %}
+Reusable POC summary card (dashboard + POC list).
+Context: poc. Shows name, status, overall progress, phase count, dates.
+{% endcomment %}
+<a href="{% url 'pocs:detail' poc.pk %}"
+   class="block bg-surface border border-line rounded-xl p-5 hover:border-brand/50 hover:shadow-sm transition-soft">
+  <div class="flex items-start justify-between gap-2">
+    <h3 class="font-medium text-ink truncate">{{ poc.name }}</h3>
+    {% include "pocs/partials/status_badge.html" with status=poc.status label=poc.get_status_display %}
+  </div>
+
+  <div class="mt-4">
+    <div class="flex justify-between text-xs text-ink-muted mb-1">
+      <span>Progress</span><span>{{ poc.progress_percent }}%</span>
+    </div>
+    <div class="h-2 rounded-full bg-line overflow-hidden">
+      <div class="h-full bg-brand rounded-full" style="width: {{ poc.progress_percent }}%"></div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-4 mt-4 text-xs text-ink-muted">
+    <span class="inline-flex items-center gap-1">
+      <i data-lucide="layers" class="w-3.5 h-3.5"></i> {{ poc.phase_count }} phase{{ poc.phase_count|pluralize }}
+    </span>
+    <span class="inline-flex items-center gap-1">
+      <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+      {{ poc.start_date|default:"—" }} → {{ poc.end_date|default:"—" }}
+    </span>
+  </div>
+</a>

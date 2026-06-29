@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}POCs · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">POCs</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink">POCs</h1>
+      <p class="text-ink-muted mt-1">
+        {% if can_manage %}Manage all Proof of Concept projects.{% else %}Proof of Concept projects you belong to.{% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+      <div class="flex items-center gap-2 shrink-0">
+        <a href="{% url 'pocs:import' %}"
+           class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="upload" class="w-4 h-4"></i> Import
+        </a>
+        <a href="{% url 'pocs:create' %}"
+           class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="plus" class="w-4 h-4"></i> Create POC
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  {# Filters #}
+  <form method="get" class="flex flex-wrap items-center gap-3">
+    <div class="relative flex-1 min-w-[14rem] max-w-sm">
+      <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted"></i>
+      <input type="search" name="q" value="{{ query }}" placeholder="Search POCs…"
+             class="w-full rounded-lg border border-line pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+    </div>
+    <select name="status" onchange="this.form.submit()"
+            class="rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+      <option value="">All statuses</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">Filter</button>
+  </form>
+
+  {# Grid of POC cards #}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for poc in pocs %}
+      {% include "pocs/partials/poc_card.html" %}
+    {% empty %}
+      <div class="col-span-full bg-surface border border-line rounded-xl p-10 text-center text-ink-muted">
+        No POCs found.
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if is_paginated %}
+    <div class="flex items-center justify-between text-sm text-ink-muted">
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="flex gap-2">
+        {% if page_obj.has_previous %}
+          <a href="?page={{ page_obj.previous_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}{% if query %}&q={{ query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

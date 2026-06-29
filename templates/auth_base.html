@@ -1,0 +1,52 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+
+  {# Tailwind + Schneider palette (served locally — CDNs are blocked). #}
+  <script src="{% static 'vendor/tailwind.js' %}"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          brand:   { DEFAULT: '#3DCD58', dark: '#1A7A2E' },
+          canvas:  '#F5F6F7', surface: '#FFFFFF',
+          ink:     { DEFAULT: '#1A1A1A', muted: '#6B7280' },
+          line:    '#E5E7EB', danger: '#EF4444', warning: '#F97316', info: '#3B82F6',
+        },
+        fontFamily: { sans: ['Inter', 'system-ui', 'Segoe UI', 'sans-serif'] },
+      }},
+    };
+  </script>
+  <script src="{% static 'vendor/lucide.min.js' %}"></script>
+  <style>.transition-soft { transition: all .18s ease; }</style>
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="h-full bg-canvas text-ink font-sans antialiased flex items-center justify-center p-4">
+  <div class="w-full max-w-sm">
+    {# Brand header #}
+    <div class="flex flex-col items-center gap-3 mb-8">
+      {% if branding and branding.logo %}
+        <img src="{{ branding.logo.url }}" alt="Logo" class="h-24 max-w-[18rem] object-contain">
+      {% else %}
+        <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shadow-md">
+          <span class="text-white font-extrabold text-4xl leading-none">E</span>
+        </div>
+      {% endif %}
+      <span class="text-2xl font-semibold">EcoStruxure <span class="text-brand-dark">Light</span></span>
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <p class="text-center text-xs text-ink-muted mt-6">
+      Schneider Electric · Proof of Concept management
+    </p>
+  </div>
+
+  <script>window.lucide && lucide.createIcons();</script>
+</body>
+</html>

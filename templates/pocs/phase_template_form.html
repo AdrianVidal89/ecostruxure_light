@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:phase_template_list' %}" class="hover:text-ink">Phase blueprint</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+  {% if parent %}<p class="text-sm text-ink-muted -mt-3">Under: <span class="font-medium text-ink">{{ parent.name }}</span> (level {{ parent.level }})</p>{% endif %}
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.name.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Name <span class="text-danger">*</span></label>
+        {{ form.name }}
+        {% for error in form.name.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.description.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Description</label>
+        {{ form.description }}
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">
+          Report template <span class="text-ink-muted font-normal">(.docx, optional)</span>
+        </label>
+        {% if form.instance.report_template %}
+          <p class="text-xs text-ink-muted mb-2">A template is attached — drop a new file to replace it.</p>
+        {% endif %}
+        {% include "components/filedrop.html" with field=form.report_template hint="Nodes with a template show a “Generate report” button in each POC." %}
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit" class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">Save</button>
+        <a href="{% url 'pocs:phase_template_list' %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% load static %}
+
+{% block title %}{{ poc.name }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium truncate max-w-xs">{{ poc.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6"
+     x-data="{ tab: (new URLSearchParams(location.search).get('tab')) || 'overview' }">
+
+  {# Header #}
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <div class="flex items-center gap-3">
+        <h1 class="text-2xl font-semibold text-ink truncate">{{ poc.name }}</h1>
+        {% include "pocs/partials/status_badge.html" with status=poc.status label=poc.get_status_display %}
+      </div>
+    </div>
+    {% if can_lead %}
+      <div class="flex items-center gap-2 shrink-0">
+        <a href="{% url 'pocs:edit' poc.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+        </a>
+        {% if is_admin %}
+        <form method="post" action="{% url 'pocs:archive' poc.pk %}"
+              onsubmit="return confirm('{% if poc.status == 'archived' %}Restore{% else %}Archive{% endif %} this POC?');">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            {% if poc.status == 'archived' %}
+              <i data-lucide="archive-restore" class="w-4 h-4"></i> Restore
+            {% else %}
+              <i data-lucide="archive" class="w-4 h-4"></i> Archive
+            {% endif %}
+          </button>
+        </form>
+
+        {# Delete with double confirmation: modal + type the POC name. #}
+        <div x-data="{ open: false, txt: '' }">
+          <button @click="open = true"
+                  class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+          </button>
+          <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div @click.outside="open = false" class="bg-surface rounded-xl border border-line shadow-lg p-6 max-w-md w-full">
+              <div class="flex items-center gap-2 text-danger">
+                <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                <h3 class="font-semibold">Delete this POC?</h3>
+              </div>
+              <p class="text-sm text-ink-muted mt-3">
+                This permanently deletes “<span class="font-medium text-ink">{{ poc.name }}</span>” and
+                <span class="font-medium text-ink">all</span> its phases, tasks, tests, members and reports.
+                This cannot be undone.
+              </p>
+              <p class="text-sm text-ink mt-4 mb-1">Type the POC name to confirm:</p>
+              <input x-model="txt" type="text" placeholder="{{ poc.name }}"
+                     class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-danger/40">
+              <form method="post" action="{% url 'pocs:delete' poc.pk %}" class="flex items-center justify-end gap-3 mt-5">
+                {% csrf_token %}
+                <input type="hidden" name="confirm_name" :value="txt">
+                <button type="button" @click="open = false" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</button>
+                <button type="submit" :disabled="txt !== '{{ poc.name|escapejs }}'"
+                        :class="txt === '{{ poc.name|escapejs }}' ? 'bg-danger text-white hover:opacity-90' : 'bg-line text-ink-muted cursor-not-allowed'"
+                        class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-soft">
+                  <i data-lucide="trash-2" class="w-4 h-4"></i> Delete permanently
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# Tabs #}
+  <div class="border-b border-line flex gap-1 overflow-x-auto">
+    {% for key, label in tabs %}
+      <button @click="tab = '{{ key }}'"
+              :class="tab === '{{ key }}' ? 'border-brand text-brand-dark' : 'border-transparent text-ink-muted hover:text-ink'"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-soft whitespace-nowrap">
+        {{ label }}
+      </button>
+    {% endfor %}
+  </div>
+
+  {# ---------- Overview ---------- #}
+  <section x-show="tab === 'overview'" x-cloak class="space-y-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <p class="text-xs text-ink-muted">Progress</p>
+        <p id="poc-progress" class="text-2xl font-semibold text-ink mt-1">{{ poc.progress_percent }}%</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <p class="text-xs text-ink-muted">Phases</p>
+        <p class="text-2xl font-semibold text-ink mt-1">{{ poc.phase_count }}</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <p class="text-xs text-ink-muted">Members</p>
+        <p class="text-2xl font-semibold text-ink mt-1">{{ memberships|length }}</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <p class="text-xs text-ink-muted">Dates</p>
+        <p class="text-sm font-medium text-ink mt-2">
+          {{ poc.start_date|default:"—" }} → {{ poc.end_date|default:"—" }}
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-surface border border-line rounded-xl p-6">
+      <h2 class="font-medium text-ink mb-3">Description</h2>
+      {% if poc.description %}
+        <div class="prose prose-sm max-w-none text-ink">{{ poc.description|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted">No description provided.</p>
+      {% endif %}
+    </div>
+
+    {# Imported business details (only shown when present) #}
+    {% if poc.external_id %}
+      <div class="bg-surface border border-line rounded-xl p-6">
+        <h2 class="font-medium text-ink mb-4">Details</h2>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+          {% for label, value in poc_details %}
+            {% if value %}
+              <div class="flex justify-between gap-4 border-b border-line/60 pb-2">
+                <dt class="text-ink-muted">{{ label }}</dt>
+                <dd class="text-ink font-medium text-right">{{ value }}</dd>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </dl>
+      </div>
+    {% endif %}
+  </section>
+
+  {# ---------- Phases (inherited hierarchy tree) ---------- #}
+  <section x-show="tab === 'phases'" x-cloak class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+      <p class="text-sm text-ink-muted">
+        Phases are inherited from the global blueprint. Open a phase to manage its
+        {% if can_lead %}sub-phases, tasks and tests.{% else %}tasks and tests.{% endif %}
+      </p>
+      {% if can_lead %}
+        <div class="flex items-center gap-2 shrink-0">
+          {% if is_admin %}
+          <a href="{% url 'pocs:phase_template_list' %}"
+             class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="settings-2" class="w-4 h-4"></i> Blueprint
+          </a>
+          {% endif %}
+          <a href="{% url 'pocs:phase_create' poc.pk %}"
+             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+            <i data-lucide="plus" class="w-4 h-4"></i> Add phase
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="bg-surface border border-line rounded-xl p-3">
+      {% for node in phase_roots %}
+        {% include "pocs/partials/phase_node.html" with node=node %}
+      {% empty %}
+        <p class="p-8 text-center text-sm text-ink-muted">
+          No phases yet.{% if is_admin %} Define the global blueprint, or add a phase here.{% elif can_lead %} Add a phase here.{% endif %}
+        </p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ---------- Team ---------- #}
+  <section x-show="tab === 'team'" x-cloak class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-surface border border-line rounded-xl p-5">
+      <h2 class="font-medium text-ink mb-2">Members</h2>
+      {% include "pocs/partials/members_list.html" %}
+    </div>
+
+    {% if can_manage %}
+      <div class="bg-surface border border-line rounded-xl p-5">
+        <h2 class="font-medium text-ink mb-1">Add members</h2>
+        <p class="text-xs text-ink-muted mb-3">Search active users and assign a role in this POC.</p>
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted"></i>
+          <input type="search" id="member-search-input" name="q" placeholder="Search users…" autocomplete="off"
+                 hx-get="{% url 'pocs:member_search' poc.pk %}"
+                 hx-target="#poc-search-results" hx-swap="outerHTML"
+                 hx-trigger="keyup changed delay:300ms, search"
+                 class="w-full rounded-lg border border-line pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+        </div>
+        {% include "pocs/partials/search_results.html" %}
+      </div>
+    {% endif %}
+  </section>
+
+  {# ---------- Audit Log (admins & POC leads) ---------- #}
+  <section x-show="tab === 'audit'" x-cloak>
+    {% if can_lead %}
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for log in audit_logs %}
+          <div class="flex items-start gap-3 p-4">
+            <div class="w-9 h-9 rounded-full bg-canvas text-ink-muted flex items-center justify-center shrink-0">
+              <i data-lucide="{% if log.action == 'created' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm text-ink">
+                <span class="font-medium">{% if log.actor %}{{ log.actor.get_full_name|default:log.actor.username }}{% else %}System{% endif %}</span>
+                <span class="text-ink-muted">{{ log.action_label }}</span>
+                <span class="font-medium">{{ log.content_type.model }}</span>
+              </p>
+              {% if log.details %}
+                <ul class="mt-1 space-y-0.5">
+                  {% for field, change in log.details.items %}
+                    <li class="text-xs text-ink-muted">
+                      <span class="font-medium text-ink">{{ field }}</span>:
+                      {% if change.before %}<span class="line-through">{{ change.before }}</span> → {% endif %}<span class="text-ink">{{ change.after|default:"—" }}</span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+            <time class="text-xs text-ink-muted whitespace-nowrap shrink-0" title="{{ log.timestamp }}">
+              {{ log.timestamp|date:"Y-m-d H:i" }}
+            </time>
+          </div>
+        {% empty %}
+          <p class="p-10 text-center text-sm text-ink-muted">No activity recorded yet.</p>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="bg-surface border border-line rounded-xl p-10 text-center text-sm text-ink-muted">
+        Only POC leads and admins can view the audit log.
+      </div>
+    {% endif %}
+  </section>
+
+  {# ---------- Reports ---------- #}
+  <section x-show="tab === 'reports'" x-cloak class="space-y-6">
+
+    {# Phase reports: only phases (any level) that have a template attached #}
+    <div>
+      <h2 class="font-medium text-ink mb-1">Phase reports</h2>
+      <p class="text-sm text-ink-muted mb-3">
+        Generate a Word report from a phase’s tests (aggregating its sub-phases). Only
+        phases with a <code>.docx</code> template assigned in the blueprint appear here.
+      </p>
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for phase in reportable_phases %}
+          <div class="flex items-center gap-3 p-4">
+            <div class="min-w-0 flex-1">
+              <p class="font-medium text-ink truncate">{{ phase.name }}</p>
+              <p class="text-xs text-ink-muted">Level {{ phase.level }}</p>
+            </div>
+            <form method="post" action="{% url 'reports:phase_generate' phase.pk %}">
+              {% csrf_token %}
+              <button type="submit"
+                      class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+                <i data-lucide="file-output" class="w-4 h-4"></i> Generate
+              </button>
+            </form>
+          </div>
+        {% empty %}
+          <p class="p-10 text-center text-sm text-ink-muted">No phases with a report template.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Generated reports for this POC #}
+    <div>
+      <h2 class="font-medium text-ink mb-3">Generated reports</h2>
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for report in generated_reports %}
+          <div class="flex items-center gap-3 p-4">
+            <div class="w-9 h-9 rounded-lg bg-canvas text-ink-muted flex items-center justify-center shrink-0">
+              <i data-lucide="file-text" class="w-4 h-4"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-ink truncate">{{ report.title }}</p>
+              <p class="text-xs text-ink-muted">
+                {{ report.get_kind_display }} · {{ report.requested_at|date:"Y-m-d H:i" }}
+                {% if report.requested_by %} · {{ report.requested_by.username }}{% endif %}
+              </p>
+            </div>
+            {% include "reports/partials/report_status.html" with report=report %}
+          </div>
+        {% empty %}
+          <p class="p-10 text-center text-sm text-ink-muted">No reports generated yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <p class="text-xs text-ink-muted">
+      Need a custom report from your own document? Use the
+      <a href="{% url 'reports:home' %}" class="text-brand-dark hover:underline">Reports</a> area.
+    </p>
+  </section>
+
+</div>
+{% endblock %}

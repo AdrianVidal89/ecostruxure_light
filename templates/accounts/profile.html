@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}My profile · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">My profile</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">My profile</h1>
+    <p class="text-ink-muted mt-1">Update your personal details.</p>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    {# Role is read-only here (managed by admins via user management). #}
+    <div class="flex items-center justify-between pb-4 mb-4 border-b border-line">
+      <div>
+        <p class="text-sm text-ink-muted">Username</p>
+        <p class="font-medium text-ink">{{ user.username }}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-sm text-ink-muted">Role</p>
+        <span class="inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand/10 text-brand-dark">
+          {{ user.get_role_display }}
+        </span>
+      </div>
+    </div>
+
+    <form method="post" class="space-y-4">
+      {% csrf_token %}
+      {% for field in form %}
+        <div>
+          <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% for error in field.errors %}
+            <p class="text-xs text-danger mt-1">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          Save changes
+        </button>
+        <a href="{% url 'accounts:password_change' %}"
+           class="text-sm font-medium text-ink-muted hover:text-ink">
+          Change password
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

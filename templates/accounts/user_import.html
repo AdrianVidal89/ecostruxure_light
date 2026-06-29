@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}Import users · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'accounts:user_list' %}" class="hover:text-ink">Users</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Import</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">Import users</h1>
+    <p class="text-ink-muted mt-1">
+      Upload an <code>.xlsx</code> or <code>.csv</code>, map the columns, and review the
+      preview. <span class="font-medium text-ink">Nothing is saved until you confirm.</span>
+    </p>
+  </div>
+
+  {% if stage == "upload" %}
+    <div class="bg-surface border border-line rounded-xl p-6">
+      <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        {% if form.file.errors %}<p class="text-xs text-danger">{{ form.file.errors.0 }}</p>{% endif %}
+        {% include "components/filedrop.html" with field=form.file hint="Columns can be named freely — you'll map them next." %}
+        <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="arrow-right" class="w-4 h-4"></i> Continue
+        </button>
+      </form>
+    </div>
+
+  {% elif stage == "preview" %}
+    <form method="post" class="space-y-6">
+      {% csrf_token %}
+
+      {# Column mapping #}
+      <div class="bg-surface border border-line rounded-xl p-6">
+        <h2 class="font-medium text-ink mb-3">Map columns</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {% for field, label, required in user_fields %}
+            <div>
+              <label class="block text-xs text-ink-muted mb-1">{{ label }}</label>
+              <select name="map_{{ field }}" class="w-full rounded-lg border border-line px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+                <option value="">— Not mapped —</option>
+                {% for h in headers %}
+                  <option value="{{ forloop.counter0 }}" {% if mapping|get_item:field == forloop.counter0 %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          {% endfor %}
+        </div>
+        <button type="submit" name="action" value="preview"
+                class="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-canvas">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Update preview
+        </button>
+      </div>
+
+      {# Preview #}
+      <div class="bg-surface border border-line rounded-xl p-6 space-y-4">
+        <div class="flex flex-wrap items-center gap-4">
+          <h2 class="font-medium text-ink">Preview</h2>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark">{{ summary.valid }} valid</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning">{{ summary.warning }} with warnings</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-danger/10 text-danger">{{ summary.discarded }} discarded</span>
+          <span class="text-xs text-ink-muted">of {{ summary.total }} rows</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-canvas text-ink-muted text-xs uppercase tracking-wide">
+              <tr>
+                <th class="text-left font-medium px-3 py-2">#</th>
+                <th class="text-left font-medium px-3 py-2">Username</th>
+                <th class="text-left font-medium px-3 py-2">Name</th>
+                <th class="text-left font-medium px-3 py-2">Email</th>
+                <th class="text-left font-medium px-3 py-2">Role</th>
+                <th class="text-left font-medium px-3 py-2">Status</th>
+                <th class="text-left font-medium px-3 py-2">Notes</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              {% for r in preview %}
+                <tr class="{% if r.status == 'discarded' %}opacity-60{% endif %}">
+                  <td class="px-3 py-2 text-ink-muted">{{ r.index }}</td>
+                  <td class="px-3 py-2 font-medium text-ink">{{ r.data.username|default:"—" }}</td>
+                  <td class="px-3 py-2">{{ r.data.first_name }} {{ r.data.last_name }}</td>
+                  <td class="px-3 py-2 text-ink-muted">{{ r.data.email|default:"—" }}</td>
+                  <td class="px-3 py-2">
+                    {% if r.status == 'discarded' %}
+                      <span class="text-ink-muted">{{ r.data.role }}</span>
+                    {% else %}
+                      <select name="role_{{ r.index }}" class="rounded-lg border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand/40">
+                        {% for value, label in role_choices %}
+                          <option value="{{ value }}" {% if r.data.role == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                    {% endif %}
+                  </td>
+                  <td class="px-3 py-2">
+                    {% if r.status == 'valid' %}<span class="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark">valid</span>
+                    {% elif r.status == 'warning' %}<span class="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning">{{ r.action }}</span>
+                    {% else %}<span class="text-xs px-2 py-0.5 rounded-full bg-danger/10 text-danger">discarded</span>{% endif %}
+                  </td>
+                  <td class="px-3 py-2 text-xs text-ink-muted">{{ r.messages|join:" · " }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {# Confirm #}
+      <div class="bg-surface border border-line rounded-xl p-6">
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <label class="block text-sm font-medium text-ink mb-1">Initial password for new users <span class="text-ink-muted font-normal">(optional)</span></label>
+            <input type="text" name="initial_password" placeholder="leave blank → login disabled until reset"
+                   class="rounded-lg border border-line px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-brand/40">
+          </div>
+          <button type="submit" name="action" value="confirm" {% if not importable %}disabled{% endif %}
+                  class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-soft {% if importable %}bg-brand hover:bg-brand-dark text-white{% else %}bg-line text-ink-muted cursor-not-allowed{% endif %}">
+            <i data-lucide="check-check" class="w-4 h-4"></i> Confirm import ({{ importable }})
+          </button>
+          <a href="{% url 'accounts:user_import' %}" class="text-sm font-medium text-ink-muted hover:text-ink">Start over</a>
+        </div>
+        <p class="text-xs text-ink-muted mt-2">Discarded rows are skipped. Existing users are updated, not duplicated.</p>
+      </div>
+    </form>
+
+  {% elif stage == "done" %}
+    <div class="bg-surface border border-line rounded-xl p-6">
+      <div class="flex items-center gap-2 mb-3">
+        <i data-lucide="check-circle" class="w-5 h-5 text-brand-dark"></i>
+        <h2 class="font-medium text-ink">Import complete</h2>
+      </div>
+      <div class="grid grid-cols-3 gap-3 text-center max-w-sm">
+        <div><p class="text-2xl font-semibold text-brand-dark">{{ stats.created }}</p><p class="text-xs text-ink-muted">created</p></div>
+        <div><p class="text-2xl font-semibold text-info">{{ stats.updated }}</p><p class="text-xs text-ink-muted">updated</p></div>
+        <div><p class="text-2xl font-semibold text-ink-muted">{{ stats.skipped }}</p><p class="text-xs text-ink-muted">skipped</p></div>
+      </div>
+      <div class="mt-5 flex gap-3">
+        <a href="{% url 'accounts:user_list' %}" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm">View users</a>
+        <a href="{% url 'accounts:user_import' %}" class="text-sm font-medium text-ink-muted hover:text-ink">Import another file</a>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

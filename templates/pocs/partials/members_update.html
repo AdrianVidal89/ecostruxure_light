@@ -1,0 +1,6 @@
+{% comment %}
+Combined response for add/remove/role-change: the members list is swapped into
+#poc-members (primary), while the search results refresh out-of-band.
+{% endcomment %}
+{% include "pocs/partials/members_list.html" %}
+{% include "pocs/partials/search_results.html" with oob=True %}

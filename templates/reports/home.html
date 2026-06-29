@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Reports · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">Reports</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink">Reports</h1>
+      <p class="text-ink-muted mt-1">Convert a document into a report template.</p>
+    </div>
+    {% if is_admin %}
+      <a href="{% url 'reports:type_list' %}"
+         class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+        <i data-lucide="settings" class="w-4 h-4"></i> Manage report types
+      </a>
+    {% endif %}
+  </div>
+
+  {# Converter #}
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <h2 class="font-medium text-ink mb-1">Generate a report</h2>
+    <p class="text-sm text-ink-muted mb-4">
+      Pick a report type and upload your content. Markdown (<code>.md</code>) is recommended;
+      <code>.docx</code> and <code>.txt</code> are also accepted
+      (plain <code>.txt</code> has no headings — convert to Markdown for best results).
+    </p>
+
+    {% if has_types %}
+      <form method="post" action="{% url 'reports:custom_generate' %}" enctype="multipart/form-data"
+            class="space-y-4" x-data="{ mode: 'paste' }">
+        {% csrf_token %}
+        <div>
+          <label for="{{ form.report_type.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Report type</label>
+          {{ form.report_type }}
+        </div>
+
+        <div>
+          <span class="block text-sm font-medium text-ink mb-2">Source</span>
+          {# Tabs: paste text (no dialog) or drag-and-drop a file. #}
+          <div class="inline-flex rounded-lg border border-line p-0.5 mb-3 text-sm">
+            <button type="button" @click="mode = 'paste'"
+                    :class="mode === 'paste' ? 'bg-brand text-white' : 'text-ink-muted hover:text-ink'"
+                    class="px-3 py-1.5 rounded-md font-medium transition-soft">Paste Markdown</button>
+            <button type="button" @click="mode = 'file'"
+                    :class="mode === 'file' ? 'bg-brand text-white' : 'text-ink-muted hover:text-ink'"
+                    class="px-3 py-1.5 rounded-md font-medium transition-soft">Upload file</button>
+          </div>
+
+          <div x-show="mode === 'paste'">
+            {{ form.source_text }}
+          </div>
+          <div x-show="mode === 'file'" x-cloak>
+            {% include "components/filedrop.html" with field=form.source_file hint=".md recommended · .docx and .txt accepted" %}
+          </div>
+        </div>
+
+        <button type="submit"
+                class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="file-output" class="w-4 h-4"></i> Generate
+        </button>
+      </form>
+    {% else %}
+      <p class="text-sm text-ink-muted">
+        No report types are available yet.{% if is_admin %} <a href="{% url 'reports:type_create' %}" class="text-brand-dark hover:underline">Create one</a>.{% endif %}
+      </p>
+    {% endif %}
+  </div>
+
+  {# My generated reports #}
+  <div>
+    <h2 class="font-medium text-ink mb-3">My reports</h2>
+    <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+      {% for report in my_reports %}
+        <div class="flex items-center gap-3 p-4">
+          <div class="w-9 h-9 rounded-lg bg-canvas text-ink-muted flex items-center justify-center shrink-0">
+            <i data-lucide="file-text" class="w-4 h-4"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-ink truncate">{{ report.title }}</p>
+            <p class="text-xs text-ink-muted">{{ report.requested_at|date:"Y-m-d H:i" }}</p>
+          </div>
+          {% include "reports/partials/report_status.html" with report=report %}
+        </div>
+      {% empty %}
+        <p class="p-10 text-center text-sm text-ink-muted">You haven’t generated any reports yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

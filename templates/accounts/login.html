@@ -1,0 +1,36 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Sign in · {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="bg-surface border border-line rounded-xl p-6 shadow-sm">
+  <h1 class="text-lg font-semibold text-ink">Sign in</h1>
+  <p class="text-sm text-ink-muted mt-1">Use your account credentials to continue.</p>
+
+  {% if form.non_field_errors %}
+    <div class="mt-4 px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+      {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="mt-5 space-y-4">
+    {% csrf_token %}
+    {% for field in form %}
+      <div>
+        <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          {{ field.label }}
+        </label>
+        {{ field }}
+        {% for error in field.errors %}
+          <p class="text-xs text-danger mt-1">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit"
+            class="w-full bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+      Sign in
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% comment %}
+Phase status: a click-to-set dropdown for editors, a read-only badge otherwise.
+Context: phase, editable, phase_status_choices. Swapped in place via HTMX.
+Pass oob=True to mark this control for an out-of-band swap (sub-phase updates).
+{% endcomment %}
+<span id="phase-status-{{ phase.id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if editable %}
+  <select name="status"
+          hx-post="{% url 'pocs:phase_set_status' phase.id %}"
+          hx-target="#phase-status-{{ phase.id }}" hx-swap="outerHTML"
+          class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40
+            {% if phase.status == 'completed' %}text-brand-dark{% elif phase.status == 'in_progress' %}text-info{% else %}text-ink-muted{% endif %}">
+    {% for value, label in phase_status_choices %}
+      <option value="{{ value }}" {% if phase.status == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+{% else %}
+  <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+    {% if phase.status == 'completed' %}bg-brand/10 text-brand-dark
+    {% elif phase.status == 'in_progress' %}bg-info/10 text-info
+    {% else %}bg-line text-ink-muted{% endif %}">{{ phase.get_status_display }}</span>
+{% endif %}
+</span>

@@ -1,0 +1,75 @@
+{% comment %}
+Recursive blueprint node (admin builder). Context: node (a PhaseTemplate).
+{% endcomment %}
+{% with children=node.children.all %}
+<div class="phase-template-node">
+  <div class="flex items-center gap-2 py-2 px-3 rounded-lg hover:bg-canvas transition-soft">
+    <i data-lucide="{% if children %}folder{% else %}file{% endif %}" class="w-4 h-4 text-ink-muted shrink-0"></i>
+    <span class="font-medium text-ink truncate">{{ node.name }}</span>
+    <span class="text-[10px] uppercase tracking-wide text-ink-muted">L{{ node.level }}</span>
+    {% if node.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info" title="Report template attached"></i>{% endif %}
+
+    <div class="ml-auto flex items-center gap-1 shrink-0">
+      {% if not children and node.can_have_children %}
+        {% if not node.base_tasks.exists and not node.base_tests.exists %}
+          <a href="{% url 'pocs:phase_template_child' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface" title="Add sub-phase">
+            <i data-lucide="git-branch-plus" class="w-4 h-4"></i>
+          </a>
+        {% endif %}
+      {% elif node.can_have_children %}
+        <a href="{% url 'pocs:phase_template_child' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface" title="Add sub-phase">
+          <i data-lucide="git-branch-plus" class="w-4 h-4"></i>
+        </a>
+      {% endif %}
+      {% if not children %}
+        <a href="{% url 'pocs:base_task_create' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface" title="Add base task">
+          <i data-lucide="list-plus" class="w-4 h-4"></i>
+        </a>
+        <a href="{% url 'pocs:base_test_create' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface" title="Add base test">
+          <i data-lucide="flask-conical" class="w-4 h-4"></i>
+        </a>
+      {% endif %}
+      <a href="{% url 'pocs:phase_template_edit' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface" title="Edit">
+        <i data-lucide="pencil" class="w-4 h-4"></i>
+      </a>
+      <a href="{% url 'pocs:phase_template_delete' node.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Delete">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+      </a>
+    </div>
+  </div>
+
+  {# Base tasks / tests (leaf only) #}
+  {% if not children %}
+    {% with bts=node.base_tasks.all bes=node.base_tests.all %}
+      {% if bts or bes %}
+        <div class="ml-9 mb-1 space-y-1">
+          {% for bt in bts %}
+            <div class="flex items-center gap-2 text-xs text-ink-muted">
+              <i data-lucide="check-square" class="w-3 h-3"></i><span class="flex-1 truncate">{{ bt.title }}</span>
+              <form method="post" action="{% url 'pocs:base_task_delete' bt.pk %}">{% csrf_token %}
+                <button type="submit" class="hover:text-danger" title="Remove"><i data-lucide="x" class="w-3 h-3"></i></button>
+              </form>
+            </div>
+          {% endfor %}
+          {% for be in bes %}
+            <div class="flex items-center gap-2 text-xs text-ink-muted">
+              <i data-lucide="flask-conical" class="w-3 h-3"></i><span class="flex-1 truncate">{{ be.title }}</span>
+              <form method="post" action="{% url 'pocs:base_test_delete' be.pk %}">{% csrf_token %}
+                <button type="submit" class="hover:text-danger" title="Remove"><i data-lucide="x" class="w-3 h-3"></i></button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+  {% endif %}
+
+  {% if children %}
+    <div class="ml-6 border-l border-line pl-2">
+      {% for child in children %}
+        {% include "pocs/partials/phase_template_node.html" with node=child %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endwith %}

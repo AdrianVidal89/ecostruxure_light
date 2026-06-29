@@ -1,0 +1,32 @@
+{% comment %}
+Addable-user search results (#poc-search-results). Rendered standalone on
+search (GET) and out-of-band (oob=True) after add/remove so it stays in sync.
+Context: search_results, q, poc, role_choices. Optional: oob.
+{% endcomment %}
+<div id="poc-search-results" {% if oob %}hx-swap-oob="true"{% endif %} class="mt-3 space-y-2">
+  {% if q and not search_results %}
+    <p class="text-sm text-ink-muted px-1">No matching active users.</p>
+  {% endif %}
+  {% for u in search_results %}
+    <form hx-post="{% url 'pocs:member_add' poc.pk %}"
+          hx-target="#poc-members" hx-swap="outerHTML"
+          class="flex items-center gap-2 bg-canvas rounded-lg px-3 py-2">
+      <input type="hidden" name="user_id" value="{{ u.id }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-ink truncate">{{ u.get_full_name|default:u.username }}</p>
+        <p class="text-xs text-ink-muted truncate">@{{ u.username }}</p>
+      </div>
+      <select name="role"
+              class="rounded-lg border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand/40">
+        {% for value, label in role_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit"
+              class="inline-flex items-center gap-1 bg-brand hover:bg-brand-dark text-white rounded-lg px-2.5 py-1 text-xs font-medium transition-soft">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add
+      </button>
+    </form>
+  {% endfor %}
+</div>

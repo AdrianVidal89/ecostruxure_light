@@ -1,0 +1,35 @@
+{% comment %}
+Recursive phase tree node (POC detail → Phases tab). Context: node (a Phase).
+Shows the phase as a link to its detail, status, reportable dot, and recurses
+into children. Management actions live on the phase detail page.
+{% endcomment %}
+<div class="phase-node">
+  <div class="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-canvas transition-soft">
+    <i data-lucide="{% if node.children.exists %}folder{% else %}file{% endif %}" class="w-4 h-4 text-ink-muted shrink-0"></i>
+    <a href="{% url 'pocs:phase_detail' node.pk %}" class="font-medium text-ink hover:text-brand-dark truncate">{{ node.name }}</a>
+
+    {% if node.report_template %}
+      <span class="inline-flex items-center gap-1 text-xs text-info" title="Report available">
+        <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+      </span>
+    {% endif %}
+
+    <span class="ml-auto">
+      {% if is_admin or is_lead_member %}
+        {% include "pocs/partials/phase_status_control.html" with phase=node editable=True %}
+      {% else %}
+        {% include "pocs/partials/phase_status_control.html" with phase=node editable=False %}
+      {% endif %}
+    </span>
+  </div>
+
+  {% with children=node.children.all %}
+    {% if children %}
+      <div class="ml-6 border-l border-line pl-2">
+        {% for child in children %}
+          {% include "pocs/partials/phase_node.html" with node=child %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+</div>

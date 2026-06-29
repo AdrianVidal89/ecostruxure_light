@@ -1,0 +1,11 @@
+{% comment %}
+Reusable POC status pill. Usage:
+  {% include "pocs/partials/status_badge.html" with status=poc.status label=poc.get_status_display %}
+{% endcomment %}
+<span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+  {% if status == 'active' %}bg-brand/10 text-brand-dark
+  {% elif status == 'completed' %}bg-info/10 text-info
+  {% elif status == 'archived' %}bg-line text-ink-muted
+  {% else %}bg-warning/10 text-warning{% endif %}">
+  {{ label }}
+</span>

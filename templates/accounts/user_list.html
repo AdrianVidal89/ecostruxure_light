@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Users · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">Users</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink">Users</h1>
+      <p class="text-ink-muted mt-1">Manage application users and their global roles.</p>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="{% url 'accounts:user_import' %}"
+         class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+        <i data-lucide="upload" class="w-4 h-4"></i> Import
+      </a>
+      <a href="{% url 'accounts:user_create' %}"
+         class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="user-plus" class="w-4 h-4"></i> Create user
+      </a>
+    </div>
+  </div>
+
+  {# Search #}
+  <form method="get" class="relative max-w-sm">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted"></i>
+    <input type="search" name="q" value="{{ query }}" placeholder="Search users…"
+           class="w-full rounded-lg border border-line pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+  </form>
+
+  {# Table #}
+  <div class="bg-surface border border-line rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-canvas text-ink-muted text-xs uppercase tracking-wide">
+        <tr>
+          <th class="text-left font-medium px-4 py-3">Name</th>
+          <th class="text-left font-medium px-4 py-3">Email</th>
+          <th class="text-left font-medium px-4 py-3">Role</th>
+          <th class="text-left font-medium px-4 py-3">Status</th>
+          <th class="text-right font-medium px-4 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {% for u in users %}
+          <tr class="hover:bg-canvas/60 transition-soft">
+            <td class="px-4 py-3">
+              <div class="font-medium text-ink">{{ u.get_full_name|default:u.username }}</div>
+              <div class="text-xs text-ink-muted">@{{ u.username }}</div>
+            </td>
+            <td class="px-4 py-3 text-ink-muted">{{ u.email|default:"—" }}</td>
+            <td class="px-4 py-3">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
+                {% if u.role == 'admin' %}bg-info/10 text-info
+                {% else %}bg-line text-ink-muted{% endif %}">
+                {{ u.get_role_display }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              {% if u.is_active %}
+                <span class="inline-flex items-center gap-1.5 text-ink-muted">
+                  <span class="w-2 h-2 rounded-full bg-brand"></span> Active
+                </span>
+              {% else %}
+                <span class="inline-flex items-center gap-1.5 text-ink-muted">
+                  <span class="w-2 h-2 rounded-full bg-danger"></span> Inactive
+                </span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex items-center justify-end gap-2">
+                <a href="{% url 'accounts:user_edit' u.pk %}"
+                   class="inline-flex items-center gap-1 text-ink-muted hover:text-ink font-medium">
+                  <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+                </a>
+                {% if u != request.user %}
+                  <form method="post" action="{% url 'accounts:user_toggle_active' u.pk %}">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="inline-flex items-center gap-1 font-medium
+                              {% if u.is_active %}text-danger hover:text-danger{% else %}text-brand-dark hover:text-brand-dark{% endif %}">
+                      {% if u.is_active %}
+                        <i data-lucide="user-x" class="w-4 h-4"></i> Deactivate
+                      {% else %}
+                        <i data-lucide="user-check" class="w-4 h-4"></i> Activate
+                      {% endif %}
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="px-4 py-10 text-center text-ink-muted">No users found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if is_paginated %}
+    <div class="flex items-center justify-between text-sm text-ink-muted">
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="flex gap-2">
+        {% if page_obj.has_previous %}
+          <a href="?page={{ page_obj.previous_page_number }}{% if query %}&q={{ query }}{% endif %}"
+             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}{% if query %}&q={{ query }}{% endif %}"
+             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

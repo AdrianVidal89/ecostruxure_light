@@ -1,0 +1,223 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+
+  {# --- Tailwind (served locally — corporate network blocks CDNs) --- #}
+  <script src="{% static 'vendor/tailwind.js' %}"></script>
+  <script>
+    // Schneider Electric palette mapped to Tailwind tokens.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand:   { DEFAULT: '#3DCD58', dark: '#1A7A2E' },
+            canvas:  '#F5F6F7',
+            surface: '#FFFFFF',
+            ink:     { DEFAULT: '#1A1A1A', muted: '#6B7280' },
+            line:    '#E5E7EB',
+            danger:  '#EF4444',
+            warning: '#F97316',
+            info:    '#3B82F6',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'Segoe UI', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  {# Brand palette also exposed as CSS variables for raw CSS / future use. #}
+  <style>
+    :root {
+      --color-primary: #3DCD58;
+      --color-primary-dark: #1A7A2E;
+      --color-bg: #F5F6F7;
+      --color-surface: #FFFFFF;
+      --color-text: #1A1A1A;
+      --color-text-muted: #6B7280;
+      --color-border: #E5E7EB;
+      --color-danger: #EF4444;
+      --color-warning: #F97316;
+      --color-info: #3B82F6;
+    }
+    [x-cloak] { display: none !important; }
+    /* Subtle, non-distracting transitions only. */
+    .transition-soft { transition: all .18s ease; }
+    /* Drag-and-drop file zone highlight. */
+    .filedrop.filedrop-active { border-color: var(--color-primary); background: rgba(61,205,88,.06); }
+  </style>
+
+  {# --- JS libraries (served locally — corporate network blocks CDNs) --- #}
+  <script src="{% static 'vendor/htmx.min.js' %}"></script>
+  <script defer src="{% static 'vendor/alpine.min.js' %}"></script>
+  <script src="{% static 'vendor/lucide.min.js' %}"></script>
+
+  {# Send Django's CSRF token on every HTMX request. #}
+  <script>
+    document.body && document.addEventListener('htmx:configRequest', (e) => {
+      e.detail.headers['X-CSRFToken'] =
+        document.querySelector('meta[name=csrf-token]').content;
+    });
+  </script>
+
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="h-full bg-canvas text-ink font-sans antialiased"
+      x-data="{ sidebarOpen: true }"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+
+  <div class="flex h-full">
+    {# ===================== SIDEBAR ===================== #}
+    <aside x-cloak
+           class="flex flex-col bg-surface border-r border-line transition-soft shrink-0"
+           :class="sidebarOpen ? 'w-64' : 'w-16'">
+
+      {# Brand / logo — the image leads; the wordmark is a small caption beside it. #}
+      <div class="flex items-center gap-2 h-28 px-3 border-b border-line">
+        {% if branding and branding.logo %}
+          <img src="{{ branding.logo.url }}" alt="Logo"
+               class="object-contain shrink-0"
+               :class="sidebarOpen ? 'h-24 w-auto max-w-[170px]' : 'h-12 w-12'">
+        {% else %}
+          <div class="rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shrink-0 shadow-sm"
+               :class="sidebarOpen ? 'w-16 h-16' : 'w-12 h-12'">
+            <span class="text-white font-extrabold text-3xl leading-none">E</span>
+          </div>
+        {% endif %}
+        <div class="min-w-0 leading-tight" x-show="sidebarOpen">
+          <p class="text-sm font-semibold text-ink truncate">EcoStruxure <span class="text-brand-dark">Light</span></p>
+          <p class="text-[10px] text-ink-muted -mt-0.5">PoC management</p>
+        </div>
+      </div>
+
+      {# Navigation #}
+      <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+        {% for item in nav_items %}
+          {% if item.available %}
+            {% url item.url_name as item_url %}
+            <a href="{{ item_url }}"
+               class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-soft
+                      {% if request.path == item_url %}bg-brand/10 text-brand-dark{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
+              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
+              <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
+            </a>
+          {% else %}
+            <span class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
+                  title="Coming in a later build step">
+              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
+              <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
+            </span>
+          {% endif %}
+        {% endfor %}
+      </nav>
+
+      {# User info + menu (bottom) #}
+      <div class="border-t border-line p-3">
+        {% if user.is_authenticated %}
+          <div class="relative" x-data="{ menuOpen: false }">
+            <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
+                    class="w-full flex items-center gap-3 rounded-lg p-1 hover:bg-canvas transition-soft">
+              <div class="w-9 h-9 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
+                {{ user.username|slice:":1"|upper }}
+              </div>
+              <div class="min-w-0 text-left flex-1" x-show="sidebarOpen">
+                <p class="text-sm font-medium truncate">{{ user.get_full_name|default:user.username }}</p>
+                <p class="text-xs text-ink-muted truncate">{{ user.get_role_display }}</p>
+              </div>
+              <i data-lucide="chevron-up" class="w-4 h-4 text-ink-muted shrink-0" x-show="sidebarOpen"></i>
+            </button>
+
+            {# Dropdown menu (opens upward) #}
+            <div x-show="menuOpen" x-cloak x-transition
+                 class="absolute bottom-full mb-2 left-0 right-0 bg-surface border border-line rounded-lg shadow-lg py-1 z-10">
+              <a href="{% url 'accounts:profile' %}"
+                 class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted hover:bg-canvas hover:text-ink">
+                <i data-lucide="user" class="w-4 h-4"></i> My profile
+              </a>
+              <a href="{% url 'accounts:password_change' %}"
+                 class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted hover:bg-canvas hover:text-ink">
+                <i data-lucide="key-round" class="w-4 h-4"></i> Change password
+              </a>
+              <div class="border-t border-line my-1"></div>
+              <form method="post" action="{% url 'accounts:logout' %}">
+                {% csrf_token %}
+                <button type="submit"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/5">
+                  <i data-lucide="log-out" class="w-4 h-4"></i> Sign out
+                </button>
+              </form>
+            </div>
+          </div>
+        {% else %}
+          <a href="{% url 'accounts:login' %}" class="flex items-center gap-3 text-ink-muted hover:text-ink">
+            <div class="w-9 h-9 rounded-full bg-canvas flex items-center justify-center shrink-0">
+              <i data-lucide="log-in" class="w-5 h-5"></i>
+            </div>
+            <span class="text-sm" x-show="sidebarOpen">Sign in</span>
+          </a>
+        {% endif %}
+      </div>
+    </aside>
+
+    {# ===================== MAIN ===================== #}
+    <div class="flex-1 flex flex-col min-w-0">
+      {# Top bar #}
+      <header class="h-16 bg-surface border-b border-line flex items-center gap-4 px-4 shrink-0">
+        <button @click="sidebarOpen = !sidebarOpen"
+                class="p-2 rounded-lg text-ink-muted hover:bg-canvas transition-soft"
+                aria-label="Toggle sidebar">
+          <i data-lucide="panel-left" class="w-5 h-5"></i>
+        </button>
+
+        {# Breadcrumb (POC context populated in later steps) #}
+        <nav class="flex items-center gap-2 text-sm text-ink-muted">
+          {% block breadcrumb %}<span class="text-ink font-medium">Dashboard</span>{% endblock %}
+        </nav>
+
+        <div class="ml-auto flex items-center gap-3">
+          {% if user.is_authenticated %}
+            <span class="text-sm text-ink-muted hidden sm:block">{{ user.get_full_name|default:user.username }}</span>
+          {% endif %}
+        </div>
+      </header>
+
+      {# Messages #}
+      {% if messages %}
+        <div class="px-6 pt-4 space-y-2">
+          {% for message in messages %}
+            <div class="px-4 py-3 rounded-lg text-sm border
+                        {% if message.tags == 'error' %}bg-danger/10 border-danger/30 text-danger
+                        {% elif message.tags == 'warning' %}bg-warning/10 border-warning/30 text-warning
+                        {% elif message.tags == 'success' %}bg-brand/10 border-brand/30 text-brand-dark
+                        {% else %}bg-info/10 border-info/30 text-info{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {# Page content #}
+      <main class="flex-1 overflow-y-auto p-6">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  {# Render Lucide icons (re-run after HTMX swaps). #}
+  <script>
+    const renderIcons = () => window.lucide && lucide.createIcons();
+    renderIcons();
+    document.body.addEventListener('htmx:afterSwap', renderIcons);
+  </script>
+  {# Drag-and-drop file selection (avoids the blocked native file dialog). #}
+  <script src="{% static 'js/filedrop.js' %}"></script>
+  {% block extra_body %}{% endblock %}
+</body>
+</html>

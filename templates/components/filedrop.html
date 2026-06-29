@@ -1,0 +1,21 @@
+{% comment %}
+Drag-and-drop file zone around a bound file field (avoids the native dialog).
+Usage:
+  {% include "components/filedrop.html" with field=form.source_file hint="..." %}
+The field's widget must include the Tailwind class "hidden" so only the zone UI
+shows. A "browse" button remains as a fallback.
+{% endcomment %}
+<div data-filedrop
+     class="filedrop relative border-2 border-dashed border-line rounded-xl p-6 text-center transition-soft cursor-default">
+  <i data-lucide="upload-cloud" class="w-7 h-7 mx-auto text-brand"></i>
+  <p class="text-sm font-medium text-ink mt-2">Drag &amp; drop your file here</p>
+  {% if hint %}<p class="text-xs text-ink-muted mt-1">{{ hint }}</p>{% endif %}
+  <p class="text-xs font-medium text-brand-dark mt-2" data-filedrop-name></p>
+  <p class="text-xs text-ink-muted mt-2">
+    or
+    <button type="button" data-filedrop-browse class="text-brand-dark hover:underline">browse files</button>
+    <span class="text-ink-muted/70">(opens the system dialog — may be slow on managed PCs)</span>
+  </p>
+  {{ field }}
+</div>
+{% for error in field.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}

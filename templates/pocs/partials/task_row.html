@@ -1,0 +1,121 @@
+{% load core_extras %}
+{% comment %}
+Single task row (#task-<id>). Re-rendered by HTMX on inline status/notes saves.
+Context: task, can_lead, task_status_choices. `request` is available.
+
+can_execute = leads/admins, or the assigned team member — they get the inline
+status control and notes editor; everyone else sees read-only.
+{% endcomment %}
+{% with can_execute=task.can_execute %}
+<div id="task-{{ task.id }}" class="border border-line rounded-xl p-4 bg-surface"
+     x-data="{ editNotes: false }">
+
+  <div class="flex items-start gap-3">
+    <div class="min-w-0 flex-1">
+      <p class="font-medium text-ink">{{ task.title }}</p>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-ink-muted">
+        <span class="inline-flex items-center gap-1">
+          <i data-lucide="user" class="w-3.5 h-3.5"></i>
+          {% if task.assigned_to %}{{ task.assigned_to.get_full_name|default:task.assigned_to.username }}{% else %}Unassigned{% endif %}
+        </span>
+        {% if task.due_date %}
+          <span class="inline-flex items-center gap-1"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Due {{ task.due_date }}</span>
+        {% endif %}
+        {% if task.completed_at %}
+          <span class="inline-flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> {{ task.completed_at|date:"Y-m-d H:i" }}{% if task.completed_by %} by {{ task.completed_by.username }}{% endif %}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Status control / badge #}
+    <div class="shrink-0 flex items-center gap-2">
+      {% if can_lead %}
+        {# Bulk-select checkbox (ties to the phase's bulk form). #}
+        <input type="checkbox" name="task_ids" value="{{ task.id }}" form="task-bulk"
+               class="h-4 w-4 rounded border-line text-brand focus:ring-brand/40" title="Select for bulk update">
+      {% endif %}
+      {% if can_execute %}
+        {# Always shows the current status as selected, plus only the valid next
+           states (see state_machine.py). This is what fixes the "stuck in
+           pending" bug: the current value is represented, so picking a
+           different valid state fires a real change event. #}
+        <select name="status"
+                hx-post="{% url 'pocs:task_status' task.id %}"
+                hx-target="#task-{{ task.id }}" hx-swap="outerHTML"
+                class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
+          {% for value, label in task_status_choices %}
+            {% if value in task.allowed_statuses %}
+              <option value="{{ value }}" {% if task.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      {% else %}
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+          {% if task.status == 'completed' %}bg-brand/10 text-brand-dark
+          {% elif task.status == 'in_progress' %}bg-info/10 text-info
+          {% elif task.status == 'blocked' %}bg-warning/10 text-warning
+          {% else %}bg-line text-ink-muted{% endif %}">
+          {{ task.get_status_display }}
+        </span>
+      {% endif %}
+    </div>
+
+    {% if can_lead %}
+      <div class="flex items-center gap-1 shrink-0">
+        <a href="{% url 'pocs:task_edit' task.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit">
+          <i data-lucide="pencil" class="w-4 h-4"></i>
+        </a>
+        <form method="post" action="{% url 'pocs:task_delete' task.id %}"
+              onsubmit="return confirm('Delete this task?');">
+          {% csrf_token %}
+          <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Delete">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if task.description %}
+    <div class="prose prose-sm max-w-none text-ink-muted mt-3 pt-3 border-t border-line">
+      {{ task.description|markdownify }}
+    </div>
+  {% endif %}
+
+  {# Notes (Markdown) — editable by the assignee/lead #}
+  <div class="mt-3 pt-3 border-t border-line">
+    <div class="flex items-center justify-between">
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Notes</p>
+      {% if can_execute %}
+        <button @click="editNotes = !editNotes" class="text-xs font-medium text-brand-dark hover:underline">
+          <span x-show="!editNotes">{% if task.notes %}Edit{% else %}Add notes{% endif %}</span>
+          <span x-show="editNotes" x-cloak>Cancel</span>
+        </button>
+      {% endif %}
+    </div>
+
+    {# Display #}
+    <div x-show="!editNotes">
+      {% if task.notes %}
+        <div class="prose prose-sm max-w-none text-ink mt-1">{{ task.notes|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted mt-1">No notes yet.</p>
+      {% endif %}
+    </div>
+
+    {# Edit (HTMX) #}
+    {% if can_execute %}
+      <form x-show="editNotes" x-cloak class="mt-2 space-y-2"
+            hx-post="{% url 'pocs:task_notes' task.id %}"
+            hx-target="#task-{{ task.id }}" hx-swap="outerHTML">
+        <textarea name="notes" rows="4" placeholder="Markdown supported…"
+                  class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ task.notes }}</textarea>
+        <button type="submit"
+                class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+          Save notes
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endwith %}

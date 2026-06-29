@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Import POCs · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Import</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">Import POCs</h1>
+    <p class="text-ink-muted mt-1">
+      Upload an M365 PoC export (<code>.xlsx</code> or <code>.csv</code>). Columns are
+      matched by name (both the “PoC Follow-up” and “PoC List” layouts work), and rows are
+      matched by their source ID, so re-importing updates existing POCs instead of
+      duplicating. New POCs inherit the phase blueprint.
+    </p>
+  </div>
+
+  {% if stats %}
+    <div class="bg-surface border border-line rounded-xl p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <i data-lucide="{% if dry_run %}search-check{% else %}check-circle{% endif %}" class="w-5 h-5 text-brand-dark"></i>
+        <h2 class="font-medium text-ink">{% if dry_run %}Dry-run result{% else %}Import result{% endif %}</h2>
+      </div>
+      <div class="grid grid-cols-4 gap-3 text-center">
+        <div><p class="text-2xl font-semibold text-brand-dark">{{ stats.created }}</p><p class="text-xs text-ink-muted">new</p></div>
+        <div><p class="text-2xl font-semibold text-info">{{ stats.updated }}</p><p class="text-xs text-ink-muted">updated</p></div>
+        <div><p class="text-2xl font-semibold text-ink-muted">{{ stats.skipped }}</p><p class="text-xs text-ink-muted">skipped</p></div>
+        <div><p class="text-2xl font-semibold {% if stats.errors %}text-danger{% else %}text-ink-muted{% endif %}">{{ stats.errors|length }}</p><p class="text-xs text-ink-muted">errors</p></div>
+      </div>
+      {% if stats.errors %}
+        <ul class="mt-4 space-y-1 text-xs text-danger">
+          {% for e in stats.errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% if dry_run and stats.created or dry_run and stats.updated %}
+        <p class="text-xs text-ink-muted mt-4">Looks good? Uncheck “Validate only” below and import for real.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">Excel file (.xlsx)</label>
+        {% include "components/filedrop.html" with field=form.file hint="The M365 PoC Follow-up export." %}
+      </div>
+      <label class="flex items-center gap-2 text-sm text-ink">
+        {{ form.dry_run }} {{ form.dry_run.label }}
+      </label>
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="upload" class="w-4 h-4"></i> Run
+        </button>
+        <a href="{% url 'pocs:list' %}" class="text-sm font-medium text-ink-muted hover:text-ink">Back to POCs</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ title }}</span>
+{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'vendor/fontawesome/css/font-awesome.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/easymde.min.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" class="space-y-4">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.title.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          Title <span class="text-danger">*</span>
+        </label>
+        {{ form.title }}
+        {% for error in form.title.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.description.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          Description <span class="text-ink-muted font-normal">(Markdown)</span>
+        </label>
+        {{ form.description }}
+        {% for error in form.description.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label for="{{ form.assigned_to.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Assigned to</label>
+          {{ form.assigned_to }}
+        </div>
+        <div>
+          <label for="{{ form.status.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Status</label>
+          {{ form.status }}
+        </div>
+        <div>
+          <label for="{{ form.due_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Due date</label>
+          {{ form.due_date }}
+          {% for error in form.due_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          Save
+        </button>
+        <a href="{% url 'pocs:phase_detail' phase.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'vendor/easymde.min.js' %}"></script>
+  <script>
+    const descEl = document.getElementById('{{ form.description.id_for_label }}');
+    if (descEl && window.EasyMDE) {
+      new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
+        toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
+    }
+  </script>
+{% endblock %}

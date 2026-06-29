@@ -1,0 +1,45 @@
+{% comment %}
+Current POC members (#poc-members). Admins get inline role-change and remove
+controls (HTMX); other users see a read-only list.
+Context: memberships, poc, can_manage, role_choices.
+{% endcomment %}
+<div id="poc-members" class="divide-y divide-line">
+  {% for m in memberships %}
+    <div class="flex items-center gap-3 py-3">
+      <div class="w-9 h-9 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
+        {{ m.user.username|slice:":1"|upper }}
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-ink truncate">{{ m.user.get_full_name|default:m.user.username }}</p>
+        <p class="text-xs text-ink-muted truncate">@{{ m.user.username }}{% if m.user.email %} · {{ m.user.email }}{% endif %}</p>
+      </div>
+
+      {% if can_manage %}
+        <select name="role"
+                hx-post="{% url 'pocs:member_role' poc.pk m.pk %}"
+                hx-target="#poc-members" hx-swap="outerHTML"
+                hx-include="#member-search-input"
+                class="rounded-lg border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand/40">
+          {% for value, label in role_choices %}
+            <option value="{{ value }}" {% if m.role_in_poc == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <form hx-post="{% url 'pocs:member_remove' poc.pk m.pk %}"
+              hx-target="#poc-members" hx-swap="outerHTML"
+              hx-include="#member-search-input"
+              hx-confirm="Remove {{ m.user.get_full_name|default:m.user.username }} from this POC?">
+          <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Remove">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </form>
+      {% else %}
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
+          {% if m.is_lead %}bg-brand/10 text-brand-dark{% else %}bg-line text-ink-muted{% endif %}">
+          {{ m.get_role_in_poc_display }}
+        </span>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="py-6 text-sm text-ink-muted text-center">No members assigned yet.</p>
+  {% endfor %}
+</div>

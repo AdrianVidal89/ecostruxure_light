@@ -1,0 +1,17 @@
+{% comment %}
+Status pill + download link for a GeneratedReport. Context: report.
+{% endcomment %}
+<div class="flex items-center gap-3 shrink-0">
+  {% if report.status == 'ready' %}
+    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand/10 text-brand-dark">Ready</span>
+    <a href="{% url 'reports:download' report.pk %}"
+       class="inline-flex items-center gap-1 text-sm font-medium text-info hover:underline">
+      <i data-lucide="download" class="w-4 h-4"></i> Download
+    </a>
+  {% elif report.status == 'error' %}
+    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-danger/10 text-danger"
+          title="{{ report.error_message }}">Error</span>
+  {% else %}
+    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info">{{ report.get_status_display }}</span>
+  {% endif %}
+</div>
