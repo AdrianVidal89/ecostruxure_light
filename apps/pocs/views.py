@@ -12,6 +12,7 @@ The member-assignment panel is HTMX-driven: search / add / remove / role-change
 all re-render a single ``team_panel`` partial, so the page never fully reloads.
 """
 
+import logging
 from functools import wraps
 
 from django.contrib import messages
@@ -73,6 +74,8 @@ from .models import (
 from .state_machine import can_transition_task, task_allowed_statuses
 
 User = get_user_model()
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1191,9 +1194,21 @@ class POCImportView(AdminRequiredMixin, View):
         from .importer import import_pocs_from_xlsx
 
         dry_run = form.cleaned_data["dry_run"]
-        stats = import_pocs_from_xlsx(
-            form.cleaned_data["file"], request.user, dry_run=dry_run
-        )
+        try:
+            stats = import_pocs_from_xlsx(
+                form.cleaned_data["file"], request.user, dry_run=dry_run
+            )
+        except Exception:
+            # Never 500 on a bad file — log the traceback and tell the admin.
+            logger.exception("POC import failed for file %r", getattr(
+                form.cleaned_data.get("file"), "name", "?"))
+            messages.error(
+                request,
+                "No se pudo importar el archivo. Comprueba que es un .csv/.xlsx "
+                "válido (codificación UTF-8) y vuelve a intentarlo. El error se ha "
+                "registrado en el log del servidor.",
+            )
+            return render(request, self.template_name, {"form": POCImportForm()})
         verb = "Validated" if dry_run else "Imported"
         messages.success(
             request,

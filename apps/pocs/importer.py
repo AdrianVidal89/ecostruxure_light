@@ -182,7 +182,14 @@ def _read_rows(source):
     if ext in {"csv", "txt"}:
         data = source.read()
         if isinstance(data, bytes):
-            data = data.decode("utf-8-sig", errors="replace")
+            # Excel/M365 exports are sometimes UTF-16 ("Unicode text"). Detect the
+            # BOM; otherwise assume UTF-8 (with optional BOM).
+            if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+                data = data.decode("utf-16", errors="replace")
+            else:
+                data = data.decode("utf-8-sig", errors="replace")
+        # Strip stray NUL bytes — csv.reader raises "line contains NUL" otherwise.
+        data = data.replace("\x00", "")
         rows = [list(r) for r in csv.reader(io.StringIO(data))]
     else:
         wb = openpyxl.load_workbook(source, read_only=True, data_only=True)
