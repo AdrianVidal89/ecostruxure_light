@@ -1191,10 +1191,10 @@ class POCImportView(AdminRequiredMixin, View):
         if not form.is_valid():
             return render(request, self.template_name, {"form": form})
 
-        from .importer import import_pocs_from_xlsx
-
         dry_run = form.cleaned_data["dry_run"]
         try:
+            from .importer import import_pocs_from_xlsx
+
             stats = import_pocs_from_xlsx(
                 form.cleaned_data["file"], request.user, dry_run=dry_run
             )

@@ -8,6 +8,9 @@ Django==5.2.15
 django-environ==0.14.0          # .env / DATABASE_URL configuration
 markdown2==2.5.5                # server-side Markdown rendering (UI)
 
+# --- POC import ---
+openpyxl==3.1.5                 # read .xlsx POC exports (the .csv path is stdlib)
+
 # --- Reports (Markdown → DOCX generation) ---
 python-docx==1.2.0              # build/read .docx
 mistune==3.3.2                  # Markdown → AST for the converter
