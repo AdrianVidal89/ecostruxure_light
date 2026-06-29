@@ -31,10 +31,16 @@ DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 # --- Static files via WhiteNoise -------------------------------------------
 MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+# CompressedStaticFilesStorage (not the *Manifest* variant): WhiteNoise still
+# gzip/brotli-compresses assets, but it does NOT hash filenames nor strictly
+# validate every URL referenced inside CSS. The vendored Font Awesome 4.7 CSS
+# references .eot/.ttf/.svg fallbacks that we don't ship (modern browsers only
+# need the .woff2 we do ship), which would make the Manifest storage fail during
+# collectstatic. This avoids that without affecting how fonts render.
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"
     },
 }
 
