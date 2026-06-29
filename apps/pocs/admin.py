@@ -11,6 +11,7 @@ from django.contrib import admin
 from .models import (
     POC,
     AuditLog,
+    BasePhaseDocument,
     BaseTask,
     BaseTest,
     Phase,
@@ -31,12 +32,17 @@ class BaseTestInline(admin.TabularInline):
     extra = 0
 
 
+class BasePhaseDocumentInline(admin.TabularInline):
+    model = BasePhaseDocument
+    extra = 0
+
+
 @admin.register(PhaseTemplate)
 class PhaseTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "parent", "order", "lead_editable", "report_template")
-    list_filter = ("lead_editable",)
+    list_display = ("name", "parent", "kind", "order", "lead_editable", "report_template")
+    list_filter = ("kind", "lead_editable")
     search_fields = ("name",)
-    inlines = [BaseTaskInline, BaseTestInline]
+    inlines = [BaseTaskInline, BaseTestInline, BasePhaseDocumentInline]
 
 
 class POCMembershipInline(admin.TabularInline):
@@ -56,8 +62,8 @@ class POCAdmin(admin.ModelAdmin):
 
 @admin.register(Phase)
 class PhaseAdmin(admin.ModelAdmin):
-    list_display = ("name", "poc", "parent", "order", "status", "lead_editable")
-    list_filter = ("status", "poc", "lead_editable")
+    list_display = ("name", "poc", "parent", "kind", "order", "status", "lead_editable")
+    list_filter = ("status", "kind", "poc", "lead_editable")
     search_fields = ("name",)
     ordering = ("poc", "order")
 

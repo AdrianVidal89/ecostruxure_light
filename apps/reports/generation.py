@@ -195,9 +195,66 @@ def generate_phase_report(phase, user):
     return report
 
 
-def generate_phase_report_from_markdown(phase, user, markdown_text):
-    """Generate a phase report from a user-composed Markdown (Functional
-    Analysis flow), using the phase's attached template."""
+def resolve_phase_template_path(phase):
+    """Path of the .docx template to use for a phase report.
+
+    Prefers the phase's own ``report_template``; otherwise falls back to the
+    global default (``ReportSettings``). Raises if neither is configured.
+    """
+    from .models import ReportSettings
+
+    if phase.report_template:
+        return phase.report_template.path
+    default = ReportSettings.load().default_template
+    if default:
+        return default.path
+    raise ValueError(
+        "No report template: attach one to this phase or set a global default "
+        "(Reports → settings)."
+    )
+
+
+def make_phase_image_resolver(phase):
+    """Return a ``url -> path`` resolver limited to this phase's images.
+
+    Markdown image URLs are matched against each ``PhaseImage.image.url`` (the
+    snippet the UI offers), so only images uploaded to this phase are embedded.
+    """
+    by_url = {}
+    for img in phase.images.all():
+        try:
+            by_url[img.image.url] = img.image.path
+        except ValueError:  # image with no file
+            continue
+
+    def resolver(url):
+        return by_url.get(url) or by_url.get((url or "").split("?", 1)[0])
+
+    return resolver
+
+
+def build_phase_documents_markdown(phase):
+    """Concatenate a phase's documents (by order) into one Markdown body.
+
+    Each document becomes a ``# Title`` section followed by its content. Used by
+    both Documentation and Functional Analysis phases.
+    """
+    lines = []
+    for doc in phase.documents.all():
+        lines.append(f"# {doc.title}")
+        lines.append("")
+        if doc.content:
+            lines.append(doc.content)
+            lines.append("")
+    return "\n".join(lines)
+
+
+def generate_phase_report_from_documents(phase, user):
+    """Generate a phase report from its documents (Documentation / FA flow).
+
+    Resolves the template (phase-specific or global default) and embeds any
+    images referenced from the documents' Markdown.
+    """
     poc = phase.poc
     report = GeneratedReport(
         kind=GeneratedReport.Kind.PHASE,
@@ -208,9 +265,13 @@ def generate_phase_report_from_markdown(phase, user, markdown_text):
         status=GeneratedReport.Status.PROCESSING,
     )
     try:
-        metadata, blocks = parse(markdown_text or "")
+        template_path = resolve_phase_template_path(phase)
+        metadata, blocks = parse(build_phase_documents_markdown(phase))
         docx_bytes = build_docx(
-            blocks, metadata or None, template_path=phase.report_template.path
+            blocks,
+            metadata or None,
+            template_path=template_path,
+            image_resolver=make_phase_image_resolver(phase),
         )
         fname = f"{slugify(poc.name)}-{slugify(phase.name)}-report.docx"
         report.output_file.save(fname, ContentFile(docx_bytes), save=False)

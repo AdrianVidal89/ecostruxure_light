@@ -31,6 +31,18 @@
         {% for error in form.name.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
       </div>
 
+      {% if form.kind %}
+        <div>
+          <label for="{{ form.kind.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Type</label>
+          {{ form.kind }}
+          <p class="text-xs text-ink-muted mt-1">
+            <strong>Test</strong>: tasks &amp; tests · <strong>Documentation</strong>: tasks &amp; Markdown documents ·
+            <strong>Functional Analysis</strong>: sections from the global template.
+          </p>
+          {% for error in form.kind.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
       <div>
         <label for="{{ form.description.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Description</label>
         {{ form.description }}

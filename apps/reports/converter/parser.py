@@ -30,10 +30,9 @@ def _flatten(tokens: list[dict]) -> list[dict]:
                 "text": _extract_text(tok.get("children", [])),
             })
         elif t == "paragraph":
-            blocks.append({
-                "type": "paragraph",
-                "children": _extract_runs(tok.get("children", [])),
-            })
+            # Images may sit on their own line or in the middle of a paragraph;
+            # split them into standalone image blocks so they embed in order.
+            blocks.extend(_split_paragraph(tok.get("children", [])))
         elif t == "table":
             blocks.append(_parse_table(tok))
         elif t in ("list",):
@@ -49,6 +48,35 @@ def _flatten(tokens: list[dict]) -> list[dict]:
         # Thematic breaks ('---') are visual-only separators: dropped.
         elif t == "thematic_break":
             continue
+    return blocks
+
+
+def _split_paragraph(children: list[dict]) -> list[dict]:
+    """Turn a paragraph's inline children into blocks, peeling out images.
+
+    Text/formatting runs accumulate into ``paragraph`` blocks; each ``image``
+    token becomes its own ``image`` block, preserving document order.
+    """
+    blocks = []
+    buffer = []
+
+    def flush():
+        if buffer:
+            blocks.append({"type": "paragraph", "children": list(buffer)})
+            buffer.clear()
+
+    for c in children or []:
+        if c and c.get("type") == "image":
+            flush()
+            blocks.append({
+                "type": "image",
+                "url": c.get("attrs", {}).get("url", ""),
+                "alt": _extract_text(c.get("children", [])),
+            })
+        else:
+            buffer.extend(_extract_runs([c]))
+    flush()
+    # An empty paragraph (e.g. a line that was only an image) yields no block.
     return blocks
 
 

@@ -47,11 +47,14 @@ from apps.core.mixins import (
 )
 
 from .forms import (
+    BasePhaseDocumentForm,
     BaseTaskForm,
     BaseTestForm,
     FunctionalAnalysisStepForm,
     MemberTestForm,
+    PhaseDocumentForm,
     PhaseForm,
+    PhaseImageForm,
     PhaseTemplateForm,
     POCForm,
     POCImportForm,
@@ -62,10 +65,14 @@ from .forms import (
 from .models import (
     POC,
     AuditLog,
+    BasePhaseDocument,
     BaseTask,
     BaseTest,
     FunctionalAnalysisStep,
     Phase,
+    PhaseDocument,
+    PhaseImage,
+    PhaseKind,
     PhaseTemplate,
     POCMembership,
     Task,
@@ -624,10 +631,12 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["children"] = children
         ctx["is_leaf"] = not children
         ctx["can_edit"] = can_edit
+        ctx["phase_kind"] = phase.kind
         ctx["is_functional_analysis"] = phase.is_functional_analysis
-        # Any POC member may add tests on a leaf phase (documenting tests they
-        # performed); only editors (admin / editing lead) may add tasks.
-        ctx["can_add_test"] = not children
+        ctx["is_documentation"] = phase.is_documentation
+        # Any POC member may add tests on a leaf Test phase (documenting tests
+        # they performed); only editors (admin / editing lead) may add tasks.
+        ctx["can_add_test"] = not children and phase.is_test
         ctx["can_add_subphase"] = (
             can_edit
             and phase.can_have_children
@@ -635,23 +644,39 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
             and not phase.tests.exists()
         )
 
-        # Functional Analysis phases render a different view: the admin's step
-        # template + a Markdown skeleton to copy and turn into a report.
-        if phase.is_functional_analysis:
-            steps = list(FunctionalAnalysisStep.objects.all())
-            ctx["fa_steps"] = steps
-            ctx["fa_markdown"] = _fa_skeleton(phase, steps)
+        if not children:
+            if phase.is_functional_analysis:
+                # Make sure every FA step has a section (steps may post-date the
+                # POC). Then show the documents (with their guidance) + images.
+                from .services import ensure_fa_documents
 
-        if not children and not phase.is_functional_analysis:
-            tasks = list(phase.tasks.select_related("assigned_to"))
-            for task in tasks:
-                task.can_execute = can_edit or task.assigned_to_id == user.id
-                task.allowed_statuses = task_allowed_statuses(task.status)
-            tests = list(phase.tests.select_related("assigned_to"))
-            for test in tests:
-                test.can_execute = can_edit or test.assigned_to_id == user.id
-            ctx["tasks"] = tasks
-            ctx["tests"] = tests
+                ensure_fa_documents(phase)
+
+            if phase.is_functional_analysis or phase.is_documentation:
+                ctx["documents"] = list(
+                    phase.documents.select_related("source_fa_step")
+                )
+                ctx["images"] = list(phase.images.all())
+                ctx["image_form"] = PhaseImageForm()
+                ctx["is_reportable"] = bool(phase.report_template) or _has_default_template()
+            else:  # Test phase: tasks + tests (classic)
+                tasks = list(phase.tasks.select_related("assigned_to"))
+                for task in tasks:
+                    task.can_execute = can_edit or task.assigned_to_id == user.id
+                    task.allowed_statuses = task_allowed_statuses(task.status)
+                tests = list(phase.tests.select_related("assigned_to"))
+                for test in tests:
+                    test.can_execute = can_edit or test.assigned_to_id == user.id
+                ctx["tasks"] = tasks
+                ctx["tests"] = tests
+
+            # Documentation phases also have plain tasks.
+            if phase.is_documentation:
+                tasks = list(phase.tasks.select_related("assigned_to"))
+                for task in tasks:
+                    task.can_execute = can_edit or task.assigned_to_id == user.id
+                    task.allowed_statuses = task_allowed_statuses(task.status)
+                ctx["tasks"] = tasks
 
         ctx["poc"] = phase.poc
         ctx["can_lead"] = can_edit  # task/test rows use can_lead for CRUD controls
@@ -907,6 +932,9 @@ class TestCreateView(LoginRequiredMixin, CreateView):
                 request, "This phase has sub-phases; add tests there instead."
             )
             return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+        if not self.phase.is_test:
+            messages.error(request, "Tests can only be added on Test phases.")
+            return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
         self.is_manager = user_can_edit_phase(request.user, self.phase)
         return super().dispatch(request, *args, **kwargs)
 
@@ -1022,6 +1050,125 @@ def test_execute(request, test_pk):
     test.mark_executed(request.user)  # stamps executed_by/at and saves
     test.phase.recalculate_status()
     return _render_test_row(request, test)
+
+
+# ---------------------------------------------------------------------------
+# Phase documents & images (Documentation / Functional Analysis phases)
+# ---------------------------------------------------------------------------
+class PhaseDocumentCreateView(_PhaseEditCreateMixin, CreateView):
+    """Add a free-form document to a Documentation phase (admin / editing lead).
+
+    Functional Analysis sections are seeded from the template, not created here.
+    """
+
+    model = PhaseDocument
+    form_class = PhaseDocumentForm
+    template_name = "pocs/phase_document_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        # Block the wrong phase kind up front (``self.phase`` is set in setup()).
+        if not self.phase.is_documentation:
+            messages.error(request, "Documents can only be added on Documentation phases.")
+            return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["phase"] = self.phase
+        ctx["poc"] = self.poc
+        ctx["title"] = "Add document"
+        return ctx
+
+    def form_valid(self, form):
+        form.instance.phase = self.phase
+        last = self.phase.documents.aggregate(m=Max("order"))["m"]
+        form.instance.order = (last or 0) + 1
+        self.object = form.save()
+        messages.success(self.request, f"Document “{self.object.title}” created.")
+        return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+
+
+class PhaseDocumentUpdateView(_ItemEditMixin, UpdateView):
+    """Edit a phase document's content (and title, unless it's an FA section)."""
+
+    model = PhaseDocument
+    url_kwarg = "document_pk"
+    form_class = PhaseDocumentForm
+    template_name = "pocs/phase_document_form.html"
+    pk_url_kwarg = "document_pk"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["phase"] = self.phase
+        ctx["poc"] = self.poc
+        ctx["title"] = f"Edit document · {self.object.title}"
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Document “{self.object.title}” updated.")
+        return redirect("pocs:phase_detail", phase_pk=self.object.phase_id)
+
+
+class PhaseDocumentDeleteView(_ItemEditMixin, DeleteView):
+    """Delete a phase document (POST). Functional Analysis sections can't be
+    deleted — they're owned by the template and would be re-seeded anyway."""
+
+    model = PhaseDocument
+    url_kwarg = "document_pk"
+    pk_url_kwarg = "document_pk"
+    http_method_names = ["post"]
+
+    def form_valid(self, form):
+        phase = self.object.phase
+        if self.object.is_fa_section:
+            messages.error(
+                self.request, "Functional Analysis sections can't be deleted."
+            )
+            return redirect("pocs:phase_detail", phase_pk=phase.pk)
+        title = self.object.title
+        self.object.delete()
+        messages.success(self.request, f"Document “{title}” deleted.")
+        return redirect("pocs:phase_detail", phase_pk=phase.pk)
+
+
+class PhaseImageUploadView(_PhaseEditCreateMixin, CreateView):
+    """Upload an image to a Documentation / Functional Analysis phase."""
+
+    model = PhaseImage
+    form_class = PhaseImageForm
+    http_method_names = ["post"]
+
+    def form_valid(self, form):
+        if not (self.phase.is_documentation or self.phase.is_functional_analysis):
+            messages.error(self.request, "Images can only be added on this phase kind.")
+            return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+        form.instance.phase = self.phase
+        form.instance.uploaded_by = self.request.user
+        form.save()
+        messages.success(self.request, "Image uploaded.")
+        return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+
+    def form_invalid(self, form):
+        messages.error(self.request, "Upload failed — use a PNG/JPG/GIF/WEBP image.")
+        return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+
+
+class PhaseImageDeleteView(_ItemEditMixin, DeleteView):
+    """Delete an uploaded phase image (POST)."""
+
+    model = PhaseImage
+    url_kwarg = "image_pk"
+    pk_url_kwarg = "image_pk"
+    http_method_names = ["post"]
+
+    def form_valid(self, form):
+        phase = self.object.phase
+        if self.object.image:
+            self.object.image.delete(save=False)
+        self.object.delete()
+        messages.success(self.request, "Image deleted.")
+        return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -1148,6 +1295,12 @@ class BaseTestCreateView(_BaseItemCreateMixin):
     item_label = "test"
 
 
+class BasePhaseDocumentCreateView(_BaseItemCreateMixin):
+    model = BasePhaseDocument
+    form_class = BasePhaseDocumentForm
+    item_label = "document"
+
+
 class BaseTaskDeleteView(AdminRequiredMixin, DeleteView):
     model = BaseTask
     http_method_names = ["post"]
@@ -1156,6 +1309,12 @@ class BaseTaskDeleteView(AdminRequiredMixin, DeleteView):
 
 class BaseTestDeleteView(AdminRequiredMixin, DeleteView):
     model = BaseTest
+    http_method_names = ["post"]
+    success_url = reverse_lazy("pocs:phase_template_list")
+
+
+class BasePhaseDocumentDeleteView(AdminRequiredMixin, DeleteView):
+    model = BasePhaseDocument
     http_method_names = ["post"]
     success_url = reverse_lazy("pocs:phase_template_list")
 
@@ -1223,26 +1382,13 @@ class POCImportView(AdminRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
-# Functional Analysis template (admin) + skeleton
+# Functional Analysis template (admin)
 # ---------------------------------------------------------------------------
-def _fa_skeleton(phase, steps):
-    """Build the copy-ready Markdown skeleton from the FA steps."""
-    lines = [f"# {phase.name}", ""]
-    for i, s in enumerate(steps, start=1):
-        lines += [f"## Step {i}: {s.title}", ""]
-        if s.preconditions:
-            lines += ["**Preconditions:**", "", s.preconditions, ""]
-        if s.action:
-            lines += ["**Action:**", "", s.action, ""]
-        if s.expected_result:
-            lines += ["**Expected result:**", "", s.expected_result, ""]
-        if s.acceptance_criteria:
-            lines += ["**Acceptance criteria:**", "", s.acceptance_criteria, ""]
-        lines += ["**Actual result:**", "", "_…fill in…_", ""]
-        lines += ["**Verdict:** PENDING", "", "---", ""]
-    if not steps:
-        lines += ["_No Functional Analysis steps defined yet._", ""]
-    return "\n".join(lines)
+def _has_default_template():
+    """True when a global default report template is configured."""
+    from apps.reports.models import ReportSettings
+
+    return bool(ReportSettings.load().default_template)
 
 
 class FAStepListView(AdminRequiredMixin, ListView):

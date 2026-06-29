@@ -37,8 +37,10 @@ urlpatterns = [
     path("phase-templates/<int:pk>/delete/", views.PhaseTemplateDeleteView.as_view(), name="phase_template_delete"),
     path("phase-templates/<int:pk>/base-task/", views.BaseTaskCreateView.as_view(), name="base_task_create"),
     path("phase-templates/<int:pk>/base-test/", views.BaseTestCreateView.as_view(), name="base_test_create"),
+    path("phase-templates/<int:pk>/base-document/", views.BasePhaseDocumentCreateView.as_view(), name="base_document_create"),
     path("base-tasks/<int:pk>/delete/", views.BaseTaskDeleteView.as_view(), name="base_task_delete"),
     path("base-tests/<int:pk>/delete/", views.BaseTestDeleteView.as_view(), name="base_test_delete"),
+    path("base-documents/<int:pk>/delete/", views.BasePhaseDocumentDeleteView.as_view(), name="base_document_delete"),
     # --- Functional Analysis template (admin) ---
     path("functional-analysis/", views.FAStepListView.as_view(), name="fa_step_list"),
     path("functional-analysis/create/", views.FAStepCreateView.as_view(), name="fa_step_create"),
@@ -100,4 +102,31 @@ urlpatterns = [
         name="test_delete",
     ),
     path("tests/<int:test_pk>/execute/", views.test_execute, name="test_execute"),
+    # --- Phase documents (Documentation / Functional Analysis) ---
+    path(
+        "phases/<int:phase_pk>/documents/create/",
+        views.PhaseDocumentCreateView.as_view(),
+        name="document_create",
+    ),
+    path(
+        "documents/<int:document_pk>/edit/",
+        views.PhaseDocumentUpdateView.as_view(),
+        name="document_edit",
+    ),
+    path(
+        "documents/<int:document_pk>/delete/",
+        views.PhaseDocumentDeleteView.as_view(),
+        name="document_delete",
+    ),
+    # --- Phase images ---
+    path(
+        "phases/<int:phase_pk>/images/upload/",
+        views.PhaseImageUploadView.as_view(),
+        name="image_upload",
+    ),
+    path(
+        "images/<int:image_pk>/delete/",
+        views.PhaseImageDeleteView.as_view(),
+        name="image_delete",
+    ),
 ]

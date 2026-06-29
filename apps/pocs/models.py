@@ -27,6 +27,22 @@ from django.utils import timezone
 USER = settings.AUTH_USER_MODEL
 
 
+class PhaseKind(models.TextChoices):
+    """What kind of work a phase holds, chosen on the blueprint and inherited.
+
+    * ``TEST`` — the classic structure: Tasks + Tests.
+    * ``DOCUMENTATION`` — Tasks + free-form Markdown Documents (with images),
+      turned into a report from a template.
+    * ``FUNCTIONAL_ANALYSIS`` — Documents pre-seeded from the global Functional
+      Analysis template (one section per step, with its guidance), each filled
+      with Markdown + images and turned into a report.
+    """
+
+    TEST = "test", "Test"
+    DOCUMENTATION = "documentation", "Documentation"
+    FUNCTIONAL_ANALYSIS = "functional_analysis", "Functional Analysis"
+
+
 # ---------------------------------------------------------------------------
 # POC
 # ---------------------------------------------------------------------------
@@ -203,9 +219,11 @@ class PhaseTemplate(models.Model):
         default=False,
         help_text="POC leads may modify this node (its sub-phases and tasks/tests) in their POC.",
     )
-    is_functional_analysis = models.BooleanField(
-        default=False,
-        help_text="Render this phase with the Functional Analysis template instead of tasks/tests.",
+    kind = models.CharField(
+        max_length=20,
+        choices=PhaseKind.choices,
+        default=PhaseKind.TEST,
+        help_text="Test (tasks+tests), Documentation (tasks+documents) or Functional Analysis.",
     )
     report_template = models.FileField(
         upload_to="report_templates/blueprint/%Y/%m/",
@@ -244,6 +262,18 @@ class PhaseTemplate(models.Model):
     def can_have_children(self):
         return self.level < self.MAX_LEVEL
 
+    @property
+    def is_functional_analysis(self):
+        return self.kind == PhaseKind.FUNCTIONAL_ANALYSIS
+
+    @property
+    def is_documentation(self):
+        return self.kind == PhaseKind.DOCUMENTATION
+
+    @property
+    def is_test(self):
+        return self.kind == PhaseKind.TEST
+
 
 class BaseTask(models.Model):
     """A base task on a blueprint node, instantiated as a real Task per POC."""
@@ -272,6 +302,26 @@ class BaseTest(models.Model):
     description = models.TextField(blank=True, help_text="Markdown supported.")
     acceptance_criteria = models.TextField(blank=True, help_text="Markdown supported.")
     expected_result = models.TextField(blank=True, help_text="Markdown supported.")
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.title
+
+
+class BasePhaseDocument(models.Model):
+    """A base Markdown document on a blueprint node (Documentation phases).
+
+    Instantiated as a real :class:`PhaseDocument` per POC, like base tasks/tests.
+    """
+
+    phase_template = models.ForeignKey(
+        PhaseTemplate, on_delete=models.CASCADE, related_name="base_documents"
+    )
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True, help_text="Markdown supported.")
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -313,7 +363,9 @@ class Phase(models.Model):
         related_name="phases",
     )
     lead_editable = models.BooleanField(default=False)
-    is_functional_analysis = models.BooleanField(default=False)
+    kind = models.CharField(
+        max_length=20, choices=PhaseKind.choices, default=PhaseKind.TEST
+    )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0, help_text="Manual ordering.")
@@ -343,6 +395,18 @@ class Phase(models.Model):
     def is_reportable(self):
         """A phase report can be generated once a .docx template is attached."""
         return bool(self.report_template)
+
+    @property
+    def is_functional_analysis(self):
+        return self.kind == PhaseKind.FUNCTIONAL_ANALYSIS
+
+    @property
+    def is_documentation(self):
+        return self.kind == PhaseKind.DOCUMENTATION
+
+    @property
+    def is_test(self):
+        return self.kind == PhaseKind.TEST
 
     @property
     def level(self):
@@ -685,16 +749,17 @@ class AuditLog(models.Model):
 class FunctionalAnalysisStep(models.Model):
     """An ordered step of the global Functional Analysis template.
 
-    Phases flagged ``is_functional_analysis`` render these steps for the user to
-    copy into a Markdown document and generate the report from it.
+    Each step is just a ``title`` plus a ``description`` (guidance). A Functional
+    Analysis phase seeds one :class:`PhaseDocument` per step (title locked, the
+    description shown as help); the user fills each section with Markdown and
+    images and turns the whole set into a report.
     """
 
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=255)
-    preconditions = models.TextField(blank=True, help_text="Markdown supported.")
-    action = models.TextField(blank=True, help_text="What to do. Markdown supported.")
-    expected_result = models.TextField(blank=True, help_text="Markdown supported.")
-    acceptance_criteria = models.TextField(blank=True, help_text="Markdown supported.")
+    description = models.TextField(
+        blank=True, help_text="Guidance shown to the user. Markdown supported."
+    )
 
     class Meta:
         ordering = ["order", "id"]
@@ -702,3 +767,88 @@ class FunctionalAnalysisStep(models.Model):
 
     def __str__(self):
         return self.title
+
+
+# ---------------------------------------------------------------------------
+# Phase documents & images (Documentation + Functional Analysis phases)
+# ---------------------------------------------------------------------------
+class PhaseDocument(models.Model):
+    """A Markdown section within a Documentation / Functional Analysis phase.
+
+    * Documentation phases: free-form documents the user creates/renames/deletes.
+    * Functional Analysis phases: one document per ``FunctionalAnalysisStep``,
+      identified by ``source_fa_step`` — its title is locked to the step and the
+      step's description is shown as guidance; the user only edits ``content``.
+
+    Images uploaded to the phase (see :class:`PhaseImage`) can be referenced from
+    ``content`` and are embedded into the generated report.
+    """
+
+    phase = models.ForeignKey(
+        Phase, on_delete=models.CASCADE, related_name="documents"
+    )
+    source_fa_step = models.ForeignKey(
+        FunctionalAnalysisStep,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="phase_documents",
+    )
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True, help_text="Markdown supported.")
+    order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def is_fa_section(self):
+        """True for a section seeded from a Functional Analysis step (locked title)."""
+        return self.source_fa_step_id is not None
+
+    @property
+    def guidance(self):
+        """Help text for FA sections (the step's description); empty otherwise."""
+        return self.source_fa_step.description if self.source_fa_step_id else ""
+
+
+class PhaseImage(models.Model):
+    """An image uploaded to a phase, referenced from a document's Markdown.
+
+    The phase detail page offers a copy-ready ``![caption](url)`` snippet; the
+    report generator resolves those URLs back to the stored file and embeds it.
+    """
+
+    phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="images")
+    image = models.FileField(
+        upload_to="phase_images/%Y/%m/",
+        validators=[
+            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp"])
+        ],
+        help_text="PNG/JPG/GIF/WEBP.",
+    )
+    caption = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="phase_images",
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.caption or self.image.name.rsplit("/", 1)[-1]
+
+    @property
+    def markdown_snippet(self):
+        return f"![{self.caption}]({self.image.url})"

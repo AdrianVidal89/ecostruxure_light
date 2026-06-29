@@ -1,0 +1,59 @@
+{% comment %}
+Images attached to a phase. Context: phase, images, can_edit.
+Each image offers a copy-ready ![caption](url) Markdown snippet to paste into a
+document; the report generator embeds the referenced images into the .docx.
+{% endcomment %}
+<section class="space-y-3" x-data>
+  <div class="flex items-center justify-between">
+    <h2 class="font-medium text-ink flex items-center gap-2">
+      <i data-lucide="image" class="w-4 h-4"></i> Images
+      <span class="text-ink-muted font-normal">({{ images|length }})</span>
+    </h2>
+  </div>
+
+  <p class="text-xs text-ink-muted">
+    Upload an image, then copy its Markdown snippet and paste it anywhere inside a document —
+    it can sit in the middle of the text and will be embedded in the generated report.
+  </p>
+
+  {% if can_edit %}
+    <form method="post" action="{% url 'pocs:image_upload' phase.pk %}" enctype="multipart/form-data" class="space-y-3">
+      {% csrf_token %}
+      {% include "components/filedrop.html" with field=image_form.image hint="PNG / JPG / GIF / WEBP." %}
+      <div class="flex items-center gap-2">
+        {{ image_form.caption }}
+        <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft shrink-0">
+          <i data-lucide="upload" class="w-4 h-4"></i> Upload
+        </button>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if images %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {% for img in images %}
+        <div class="bg-surface border border-line rounded-xl p-2 space-y-2">
+          <a href="{{ img.image.url }}" target="_blank" rel="noopener">
+            <img src="{{ img.image.url }}" alt="{{ img.caption }}" class="w-full h-28 object-cover rounded-lg border border-line">
+          </a>
+          {% if img.caption %}<p class="text-xs text-ink-muted truncate">{{ img.caption }}</p>{% endif %}
+          <div class="flex items-center gap-1">
+            <button type="button"
+                    @click="navigator.clipboard.writeText('{{ img.markdown_snippet|escapejs }}')"
+                    class="flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-canvas">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy snippet
+            </button>
+            {% if can_edit %}
+              <form method="post" action="{% url 'pocs:image_delete' img.pk %}" onsubmit="return confirm('Delete this image?');">
+                {% csrf_token %}
+                <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Delete">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>

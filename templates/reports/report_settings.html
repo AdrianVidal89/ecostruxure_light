@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Report settings · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'reports:home' %}" class="hover:text-ink">Reports</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'reports:type_list' %}" class="hover:text-ink">Report types</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Default template</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">Default report template</h1>
+    <p class="text-ink-muted mt-1">
+      Used to generate Documentation / Functional Analysis reports when a phase has no template of its own.
+    </p>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">
+          Template <span class="text-ink-muted font-normal">(.docx)</span>
+        </label>
+        {% if form.instance.default_template %}
+          <p class="text-xs text-ink-muted mb-2">
+            Current: <span class="font-medium text-ink">{{ form.instance.default_template.name }}</span> — drop a new file to replace it.
+          </p>
+        {% endif %}
+        {% include "components/filedrop.html" with field=form.default_template hint="Word template (.docx) used as the fallback for phase reports." %}
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit" class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">Save</button>
+        <a href="{% url 'reports:type_list' %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

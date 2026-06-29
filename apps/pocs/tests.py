@@ -17,6 +17,8 @@ from apps.pocs.models import (
     POC,
     FunctionalAnalysisStep,
     Phase,
+    PhaseDocument,
+    PhaseKind,
     POCMembership,
     Task,
     Test,
@@ -192,7 +194,7 @@ class DeletePOCTests(TestCase):
 
 
 class FunctionalAnalysisTests(TestCase):
-    """Block E: FA-flagged phases render the step template / skeleton view."""
+    """Block E: FA phases seed one document per step (title + guidance)."""
 
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -200,19 +202,26 @@ class FunctionalAnalysisTests(TestCase):
         )
         self.poc = POC.objects.create(name="FA POC", created_by=self.admin, status="active")
         self.phase = Phase.objects.create(
-            poc=self.poc, name="Functional Analysis", order=1, is_functional_analysis=True
+            poc=self.poc,
+            name="Functional Analysis",
+            order=1,
+            kind=PhaseKind.FUNCTIONAL_ANALYSIS,
         )
-        FunctionalAnalysisStep.objects.create(
-            title="Login flow", expected_result="User logs in", order=1
+        self.step = FunctionalAnalysisStep.objects.create(
+            title="Login flow", description="Validate the login", order=1
         )
 
-    def test_fa_phase_shows_template_not_tasks(self):
+    def test_fa_phase_seeds_sections_from_steps(self):
         self.client.force_login(self.admin)
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Functional Analysis")
-        self.assertContains(resp, "Login flow")   # the admin step
-        self.assertContains(resp, "Copy Markdown")  # the copy-to-md affordance
+        self.assertContains(resp, "Login flow")   # the step seeded as a section
+        self.assertContains(resp, "Documents")
+        # A PhaseDocument was created for the step (visiting the page seeds it).
+        doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.step)
+        self.assertEqual(doc.title, "Login flow")
+        self.assertTrue(doc.is_fa_section)
 
 
 class RecordResultInheritsExpectedTests(TestCase):
@@ -420,3 +429,162 @@ class RolePermissionTests(TestCase):
             {"user_id": self.admin.pk, "role": "member", "q": ""},
         )
         self.assertEqual(resp.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# Phase kinds: blueprint inheritance + documentation report generation
+# ---------------------------------------------------------------------------
+import base64
+import tempfile
+from io import BytesIO
+
+from django.test import override_settings
+
+from apps.pocs.models import (
+    BasePhaseDocument,
+    PhaseImage,
+    PhaseTemplate,
+)
+from apps.pocs.services import apply_phase_templates
+
+# A 1x1 transparent PNG (local constant — not fetched remotely).
+_PNG_1x1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _minimal_docx_bytes():
+    """A valid empty .docx to serve as a report template in tests."""
+    from docx import Document
+
+    buf = BytesIO()
+    Document().save(buf)
+    return buf.getvalue()
+
+
+class PhaseKindInheritanceTests(TestCase):
+    """Creating a POC inherits each node's kind, base documents and FA sections."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "k_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        doc_node = PhaseTemplate.objects.create(
+            name="Docs", kind=PhaseKind.DOCUMENTATION, order=1
+        )
+        BasePhaseDocument.objects.create(
+            phase_template=doc_node, title="Intro", content="# Hello", order=1
+        )
+        PhaseTemplate.objects.create(
+            name="FA", kind=PhaseKind.FUNCTIONAL_ANALYSIS, order=2
+        )
+        FunctionalAnalysisStep.objects.create(title="Step A", order=1)
+
+    def test_inheritance_creates_documents_and_fa_sections(self):
+        poc = POC.objects.create(name="K POC", created_by=self.admin, status="active")
+        apply_phase_templates(poc)
+
+        doc_phase = poc.phases.get(name="Docs")
+        self.assertEqual(doc_phase.kind, PhaseKind.DOCUMENTATION)
+        self.assertEqual(doc_phase.documents.count(), 1)
+        self.assertEqual(doc_phase.documents.first().title, "Intro")
+
+        fa_phase = poc.phases.get(name="FA")
+        self.assertEqual(fa_phase.kind, PhaseKind.FUNCTIONAL_ANALYSIS)
+        section = fa_phase.documents.get()
+        self.assertTrue(section.is_fa_section)
+        self.assertEqual(section.title, "Step A")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class DocumentationReportTests(TestCase):
+    """A documentation report uses the global default template and embeds images."""
+
+    def setUp(self):
+        from apps.reports.models import ReportSettings
+
+        self.admin = User.objects.create_user(
+            "d_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="D POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="Docs", order=1, kind=PhaseKind.DOCUMENTATION
+        )
+        # Global default template (no per-phase template attached).
+        settings_row = ReportSettings.load()
+        settings_row.default_template.save(
+            "default.docx", SimpleUploadedFile("default.docx", _minimal_docx_bytes()), save=True
+        )
+        # An uploaded image, referenced from a document by its Markdown snippet.
+        self.image = PhaseImage.objects.create(
+            phase=self.phase,
+            image=SimpleUploadedFile("pic.png", _PNG_1x1, content_type="image/png"),
+        )
+        PhaseDocument.objects.create(
+            phase=self.phase,
+            title="Section 1",
+            content=f"Some text\n\n{self.image.markdown_snippet}\n\nMore text",
+            order=1,
+        )
+
+    def test_report_generates_with_embedded_image(self):
+        from docx import Document
+
+        from apps.reports.generation import generate_phase_report_from_documents
+        from apps.reports.models import GeneratedReport
+
+        report = generate_phase_report_from_documents(self.phase, self.admin)
+        self.assertEqual(
+            report.status, GeneratedReport.Status.READY, report.error_message
+        )
+        self.assertTrue(report.output_file)
+
+        report.output_file.open("rb")
+        try:
+            doc = Document(BytesIO(report.output_file.read()))
+        finally:
+            report.output_file.close()
+        # The referenced image was embedded as an inline shape.
+        self.assertGreaterEqual(len(doc.inline_shapes), 1)
+
+    def test_report_endpoint_requires_membership(self):
+        outsider = User.objects.create_user(
+            "d_out", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.client.force_login(outsider)
+        resp = self.client.post(
+            reverse("reports:phase_documents", args=[self.phase.pk])
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+class PhaseKindUIRenderTests(TestCase):
+    """Smoke tests: the new blueprint/phase/settings pages render without errors."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "u_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="U POC", created_by=self.admin, status="active")
+        self.doc_phase = Phase.objects.create(
+            poc=self.poc, name="Docs", order=1, kind=PhaseKind.DOCUMENTATION
+        )
+        self.client.force_login(self.admin)
+
+    def test_blueprint_create_form_has_kind_selector(self):
+        resp = self.client.get(reverse("pocs:phase_template_create"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Type")
+        self.assertContains(resp, "Functional Analysis")
+
+    def test_documentation_phase_detail_renders(self):
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.doc_phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Documents")
+        self.assertContains(resp, "Add document")
+        self.assertContains(resp, "Images")
+
+    def test_report_settings_page_renders(self):
+        resp = self.client.get(reverse("reports:settings"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Default report template")

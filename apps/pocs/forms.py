@@ -5,10 +5,13 @@ from django.contrib.auth import get_user_model
 
 from .models import (
     POC,
+    BasePhaseDocument,
     BaseTask,
     BaseTest,
     FunctionalAnalysisStep,
     Phase,
+    PhaseDocument,
+    PhaseImage,
     PhaseTemplate,
     Task,
     Test,
@@ -95,16 +98,17 @@ class PhaseForm(NonBlankMixin, forms.ModelForm):
 
     class Meta:
         model = Phase
-        # ``is_functional_analysis`` is set on the global blueprint and inherited;
-        # it is not edited per-phase (and isn't rendered here), so it stays out of
-        # this form to avoid silently clearing it on save.
+        # ``kind`` is inherited from the blueprint but a lead may also create
+        # phases directly, so it's editable here (Test / Documentation / FA).
         fields = (
             "name",
+            "kind",
             "description",
             "report_template",
         )
         widgets = {
             "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "kind": forms.Select(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={"rows": 4, "class": INPUT_CLASS}),
             "report_template": forms.ClearableFileInput(attrs={"class": "hidden"}),
         }
@@ -119,14 +123,14 @@ class PhaseTemplateForm(NonBlankMixin, forms.ModelForm):
         model = PhaseTemplate
         fields = (
             "name",
+            "kind",
             "description",
-            "is_functional_analysis",
             "report_template",
         )
         widgets = {
             "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "kind": forms.Select(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={"rows": 3, "class": INPUT_CLASS}),
-            "is_functional_analysis": forms.CheckboxInput(attrs=_CHECKBOX),
             "report_template": forms.ClearableFileInput(attrs={"class": "hidden"}),
         }
 
@@ -325,17 +329,65 @@ class TestExecutionForm(forms.ModelForm):
 
 
 class FunctionalAnalysisStepForm(NonBlankMixin, forms.ModelForm):
-    """Admin: a step of the global Functional Analysis template."""
+    """Admin: a step of the global Functional Analysis template (title + guidance)."""
 
     non_blank_fields = ("title",)
 
     class Meta:
         model = FunctionalAnalysisStep
-        fields = ("title", "preconditions", "action", "expected_result", "acceptance_criteria")
+        fields = ("title", "description")
         widgets = {
             "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
-            "preconditions": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
-            "action": forms.Textarea(attrs={"rows": 3, "class": MD_EDITOR_CLASS}),
-            "expected_result": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
-            "acceptance_criteria": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
+            "description": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
+        }
+
+
+class BasePhaseDocumentForm(NonBlankMixin, forms.ModelForm):
+    """Admin: a base document on a blueprint node (Documentation phases)."""
+
+    non_blank_fields = ("title",)
+
+    class Meta:
+        model = BasePhaseDocument
+        fields = ("title", "content")
+        widgets = {
+            "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "content": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
+        }
+
+
+class PhaseDocumentForm(NonBlankMixin, forms.ModelForm):
+    """Create / edit a phase document. ``content`` uses EasyMDE client-side.
+
+    For Functional Analysis sections the title is locked (set from the FA step),
+    so the title field is disabled when editing such a section.
+    """
+
+    non_blank_fields = ("title",)
+
+    class Meta:
+        model = PhaseDocument
+        fields = ("title", "content")
+        widgets = {
+            "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "content": forms.Textarea(attrs={"rows": 12}),  # EasyMDE mount
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.is_fa_section:
+            self.fields["title"].disabled = True
+
+
+class PhaseImageForm(forms.ModelForm):
+    """Upload an image to a phase (referenced from documents' Markdown)."""
+
+    class Meta:
+        model = PhaseImage
+        fields = ("image", "caption")
+        widgets = {
+            "image": forms.ClearableFileInput(attrs={"class": "hidden"}),
+            "caption": forms.TextInput(
+                attrs={"class": INPUT_CLASS, "placeholder": "Caption (optional)"}
+            ),
         }

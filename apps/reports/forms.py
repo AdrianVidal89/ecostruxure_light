@@ -3,7 +3,7 @@
 from django import forms
 
 from .generation import ACCEPTED_SOURCE_EXTS
-from .models import ReportType
+from .models import ReportSettings, ReportType
 
 INPUT_CLASS = (
     "w-full rounded-lg border border-line px-3 py-2 text-sm text-ink "
@@ -27,6 +27,17 @@ class ReportTypeForm(forms.ModelForm):
             "is_active": forms.CheckboxInput(
                 attrs={"class": "h-4 w-4 rounded border-line text-brand focus:ring-brand/40"}
             ),
+        }
+
+
+class ReportSettingsForm(forms.ModelForm):
+    """Admin: upload/replace the global default report template."""
+
+    class Meta:
+        model = ReportSettings
+        fields = ("default_template",)
+        widgets = {
+            "default_template": forms.ClearableFileInput(attrs={"class": "hidden"}),
         }
 
 

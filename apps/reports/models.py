@@ -22,6 +22,40 @@ from django.db import models
 USER = settings.AUTH_USER_MODEL
 
 
+class ReportSettings(models.Model):
+    """Singleton holding the global default report template.
+
+    Used as the fallback when a phase has no ``report_template`` of its own (so
+    Documentation / Functional Analysis phases can still produce a report).
+    """
+
+    default_template = models.FileField(
+        upload_to="report_templates/default/",
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(["docx"])],
+        help_text="Default Word template (.docx) for phases without their own.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "report settings"
+        verbose_name_plural = "report settings"
+
+    def __str__(self):
+        return "Report settings"
+
+    @classmethod
+    def load(cls):
+        """Return the single settings row, creating it if needed."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # enforce singleton
+        super().save(*args, **kwargs)
+
+
 class ReportType(models.Model):
     """An admin-defined custom report type with a Word template.
 

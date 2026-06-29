@@ -15,6 +15,8 @@ urlpatterns = [
     path("types/create/", views.ReportTypeCreateView.as_view(), name="type_create"),
     path("types/<int:pk>/edit/", views.ReportTypeUpdateView.as_view(), name="type_edit"),
     path("types/<int:pk>/delete/", views.ReportTypeDeleteView.as_view(), name="type_delete"),
+    # Global report settings (admin) — default template
+    path("settings/", views.ReportSettingsView.as_view(), name="settings"),
     # Phase report generation (from a POC)
     path(
         "phase/<int:phase_pk>/generate/",
@@ -22,9 +24,9 @@ urlpatterns = [
         name="phase_generate",
     ),
     path(
-        "phase/<int:phase_pk>/generate-md/",
-        views.phase_markdown_report,
-        name="phase_markdown",
+        "phase/<int:phase_pk>/generate-docs/",
+        views.phase_documents_report,
+        name="phase_documents",
     ),
     # Download
     path("<int:pk>/download/", views.report_download, name="download"),

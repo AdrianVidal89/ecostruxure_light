@@ -13,14 +13,23 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 
 from . import styles
 from .template import prepare_from_template
 
+# Cap embedded images so a large upload doesn't overflow the page width.
+_MAX_IMAGE_WIDTH = Inches(6)
+
 
 def build_docx(blocks: list[dict], metadata: dict | None = None,
-               template_path=None) -> bytes:
+               template_path=None, image_resolver=None) -> bytes:
+    """Render typed blocks to a .docx.
+
+    ``image_resolver`` (optional): ``url -> local file path | None``. When a
+    block of type ``image`` is found its URL is resolved to a file and embedded;
+    unresolved images fall back to their alt text.
+    """
     use_template = template_path is not None
     if use_template:
         doc = prepare_from_template(template_path, metadata)
@@ -42,6 +51,8 @@ def build_docx(blocks: list[dict], metadata: dict | None = None,
             _add_table(doc, block, table_style, use_template)
         elif kind == "list":
             _add_list(doc, block)
+        elif kind == "image":
+            _add_image(doc, block, image_resolver)
 
     buf = BytesIO()
     doc.save(buf)
@@ -93,6 +104,28 @@ def _add_heading(doc, block: dict, use_template: bool):
 def _add_paragraph(doc, block: dict):
     p = doc.add_paragraph()
     _render_runs(p, block.get("children", []))
+
+
+def _add_image(doc, block: dict, image_resolver):
+    """Embed an image (resolved to a local path) or fall back to its alt text."""
+    url = block.get("url", "")
+    path = image_resolver(url) if (image_resolver and url) else None
+    if path:
+        try:
+            picture = doc.add_picture(path)
+            # Downscale only if it overflows the page; never upscale small images.
+            if picture.width > _MAX_IMAGE_WIDTH:
+                ratio = _MAX_IMAGE_WIDTH / picture.width
+                picture.width = _MAX_IMAGE_WIDTH
+                picture.height = int(picture.height * ratio)
+            return
+        except Exception:  # noqa: BLE001 — unreadable image → alt-text fallback
+            pass
+    alt = block.get("alt") or url
+    if alt:
+        p = doc.add_paragraph()
+        run = p.add_run(f"[image: {alt}]")
+        run.italic = True
 
 
 def _add_list(doc, block: dict):

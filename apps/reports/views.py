@@ -21,9 +21,9 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 from apps.core.mixins import AdminRequiredMixin
 from apps.pocs.models import Phase, POCMembership
 
-from .forms import CustomReportForm, ReportTypeForm
+from .forms import CustomReportForm, ReportSettingsForm, ReportTypeForm
 from .generation import generate_custom_report, generate_phase_report
-from .models import GeneratedReport, ReportType
+from .models import GeneratedReport, ReportSettings, ReportType
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +125,25 @@ class ReportTypeDeleteView(AdminRequiredMixin, DeleteView):
 
 
 # ---------------------------------------------------------------------------
+# Global report settings (admin) — default template fallback
+# ---------------------------------------------------------------------------
+class ReportSettingsView(AdminRequiredMixin, UpdateView):
+    """Admin: upload/replace the global default report template (singleton)."""
+
+    model = ReportSettings
+    form_class = ReportSettingsForm
+    template_name = "reports/report_settings.html"
+    success_url = reverse_lazy("reports:settings")
+
+    def get_object(self, queryset=None):
+        return ReportSettings.load()
+
+    def form_valid(self, form):
+        messages.success(self.request, "Default report template saved.")
+        return super().form_valid(form)
+
+
+# ---------------------------------------------------------------------------
 # Phase report generation (POC members)
 # ---------------------------------------------------------------------------
 def _is_poc_member(user, poc):
@@ -178,25 +197,21 @@ def report_download(request, pk):
 
 
 @require_POST
-def phase_markdown_report(request, phase_pk):
-    """Generate a phase report from posted Markdown (Functional Analysis).
+def phase_documents_report(request, phase_pk):
+    """Generate a phase report from its documents (Documentation / FA phases).
 
-    Allowed for POC members; the phase must have a report template attached.
+    Allowed for POC members. Uses the phase's template or the global default;
+    embeds any images referenced from the documents' Markdown.
     """
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     phase = get_object_or_404(Phase, pk=phase_pk)
     if not _is_poc_member(request.user, phase.poc):
         raise PermissionDenied
-    if not phase.is_reportable:
-        messages.error(request, "This phase has no report template attached.")
-        return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
-    from .generation import generate_phase_report_from_markdown
+    from .generation import generate_phase_report_from_documents
 
-    report = generate_phase_report_from_markdown(
-        phase, request.user, request.POST.get("markdown", "")
-    )
+    report = generate_phase_report_from_documents(phase, request.user)
     if report.status == GeneratedReport.Status.ERROR:
         messages.error(request, f"Report generation failed: {report.error_message}")
     else:
