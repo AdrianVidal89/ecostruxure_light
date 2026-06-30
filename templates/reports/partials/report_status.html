@@ -1,5 +1,7 @@
 {% comment %}
-Status pill + download link for a GeneratedReport. Context: report.
+Status pill + download/delete controls for a GeneratedReport. Context: report.
+Optional: can_delete (defaults to truthy when the requester is viewing). The
+delete form is shown whenever can_delete is set by the including template.
 {% endcomment %}
 <div class="flex items-center gap-3 shrink-0">
   {% if report.status == 'ready' %}
@@ -13,5 +15,14 @@ Status pill + download link for a GeneratedReport. Context: report.
           title="{{ report.error_message }}">Error</span>
   {% else %}
     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info">{{ report.get_status_display }}</span>
+  {% endif %}
+  {% if can_delete %}
+    <form method="post" action="{% url 'reports:delete' report.pk %}"
+          onsubmit="return confirm('Remove this report? The generated file will be deleted.');">
+      {% csrf_token %}
+      <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Remove report">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+      </button>
+    </form>
   {% endif %}
 </div>

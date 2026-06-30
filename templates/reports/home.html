@@ -82,7 +82,7 @@
             <p class="text-sm font-medium text-ink truncate">{{ report.title }}</p>
             <p class="text-xs text-ink-muted">{{ report.requested_at|date:"Y-m-d H:i" }}</p>
           </div>
-          {% include "reports/partials/report_status.html" with report=report %}
+          {% include "reports/partials/report_status.html" with report=report can_delete=True %}
         </div>
       {% empty %}
         <p class="p-10 text-center text-sm text-ink-muted">You haven’t generated any reports yet.</p>

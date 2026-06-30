@@ -205,13 +205,13 @@
         {% for log in audit_logs %}
           <div class="flex items-start gap-3 p-4">
             <div class="w-9 h-9 rounded-full bg-canvas text-ink-muted flex items-center justify-center shrink-0">
-              <i data-lucide="{% if log.action == 'created' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
+              <i data-lucide="{% if 'deleted' in log.action %}trash-2{% elif log.action == 'report_uploaded' %}upload{% elif log.action == 'report_generated' %}file-output{% elif log.action == 'created' or log.action == 'document_created' or log.action == 'image_uploaded' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
             </div>
             <div class="min-w-0 flex-1">
               <p class="text-sm text-ink">
                 <span class="font-medium">{% if log.actor %}{{ log.actor.get_full_name|default:log.actor.username }}{% else %}System{% endif %}</span>
                 <span class="text-ink-muted">{{ log.action_label }}</span>
-                <span class="font-medium">{{ log.content_type.model }}</span>
+                <span class="font-medium">{{ log.target_label }}</span>
               </p>
               {% if log.details %}
                 <ul class="mt-1 space-y-0.5">
@@ -286,7 +286,7 @@
                 {% if report.requested_by %} · {{ report.requested_by.username }}{% endif %}
               </p>
             </div>
-            {% include "reports/partials/report_status.html" with report=report %}
+            {% include "reports/partials/report_status.html" with report=report can_delete=report.can_delete %}
           </div>
         {% empty %}
           <p class="p-10 text-center text-sm text-ink-muted">No reports generated yet.</p>

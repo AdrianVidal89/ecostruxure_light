@@ -91,6 +91,7 @@ class GeneratedReport(models.Model):
     class Kind(models.TextChoices):
         PHASE = "phase", "Phase report"
         CUSTOM = "custom", "Custom report"
+        UPLOADED = "uploaded", "Uploaded report"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

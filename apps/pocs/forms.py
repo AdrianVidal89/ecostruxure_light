@@ -391,3 +391,22 @@ class PhaseImageForm(forms.ModelForm):
                 attrs={"class": INPUT_CLASS, "placeholder": "Caption (optional)"}
             ),
         }
+
+
+class PhaseReportUploadForm(forms.Form):
+    """Attach a finished report file to a phase (kept as-is for download)."""
+
+    ALLOWED_EXTS = ("docx", "pdf", "doc", "odt", "xlsx", "pptx", "md", "txt", "zip")
+
+    report_file = forms.FileField(
+        widget=forms.ClearableFileInput(attrs={"class": "hidden"})
+    )
+
+    def clean_report_file(self):
+        f = self.cleaned_data["report_file"]
+        ext = f.name.rsplit(".", 1)[-1].lower() if "." in f.name else ""
+        if ext not in self.ALLOWED_EXTS:
+            raise forms.ValidationError(
+                "Allowed: " + ", ".join(f".{e}" for e in self.ALLOWED_EXTS)
+            )
+        return f

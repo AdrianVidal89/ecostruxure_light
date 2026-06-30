@@ -19,10 +19,9 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db.models import Max, Q
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_GET, require_POST
@@ -55,6 +54,7 @@ from .forms import (
     PhaseDocumentForm,
     PhaseForm,
     PhaseImageForm,
+    PhaseReportUploadForm,
     PhaseTemplateForm,
     POCForm,
     POCImportForm,
@@ -78,6 +78,7 @@ from .models import (
     Task,
     Test,
 )
+from .audit import record_audit
 from .state_machine import can_transition_task, task_allowed_statuses
 
 User = get_user_model()
@@ -164,20 +165,14 @@ def _render_members_update(request, poc, q=""):
 
 
 def _poc_audit_logs(poc, limit=200):
-    """Audit entries for a POC's Tasks and Tests, newest first.
+    """All audit entries for a POC, newest first.
 
-    AuditLog uses a generic FK, so we filter by content type + the IDs of the
-    POC's tasks/tests. Capped at ``limit`` to bound page weight.
+    Entries carry a direct ``poc`` link (set on write), so this covers tasks,
+    tests, documents, images, generated/imported reports — including actions on
+    objects that have since been deleted. Capped at ``limit``.
     """
-    task_ct = ContentType.objects.get_for_model(Task)
-    test_ct = ContentType.objects.get_for_model(Test)
-    task_ids = list(Task.objects.filter(phase__poc=poc).values_list("id", flat=True))
-    test_ids = list(Test.objects.filter(phase__poc=poc).values_list("id", flat=True))
     return (
-        AuditLog.objects.filter(
-            Q(content_type=task_ct, object_id__in=task_ids)
-            | Q(content_type=test_ct, object_id__in=test_ids)
-        )
+        AuditLog.objects.filter(poc=poc)
         .select_related("actor", "content_type")
         .order_by("-timestamp")[:limit]
     )
@@ -376,7 +371,17 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["reportable_phases"] = poc.phases.exclude(report_template="").exclude(
             report_template__isnull=True
         )
-        ctx["generated_reports"] = poc.generated_reports.select_related("phase")[:50]
+        generated_reports = list(
+            poc.generated_reports.select_related("phase", "requested_by")[:50]
+        )
+        # A report can be removed by an admin, the POC lead, or its requester.
+        for report in generated_reports:
+            report.can_delete = (
+                ctx["is_admin"]
+                or can_lead
+                or report.requested_by_id == self.request.user.id
+            )
+        ctx["generated_reports"] = generated_reports
         ctx["tabs"] = [
             ("overview", "Overview"),
             ("phases", "Phases"),
@@ -628,66 +633,83 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         can_edit = user_can_edit_phase(user, phase)
 
         children = list(phase.children.all())
+        is_leaf = not children
         ctx["children"] = children
-        ctx["is_leaf"] = not children
+        ctx["is_leaf"] = is_leaf
         ctx["can_edit"] = can_edit
         ctx["phase_kind"] = phase.kind
         ctx["is_functional_analysis"] = phase.is_functional_analysis
         ctx["is_documentation"] = phase.is_documentation
-        # Any POC member may add tests on a leaf Test phase (documenting tests
-        # they performed); only editors (admin / editing lead) may add tasks.
-        ctx["can_add_test"] = not children and phase.is_test
+        ctx["is_test"] = phase.is_test
+        # Tasks can now be added to ANY phase (parent or leaf).
+        ctx["can_add_task"] = can_edit
+        # Tests stay on leaf Test phases; any POC member may add one.
+        ctx["can_add_test"] = is_leaf and phase.is_test
+        # A phase may carry tasks and still gain sub-phases; only the presence of
+        # Tests (leaf-only) blocks delegating to sub-phases.
         ctx["can_add_subphase"] = (
-            can_edit
-            and phase.can_have_children
-            and not phase.tasks.exists()
-            and not phase.tests.exists()
+            can_edit and phase.can_have_children and not phase.tests.exists()
         )
 
-        if not children:
+        # Tasks render on every phase.
+        tasks = list(phase.tasks.select_related("assigned_to"))
+        for task in tasks:
+            task.can_execute = can_edit or task.assigned_to_id == user.id
+            task.allowed_statuses = task_allowed_statuses(task.status)
+        ctx["tasks"] = tasks
+
+        # A template is downloadable from ANY phase (any kind): the phase's own
+        # if attached, otherwise the global default.
+        ctx["has_template_file"] = bool(phase.report_template) or _has_default_template()
+
+        if is_leaf:
+            # Tests on leaf Test phases.
+            if phase.is_test:
+                tests = list(phase.tests.select_related("assigned_to"))
+                for test in tests:
+                    test.can_execute = can_edit or test.assigned_to_id == user.id
+                ctx["tests"] = tests
+
+            # FA phases seed one document section per step (idempotent).
             if phase.is_functional_analysis:
-                # Make sure every FA step has a section (steps may post-date the
-                # POC). Then show the documents (with their guidance) + images.
                 from .services import ensure_fa_documents
 
                 ensure_fa_documents(phase)
 
-            if phase.is_functional_analysis or phase.is_documentation:
-                ctx["documents"] = list(
-                    phase.documents.select_related("source_fa_step")
-                )
-                ctx["images"] = list(phase.images.all())
-                ctx["image_form"] = PhaseImageForm()
-                ctx["is_reportable"] = bool(phase.report_template) or _has_default_template()
-            else:  # Test phase: tasks + tests (classic)
-                tasks = list(phase.tasks.select_related("assigned_to"))
-                for task in tasks:
-                    task.can_execute = can_edit or task.assigned_to_id == user.id
-                    task.allowed_statuses = task_allowed_statuses(task.status)
-                tests = list(phase.tests.select_related("assigned_to"))
-                for test in tests:
-                    test.can_execute = can_edit or test.assigned_to_id == user.id
-                ctx["tasks"] = tasks
-                ctx["tests"] = tests
-
-            # Documentation phases also have plain tasks.
-            if phase.is_documentation:
-                tasks = list(phase.tasks.select_related("assigned_to"))
-                for task in tasks:
-                    task.can_execute = can_edit or task.assigned_to_id == user.id
-                    task.allowed_statuses = task_allowed_statuses(task.status)
-                ctx["tasks"] = tasks
+            # The Markdown cluster (documents + images) and the upload option are
+            # available on EVERY leaf phase, regardless of kind.
+            ctx["documents"] = list(phase.documents.select_related("source_fa_step"))
+            ctx["images"] = list(phase.images.all())
+            ctx["image_form"] = PhaseImageForm()
+            ctx["upload_form"] = PhaseReportUploadForm()
+            # Generation needs a usable .docx (phase's own, or the global default);
+            # a .zip phase template is download-only.
+            ctx["is_reportable"] = phase.has_docx_template or _has_default_template()
+            ctx["uploaded_reports"] = list(
+                phase.generated_reports.filter(
+                    kind="uploaded"
+                ).select_related("requested_by")
+            )
 
         ctx["poc"] = phase.poc
         ctx["can_lead"] = can_edit  # task/test rows use can_lead for CRUD controls
+        # The per-row bulk-select checkbox only makes sense where the bulk form
+        # is rendered: a leaf Test phase the user can edit.
+        ctx["bulk_enabled"] = bool(can_edit and phase.is_test and is_leaf)
         ctx["task_status_choices"] = Task.Status.choices
         ctx["test_verdict_choices"] = Test.Verdict.choices
         return ctx
 
 
 class _PhaseEditCreateMixin(LoginRequiredMixin):
-    """For creating Tasks/Tests under a phase (``phase_pk``): require edit rights
-    and that the phase is a leaf (no sub-phases)."""
+    """For creating items under a phase (``phase_pk``): require edit rights.
+
+    ``require_leaf`` (default True) also blocks parent phases — used for content
+    that only belongs on a leaf (documents, images). Tasks set it False so they
+    can be added to any phase.
+    """
+
+    require_leaf = True
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
@@ -699,9 +721,9 @@ class _PhaseEditCreateMixin(LoginRequiredMixin):
             return redirect_to_login(request.get_full_path())
         if not user_can_edit_phase(request.user, self.phase):
             raise PermissionDenied
-        if not self.phase.is_leaf:
+        if self.require_leaf and not self.phase.is_leaf:
             messages.error(
-                request, "This phase has sub-phases; add tasks/tests there instead."
+                request, "This phase has sub-phases; add it on a leaf phase instead."
             )
             return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
         return super().dispatch(request, *args, **kwargs)
@@ -730,7 +752,9 @@ class _ItemEditMixin(LoginRequiredMixin):
 
 
 class TaskCreateView(_PhaseEditCreateMixin, CreateView):
-    """Create a task within a leaf phase (admin or editing lead)."""
+    """Create a task within any phase (admin or editing lead)."""
+
+    require_leaf = False  # tasks may be added to parent phases too
 
     model = Task
     form_class = TaskForm
@@ -812,6 +836,9 @@ def _render_task_row(request, task):
         {
             "task": task,
             "can_lead": can_edit,
+            "bulk_enabled": bool(
+                can_edit and task.phase.is_test and task.phase.is_leaf
+            ),
             "task_status_choices": Task.Status.choices,
         },
     )
@@ -1056,21 +1083,15 @@ def test_execute(request, test_pk):
 # Phase documents & images (Documentation / Functional Analysis phases)
 # ---------------------------------------------------------------------------
 class PhaseDocumentCreateView(_PhaseEditCreateMixin, CreateView):
-    """Add a free-form document to a Documentation phase (admin / editing lead).
+    """Add a free-form Markdown document to any leaf phase (admin / editing lead).
 
-    Functional Analysis sections are seeded from the template, not created here.
+    Functional Analysis sections are seeded from the template; this adds extra
+    free documents alongside them (or the only documents, on Test phases).
     """
 
     model = PhaseDocument
     form_class = PhaseDocumentForm
     template_name = "pocs/phase_document_form.html"
-
-    def dispatch(self, request, *args, **kwargs):
-        # Block the wrong phase kind up front (``self.phase`` is set in setup()).
-        if not self.phase.is_documentation:
-            messages.error(request, "Documents can only be added on Documentation phases.")
-            return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
-        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1084,6 +1105,8 @@ class PhaseDocumentCreateView(_PhaseEditCreateMixin, CreateView):
         last = self.phase.documents.aggregate(m=Max("order"))["m"]
         form.instance.order = (last or 0) + 1
         self.object = form.save()
+        record_audit(self.object, "document_created", self.request.user,
+                     {"title": {"before": None, "after": self.object.title}})
         messages.success(self.request, f"Document “{self.object.title}” created.")
         return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
 
@@ -1105,7 +1128,17 @@ class PhaseDocumentUpdateView(_ItemEditMixin, UpdateView):
         return ctx
 
     def form_valid(self, form):
+        # DB still holds the pre-save values (the form instance is already mutated).
+        old = PhaseDocument.objects.get(pk=self.object.pk)
+        old_title, old_content = old.title, old.content
         self.object = form.save()
+        details = {}
+        if old_title != self.object.title:
+            details["title"] = {"before": old_title, "after": self.object.title}
+        if old_content != self.object.content:
+            details["content"] = {"before": "(changed)", "after": "(updated)"}
+        if details:
+            record_audit(self.object, "document_updated", self.request.user, details)
         messages.success(self.request, f"Document “{self.object.title}” updated.")
         return redirect("pocs:phase_detail", phase_pk=self.object.phase_id)
 
@@ -1127,6 +1160,8 @@ class PhaseDocumentDeleteView(_ItemEditMixin, DeleteView):
             )
             return redirect("pocs:phase_detail", phase_pk=phase.pk)
         title = self.object.title
+        record_audit(self.object, "document_deleted", self.request.user,
+                     {"title": {"before": title, "after": None}})
         self.object.delete()
         messages.success(self.request, f"Document “{title}” deleted.")
         return redirect("pocs:phase_detail", phase_pk=phase.pk)
@@ -1140,12 +1175,11 @@ class PhaseImageUploadView(_PhaseEditCreateMixin, CreateView):
     http_method_names = ["post"]
 
     def form_valid(self, form):
-        if not (self.phase.is_documentation or self.phase.is_functional_analysis):
-            messages.error(self.request, "Images can only be added on this phase kind.")
-            return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
         form.instance.phase = self.phase
         form.instance.uploaded_by = self.request.user
-        form.save()
+        obj = form.save()
+        record_audit(obj, "image_uploaded", self.request.user,
+                     {"image": {"before": None, "after": str(obj)}})
         messages.success(self.request, "Image uploaded.")
         return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
 
@@ -1164,11 +1198,39 @@ class PhaseImageDeleteView(_ItemEditMixin, DeleteView):
 
     def form_valid(self, form):
         phase = self.object.phase
+        record_audit(self.object, "image_deleted", self.request.user,
+                     {"image": {"before": str(self.object), "after": None}})
         if self.object.image:
             self.object.image.delete(save=False)
         self.object.delete()
         messages.success(self.request, "Image deleted.")
         return redirect("pocs:phase_detail", phase_pk=phase.pk)
+
+
+def phase_template_download(request, phase_pk):
+    """Download the template for a phase (.docx or .zip).
+
+    Streams the phase's own ``report_template`` when set; otherwise falls back to
+    the global default template (``ReportSettings``). Available to POC members.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    phase = get_object_or_404(Phase, pk=phase_pk)
+    if not user_is_poc_member(request.user, phase.poc):
+        raise PermissionDenied
+
+    template = phase.report_template
+    if not template:
+        from apps.reports.models import ReportSettings
+
+        template = ReportSettings.load().default_template
+    if not template:
+        raise Http404("No template available for this phase.")
+    return FileResponse(
+        template.open("rb"),
+        as_attachment=True,
+        filename=template.name.rsplit("/", 1)[-1],
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -129,4 +129,9 @@ urlpatterns = [
         views.PhaseImageDeleteView.as_view(),
         name="image_delete",
     ),
+    path(
+        "phases/<int:phase_pk>/template/download/",
+        views.phase_template_download,
+        name="phase_template_download",
+    ),
 ]

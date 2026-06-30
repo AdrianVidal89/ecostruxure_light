@@ -581,10 +581,261 @@ class PhaseKindUIRenderTests(TestCase):
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.doc_phase.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Documents")
-        self.assertContains(resp, "Add document")
+        self.assertContains(resp, "Add markdown document")
         self.assertContains(resp, "Images")
+        # Both report options are present and clearly divided.
+        self.assertContains(resp, "Upload your report")
+        self.assertContains(resp, "Generate from Markdown")
 
     def test_report_settings_page_renders(self):
         resp = self.client.get(reverse("reports:settings"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Default report template")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class PhaseReportUploadTests(TestCase):
+    """A finished report can be attached to a phase (kept as-is, no extraction)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "up_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(
+            name="UP POC", created_by=self.admin, status="active"
+        )
+        # Works regardless of kind (here: a Test phase).
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="T", order=1, kind=PhaseKind.TEST
+        )
+        self.client.force_login(self.admin)
+
+    def test_upload_creates_uploaded_report_and_audits(self):
+        from apps.pocs.models import AuditLog
+        from apps.reports.models import GeneratedReport
+
+        resp = self.client.post(
+            reverse("reports:phase_upload", args=[self.phase.pk]),
+            {"report_file": SimpleUploadedFile("final.docx", _minimal_docx_bytes())},
+        )
+        self.assertEqual(resp.status_code, 302)
+        report = GeneratedReport.objects.get(phase=self.phase)
+        self.assertEqual(report.kind, GeneratedReport.Kind.UPLOADED)
+        self.assertEqual(report.status, GeneratedReport.Status.READY)
+        self.assertTrue(report.output_file)
+        dl = self.client.get(reverse("reports:download", args=[report.pk]))
+        self.assertEqual(dl.status_code, 200)
+        self.assertTrue(
+            AuditLog.objects.filter(poc=self.poc, action="report_uploaded").exists()
+        )
+
+    def test_disallowed_extension_rejected(self):
+        from apps.reports.models import GeneratedReport
+
+        resp = self.client.post(
+            reverse("reports:phase_upload", args=[self.phase.pk]),
+            {"report_file": SimpleUploadedFile("evil.exe", b"x")},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(GeneratedReport.objects.filter(phase=self.phase).exists())
+
+    def test_test_phase_shows_tests_and_both_report_options(self):
+        # A Test leaf phase now also exposes the unified Markdown + upload area.
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Add test")
+        self.assertContains(resp, "Upload your report")
+        self.assertContains(resp, "Generate from Markdown")
+        self.assertContains(resp, "Add markdown document")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class ReportDeletionTests(TestCase):
+    """Generated reports can be removed (with permission) and it's audited."""
+
+    def setUp(self):
+        from apps.reports.models import GeneratedReport
+
+        self.admin = User.objects.create_user(
+            "rd_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "rd_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(
+            name="RD POC", created_by=self.admin, status="active"
+        )
+        POCMembership.objects.create(
+            poc=self.poc, user=self.member, role_in_poc=POCMembership.Role.MEMBER
+        )
+        self.report = GeneratedReport.objects.create(
+            kind=GeneratedReport.Kind.PHASE,
+            title="A report",
+            poc=self.poc,
+            requested_by=self.admin,
+            status=GeneratedReport.Status.READY,
+        )
+        self.report.output_file.save(
+            "r.docx", SimpleUploadedFile("r.docx", _minimal_docx_bytes()), save=True
+        )
+
+    def test_admin_can_delete_and_it_is_audited(self):
+        from apps.pocs.models import AuditLog
+        from apps.reports.models import GeneratedReport
+
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("reports:delete", args=[self.report.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(GeneratedReport.objects.filter(pk=self.report.pk).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(poc=self.poc, action="report_deleted").exists()
+        )
+
+    def test_plain_member_cannot_delete(self):
+        from apps.reports.models import GeneratedReport
+
+        self.client.force_login(self.member)
+        resp = self.client.post(reverse("reports:delete", args=[self.report.pk]))
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(GeneratedReport.objects.filter(pk=self.report.pk).exists())
+
+
+class TaskOnAnyPhaseTests(TestCase):
+    """Tasks can be added to any phase, including a parent with sub-phases."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "tap_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(
+            name="TAP POC", created_by=self.admin, status="active"
+        )
+        self.parent = Phase.objects.create(poc=self.poc, name="Parent", order=1)
+        self.child = Phase.objects.create(
+            poc=self.poc, name="Child", parent=self.parent, order=1
+        )
+        self.client.force_login(self.admin)
+
+    def test_can_create_task_on_parent_phase(self):
+        self.assertFalse(self.parent.is_leaf)
+        resp = self.client.post(
+            reverse("pocs:task_create", args=[self.parent.pk]),
+            {"title": "Parent task", "status": "pending"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(self.parent.tasks.filter(title="Parent task").exists())
+
+    def test_parent_phase_detail_shows_tasks_section(self):
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.parent.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Sub-phases")
+        self.assertContains(resp, "Add task")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class PhaseTemplateAndZipTests(TestCase):
+    """Zip uploads, downloadable phase templates, and .zip-template fallback."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "pt_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(
+            name="PT POC", created_by=self.admin, status="active"
+        )
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="Docs", order=1, kind=PhaseKind.DOCUMENTATION
+        )
+        self.client.force_login(self.admin)
+
+    def test_zip_upload_is_accepted(self):
+        from apps.reports.models import GeneratedReport
+
+        resp = self.client.post(
+            reverse("reports:phase_upload", args=[self.phase.pk]),
+            {"report_file": SimpleUploadedFile("bundle.zip", b"PK\x03\x04zip")},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(
+            GeneratedReport.objects.filter(
+                phase=self.phase, kind=GeneratedReport.Kind.UPLOADED
+            ).exists()
+        )
+
+    def test_download_phase_template(self):
+        self.phase.report_template.save(
+            "tpl.docx", SimpleUploadedFile("tpl.docx", _minimal_docx_bytes()), save=True
+        )
+        resp = self.client.get(
+            reverse("pocs:phase_template_download", args=[self.phase.pk])
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_zip_template_falls_back_to_default_for_generation(self):
+        from apps.reports.generation import generate_phase_report_from_documents
+        from apps.reports.models import GeneratedReport, ReportSettings
+
+        # Phase template is a .zip (download-only); a global .docx default exists.
+        self.phase.report_template.save(
+            "bundle.zip", SimpleUploadedFile("bundle.zip", b"PK\x03\x04"), save=True
+        )
+        ReportSettings.load().default_template.save(
+            "def.docx", SimpleUploadedFile("def.docx", _minimal_docx_bytes()), save=True
+        )
+        PhaseDocument.objects.create(
+            phase=self.phase, title="Sec", content="body", order=1
+        )
+        report = generate_phase_report_from_documents(self.phase, self.admin)
+        self.assertEqual(
+            report.status, GeneratedReport.Status.READY, report.error_message
+        )
+
+    def test_download_template_requires_membership(self):
+        self.phase.report_template.save(
+            "tpl.docx", SimpleUploadedFile("tpl.docx", _minimal_docx_bytes()), save=True
+        )
+        outsider = User.objects.create_user(
+            "pt_out", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.client.force_login(outsider)
+        resp = self.client.get(
+            reverse("pocs:phase_template_download", args=[self.phase.pk])
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class TemplateDownloadFallbackTests(TestCase):
+    """Download template applies to any phase/kind; falls back to the default."""
+
+    def setUp(self):
+        from apps.reports.models import ReportSettings
+
+        self.admin = User.objects.create_user(
+            "td_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(
+            name="TD POC", created_by=self.admin, status="active"
+        )
+        ReportSettings.load().default_template.save(
+            "def.docx", SimpleUploadedFile("def.docx", _minimal_docx_bytes()), save=True
+        )
+        self.client.force_login(self.admin)
+
+    def test_download_falls_back_to_default_on_test_phase(self):
+        # A Test phase with NO own template still offers the default for download.
+        phase = Phase.objects.create(
+            poc=self.poc, name="T", order=1, kind=PhaseKind.TEST
+        )
+        resp = self.client.get(reverse("pocs:phase_detail", args=[phase.pk]))
+        self.assertContains(resp, "Download template")
+        dl = self.client.get(
+            reverse("pocs:phase_template_download", args=[phase.pk])
+        )
+        self.assertEqual(dl.status_code, 200)
+
+    def test_download_shown_on_parent_phase_too(self):
+        parent = Phase.objects.create(poc=self.poc, name="Parent", order=1)
+        Phase.objects.create(poc=self.poc, name="Child", parent=parent, order=1)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[parent.pk]))
+        self.assertContains(resp, "Download template")

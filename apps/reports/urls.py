@@ -28,6 +28,13 @@ urlpatterns = [
         views.phase_documents_report,
         name="phase_documents",
     ),
+    path(
+        "phase/<int:phase_pk>/upload/",
+        views.phase_report_upload,
+        name="phase_upload",
+    ),
     # Download
     path("<int:pk>/download/", views.report_download, name="download"),
+    # Delete (permission-checked)
+    path("<int:pk>/delete/", views.report_delete, name="delete"),
 ]

@@ -23,9 +23,24 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from apps.pocs.audit import record_audit
+
 from .converter.builder import build_docx
 from .converter.parser import parse
 from .models import GeneratedReport
+
+
+def _audit_generated(report, user, action="report_generated"):
+    """Record an audit entry for a freshly generated report (best-effort)."""
+    record_audit(
+        report,
+        action,
+        user,
+        {
+            "title": {"before": None, "after": report.title},
+            "status": {"before": None, "after": report.status},
+        },
+    )
 
 ACCEPTED_SOURCE_EXTS = {"md", "markdown", "txt", "docx"}
 
@@ -183,7 +198,7 @@ def generate_phase_report(phase, user):
         }
         _, blocks = parse(build_phase_body_markdown(phase))
         docx_bytes = build_docx(
-            blocks, metadata, template_path=phase.report_template.path
+            blocks, metadata, template_path=resolve_phase_template_path(phase)
         )
         fname = f"{slugify(poc.name)}-{slugify(phase.name)}-report.docx"
         report.output_file.save(fname, ContentFile(docx_bytes), save=False)
@@ -192,25 +207,28 @@ def generate_phase_report(phase, user):
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
     report.save()
+    _audit_generated(report, user)
     return report
 
 
 def resolve_phase_template_path(phase):
     """Path of the .docx template to use for a phase report.
 
-    Prefers the phase's own ``report_template``; otherwise falls back to the
-    global default (``ReportSettings``). Raises if neither is configured.
+    Prefers the phase's own ``report_template`` *when it's a .docx*; a .zip
+    template is a download-only bundle and can't drive generation, so it falls
+    back to the global default (``ReportSettings``). Raises if neither yields a
+    usable .docx.
     """
     from .models import ReportSettings
 
-    if phase.report_template:
+    if phase.has_docx_template:
         return phase.report_template.path
     default = ReportSettings.load().default_template
     if default:
         return default.path
     raise ValueError(
-        "No report template: attach one to this phase or set a global default "
-        "(Reports → settings)."
+        "No .docx report template: attach a .docx to this phase or set a global "
+        "default (Reports → settings). A .zip template is download-only."
     )
 
 
@@ -280,6 +298,7 @@ def generate_phase_report_from_documents(phase, user):
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
     report.save()
+    _audit_generated(report, user)
     return report
 
 
@@ -313,4 +332,5 @@ def generate_custom_report(report_type, source_file, user, poc=None):
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
     report.save()
+    _audit_generated(report, user)
     return report

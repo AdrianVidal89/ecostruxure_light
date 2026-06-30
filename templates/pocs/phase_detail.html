@@ -33,8 +33,15 @@
       {% if phase.description %}<p class="text-ink-muted mt-1">{{ phase.description }}</p>{% endif %}
     </div>
 
-    {% if can_edit %}
-      <div class="flex items-center gap-2 shrink-0">
+    <div class="flex items-center gap-2 shrink-0">
+      {% if has_template_file %}
+        <a href="{% url 'pocs:phase_template_download' phase.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+           title="Download this phase's template (its own, or the global default)">
+          <i data-lucide="download" class="w-4 h-4"></i> Download template
+        </a>
+      {% endif %}
+      {% if can_edit %}
         <a href="{% url 'pocs:phase_edit' phase.pk %}"
            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
           <i data-lucide="pencil" class="w-4 h-4"></i> Edit
@@ -46,8 +53,8 @@
             <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
           </button>
         </form>
-      </div>
-    {% endif %}
+      {% endif %}
+    </div>
   </div>
 
   {% if not is_leaf %}
@@ -76,143 +83,50 @@
         {% endfor %}
       </div>
     </section>
+  {% endif %}
 
-  {% elif is_functional_analysis or is_documentation %}
-    {# ---------- Documentation / Functional Analysis: Documents (.md) + Images + report ---------- #}
-    <div class="bg-brand/5 border border-brand/30 rounded-xl p-4 text-sm text-ink">
-      <p class="font-medium text-ink flex items-center gap-2">
-        <i data-lucide="clipboard-list" class="w-4 h-4"></i>
-        {% if is_functional_analysis %}Functional Analysis{% else %}Documentation{% endif %}
-      </p>
-      <p class="text-ink-muted mt-1">
-        {% if is_functional_analysis %}
-          Fill in each section below with your Markdown and images, then generate the report.
-        {% else %}
-          Add documents, write Markdown (with images), then generate the report.
-        {% endif %}
-      </p>
-    </div>
-
-    {% if is_documentation %}
-      {# Documentation phases also carry plain tasks. #}
-      <section class="space-y-3">
-        <div class="flex items-center justify-between">
-          <h2 class="font-medium text-ink">Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span></h2>
-          {% if can_edit %}
-            <a href="{% url 'pocs:task_create' phase.pk %}"
-               class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
-              <i data-lucide="plus" class="w-4 h-4"></i> Add task
-            </a>
-          {% endif %}
-        </div>
-        <div class="space-y-3">
-          {% for task in tasks %}
-            {% include "pocs/partials/task_row.html" %}
-          {% empty %}
-            <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
-              No tasks yet.{% if can_edit %} Use “Add task” to create one.{% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      </section>
-    {% endif %}
-
-    <section class="space-y-3">
-      <div class="flex items-center justify-between">
-        <h2 class="font-medium text-ink">Documents <span class="text-ink-muted font-normal">({{ documents|length }})</span></h2>
-        {% if can_edit and is_documentation %}
-          <a href="{% url 'pocs:document_create' phase.pk %}"
-             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
-            <i data-lucide="plus" class="w-4 h-4"></i> Add document
-          </a>
-        {% endif %}
-      </div>
-      <div class="space-y-3">
-        {% for document in documents %}
-          {% include "pocs/partials/document_row.html" %}
-        {% empty %}
-          <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
-            {% if is_functional_analysis %}
-              No Functional Analysis steps defined yet.{% if user.is_admin %} <a href="{% url 'pocs:fa_step_list' %}" class="text-brand-dark hover:underline">Define them</a>.{% endif %}
-            {% else %}
-              No documents yet.{% if can_edit %} Use “Add document” to create one.{% endif %}
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    </section>
-
-    {% include "pocs/partials/phase_images.html" %}
-
-    {# Report #}
-    <section class="bg-surface border border-line rounded-xl p-5">
-      {% if is_reportable %}
-        <form method="post" action="{% url 'reports:phase_documents' phase.pk %}">
-          {% csrf_token %}
-          <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
-            <i data-lucide="file-output" class="w-4 h-4"></i> Generate report
-          </button>
-          <p class="text-xs text-ink-muted mt-2">
-            Uses {% if phase.report_template %}this phase's template{% else %}the global default template{% endif %}.
-            Generated reports appear in the POC's Reports tab.
-          </p>
-        </form>
-      {% else %}
-        <p class="text-sm text-ink-muted">
-          No report template available — attach one to this phase{% if can_edit %} (edit the phase){% endif %}
-          or ask an admin to set a global default template.
-        </p>
-      {% endif %}
-    </section>
-
-  {% else %}
-    {# ---------- Test phase (leaf): Tasks + Tests ---------- #}
-    {% if can_add_subphase %}
-      <div class="flex justify-end">
-        <a href="{% url 'pocs:subphase_create' phase.pk %}"
-           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
-          <i data-lucide="plus" class="w-4 h-4"></i> Add sub-phase
+  {# ---------- Tasks — addable on ANY phase (parent or leaf) ---------- #}
+  <section class="space-y-3">
+    <div class="flex items-center justify-between">
+      <h2 class="font-medium text-ink">Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span></h2>
+      {% if can_add_task %}
+        <a href="{% url 'pocs:task_create' phase.pk %}"
+           class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+          <i data-lucide="plus" class="w-4 h-4"></i> Add task
         </a>
-      </div>
-    {% endif %}
-
-    <section class="space-y-3">
-      <div class="flex items-center justify-between">
-        <h2 class="font-medium text-ink">Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span></h2>
-        {% if can_edit %}
-          <a href="{% url 'pocs:task_create' phase.pk %}"
-             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
-            <i data-lucide="plus" class="w-4 h-4"></i> Add task
-          </a>
-        {% endif %}
-      </div>
-      {% if can_edit and tasks %}
-        {# Bulk "autoasignar progreso": set one status on several tasks at once.
-           The per-row checkboxes (in task_row) submit to this form via form="task-bulk". #}
-        <form method="post" action="{% url 'pocs:task_bulk_status' phase.pk %}" id="task-bulk"
-              class="flex flex-wrap items-center gap-2 bg-canvas border border-line rounded-lg px-3 py-2 text-sm">
-          {% csrf_token %}
-          <span class="text-ink-muted">Bulk update selected →</span>
-          <select name="status" class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
-            {% for value, label in task_status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-          </select>
-          <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
-            <i data-lucide="check-check" class="w-3.5 h-3.5"></i> Apply
-          </button>
-          <span class="text-xs text-ink-muted">(invalid transitions are skipped)</span>
-        </form>
       {% endif %}
-      <div class="space-y-3">
-        {% for task in tasks %}
-          {% include "pocs/partials/task_row.html" %}
-        {% empty %}
-          <div class="bg-surface border border-line rounded-xl p-10 text-center text-sm text-ink-muted">
-            No tasks yet.{% if can_edit %} Use “Add task” to create one.{% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    </section>
+    </div>
+    {% if bulk_enabled and tasks %}
+      {% comment %}
+        Bulk "autoasignar progreso": set one status on several tasks at once.
+        The per-row checkboxes (in task_row) submit to this form via form="task-bulk".
+      {% endcomment %}
+      <form method="post" action="{% url 'pocs:task_bulk_status' phase.pk %}" id="task-bulk"
+            class="flex flex-wrap items-center gap-2 bg-canvas border border-line rounded-lg px-3 py-2 text-sm">
+        {% csrf_token %}
+        <span class="text-ink-muted">Bulk update selected →</span>
+        <select name="status" class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
+          {% for value, label in task_status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+          <i data-lucide="check-check" class="w-3.5 h-3.5"></i> Apply
+        </button>
+        <span class="text-xs text-ink-muted">(invalid transitions are skipped)</span>
+      </form>
+    {% endif %}
+    <div class="space-y-3">
+      {% for task in tasks %}
+        {% include "pocs/partials/task_row.html" %}
+      {% empty %}
+        <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
+          No tasks yet.{% if can_add_task %} Use “Add task” to create one.{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
 
+  {% if is_leaf and is_test %}
+    {# ---------- Tests (leaf Test phases) ---------- #}
     <section class="space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="font-medium text-ink">Tests <span class="text-ink-muted font-normal">({{ tests|length }})</span></h2>
@@ -231,6 +145,127 @@
             No tests yet.{% if can_add_test %} Use “Add test” to create one.{% endif %}
           </div>
         {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if is_leaf %}
+    {# ---------- Report: two clearly divided options ---------- #}
+    <section class="space-y-4">
+      <div>
+        <h2 class="font-medium text-ink flex items-center gap-2">
+          <i data-lucide="file-text" class="w-4 h-4"></i> Report
+        </h2>
+        <p class="text-xs text-ink-muted mt-1">
+          Two options: <strong>upload</strong> a finished report, or <strong>generate</strong> one from Markdown.
+          Either way it appears in the POC’s Reports tab.
+        </p>
+      </div>
+
+      {# ----- Option A: upload a finished report (kept as-is) ----- #}
+      <div class="bg-surface border border-line rounded-xl p-5 space-y-3">
+        <h3 class="font-medium text-ink flex items-center gap-2">
+          <i data-lucide="upload" class="w-4 h-4"></i> Upload your report
+        </h3>
+        <p class="text-xs text-ink-muted">
+          Attach a finished file (<code>.docx</code>, <code>.pdf</code>, …). It’s stored exactly as
+          uploaded — no extraction — and listed below and in the Reports tab for download.
+        </p>
+        <form method="post" action="{% url 'reports:phase_upload' phase.pk %}" enctype="multipart/form-data" class="space-y-3">
+          {% csrf_token %}
+          {% include "components/filedrop.html" with field=upload_form.report_file hint=".docx · .pdf · .doc · .odt · .xlsx · .pptx · .md · .txt" %}
+          <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+            <i data-lucide="paperclip" class="w-4 h-4"></i> Attach report
+          </button>
+        </form>
+
+        {% if uploaded_reports %}
+          <div class="border border-line rounded-xl divide-y divide-line mt-2">
+            {% for r in uploaded_reports %}
+              <div class="flex items-center gap-3 p-3">
+                <i data-lucide="file" class="w-4 h-4 text-ink-muted shrink-0"></i>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-ink truncate">{{ r.title }}</p>
+                  <p class="text-xs text-ink-muted">{{ r.requested_at|date:"Y-m-d H:i" }}{% if r.requested_by %} · {{ r.requested_by.username }}{% endif %}</p>
+                </div>
+                <a href="{% url 'reports:download' r.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-info hover:underline shrink-0">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download
+                </a>
+                {% if can_edit %}
+                  <form method="post" action="{% url 'reports:delete' r.pk %}" onsubmit="return confirm('Remove this report?');" class="shrink-0">
+                    {% csrf_token %}
+                    <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Remove">
+                      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+        <span class="flex-1 h-px bg-line"></span> or <span class="flex-1 h-px bg-line"></span>
+      </div>
+
+      {# ----- Option B: generate from Markdown documents + images ----- #}
+      <div class="bg-surface border border-line rounded-xl p-5 space-y-4">
+        <h3 class="font-medium text-ink flex items-center gap-2">
+          <i data-lucide="file-code-2" class="w-4 h-4"></i> Generate from Markdown
+        </h3>
+        <p class="text-xs text-ink-muted">
+          Write Markdown documents (with images) and generate a <code>.docx</code> using the official template.
+        </p>
+
+        {# Documents #}
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-medium text-ink">Documents <span class="text-ink-muted font-normal">({{ documents|length }})</span></h4>
+            {% if can_edit %}
+              <a href="{% url 'pocs:document_create' phase.pk %}"
+                 class="inline-flex items-center gap-2 border border-line hover:bg-canvas text-ink font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+                <i data-lucide="plus" class="w-4 h-4"></i> Add markdown document
+              </a>
+            {% endif %}
+          </div>
+          <div class="space-y-3">
+            {% for document in documents %}
+              {% include "pocs/partials/document_row.html" %}
+            {% empty %}
+              <div class="bg-canvas border border-line rounded-xl p-6 text-center text-sm text-ink-muted">
+                {% if is_functional_analysis %}
+                  No Functional Analysis steps defined yet.{% if user.is_admin %} <a href="{% url 'pocs:fa_step_list' %}" class="text-brand-dark hover:underline">Define them</a>.{% endif %}
+                {% else %}
+                  No documents yet.{% if can_edit %} Use “Add markdown document” to create one.{% endif %}
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Images #}
+        {% include "pocs/partials/phase_images.html" %}
+
+        {# Generate #}
+        <div class="pt-2 border-t border-line">
+          {% if is_reportable %}
+            <form method="post" action="{% url 'reports:phase_documents' phase.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+                <i data-lucide="file-output" class="w-4 h-4"></i> Generate report from Markdown
+              </button>
+              <p class="text-xs text-ink-muted mt-2">
+                Uses {% if phase.report_template %}this phase’s template{% else %}the global default template{% endif %}.
+              </p>
+            </form>
+          {% else %}
+            <p class="text-sm text-ink-muted">
+              No report template available — attach one to this phase{% if can_edit %} (edit the phase){% endif %}
+              or ask an admin to set a global default template.
+            </p>
+          {% endif %}
+        </div>
       </div>
     </section>
   {% endif %}

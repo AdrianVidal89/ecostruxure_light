@@ -19,6 +19,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from apps.core.mixins import AdminRequiredMixin
+from apps.pocs.audit import record_audit
 from apps.pocs.models import Phase, POCMembership
 
 from .forms import CustomReportForm, ReportSettingsForm, ReportTypeForm
@@ -194,6 +195,86 @@ def report_download(request, pk):
         as_attachment=True,
         filename=report.output_file.name.rsplit("/", 1)[-1],
     )
+
+
+def _can_delete_report(user, report):
+    """Who may remove a generated report.
+
+    Phase reports: admin, the POC lead, or whoever requested it. Custom reports
+    (no POC): admin or the requester.
+    """
+    if user.is_admin or report.requested_by_id == user.id:
+        return True
+    if report.poc_id:
+        from apps.core.mixins import user_can_lead_poc
+
+        return user_can_lead_poc(user, report.poc)
+    return False
+
+
+@require_POST
+def report_delete(request, pk):
+    """Delete a generated report and its files (permission-checked)."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    report = get_object_or_404(GeneratedReport, pk=pk)
+    if not _can_delete_report(request.user, report):
+        raise PermissionDenied
+
+    poc_id = report.poc_id
+    title = report.title
+    # Remove the stored files first so they don't linger as orphans.
+    if report.output_file:
+        report.output_file.delete(save=False)
+    if report.source_file:
+        report.source_file.delete(save=False)
+    record_audit(
+        report, "report_deleted", request.user, {"title": {"before": title, "after": None}}
+    )
+    report.delete()
+    messages.success(request, f"Report “{title}” removed.")
+
+    # Return to wherever the report was listed.
+    if poc_id:
+        return redirect(f"{reverse('pocs:detail', args=[poc_id])}?tab=reports")
+    return redirect("reports:home")
+
+
+@require_POST
+def phase_report_upload(request, phase_pk):
+    """Attach a finished report file to a phase (kept as-is, no extraction).
+
+    Stored as a READY ``GeneratedReport`` of kind ``uploaded`` so it shows up in
+    the POC's Reports tab and is downloadable / removable like any other report.
+    Allowed for POC members + admin.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    phase = get_object_or_404(Phase, pk=phase_pk)
+    if not _is_poc_member(request.user, phase.poc):
+        raise PermissionDenied
+
+    from apps.pocs.forms import PhaseReportUploadForm
+
+    form = PhaseReportUploadForm(request.POST, request.FILES)
+    if not form.is_valid():
+        messages.error(request, form.errors.get("report_file", ["Upload failed."])[0])
+        return redirect("pocs:phase_detail", phase_pk=phase.pk)
+
+    f = form.cleaned_data["report_file"]
+    report = GeneratedReport(
+        kind=GeneratedReport.Kind.UPLOADED,
+        title=f"{phase.name} — {f.name}",
+        poc=phase.poc,
+        phase=phase,
+        requested_by=request.user,
+        status=GeneratedReport.Status.READY,
+    )
+    report.output_file.save(f.name, f, save=True)
+    record_audit(report, "report_uploaded", request.user,
+                 {"file": {"before": None, "after": f.name}})
+    messages.success(request, f"Report “{f.name}” attached.")
+    return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
 @require_POST

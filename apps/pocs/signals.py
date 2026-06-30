@@ -114,6 +114,7 @@ def _write_audit_log(sender, instance, created, **kwargs):
     AuditLog.objects.create(
         content_type=ContentType.objects.get_for_model(sender),
         object_id=instance.pk,
+        poc=instance.phase.poc if instance.phase_id else None,
         action=action,
         actor=get_current_user(),
         details=details,

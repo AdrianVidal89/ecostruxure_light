@@ -229,8 +229,9 @@ class PhaseTemplate(models.Model):
         upload_to="report_templates/blueprint/%Y/%m/",
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(["docx"])],
-        help_text="Word template (.docx); only nodes with one can generate a report.",
+        validators=[FileExtensionValidator(["docx", "zip"])],
+        help_text="Template file: a Word .docx (used to generate reports) or a "
+        ".zip bundle of documents (download-only).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -378,8 +379,9 @@ class Phase(models.Model):
         upload_to="report_templates/phase/%Y/%m/",
         null=True,
         blank=True,
-        validators=[FileExtensionValidator(["docx"])],
-        help_text="Word template (.docx) enabling report generation for this phase.",
+        validators=[FileExtensionValidator(["docx", "zip"])],
+        help_text="Template file: a Word .docx (used to generate reports from "
+        "Markdown) or a .zip bundle of documents (download-only).",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -393,8 +395,13 @@ class Phase(models.Model):
 
     @property
     def is_reportable(self):
-        """A phase report can be generated once a .docx template is attached."""
+        """The phase has a template file attached (downloadable; .docx or .zip)."""
         return bool(self.report_template)
+
+    @property
+    def has_docx_template(self):
+        """The attached template is a Word .docx usable for generation."""
+        return bool(self.report_template) and self.report_template.name.lower().endswith(".docx")
 
     @property
     def is_functional_analysis(self):
@@ -716,6 +723,17 @@ class AuditLog(models.Model):
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey("content_type", "object_id")
 
+    # Direct link to the owning POC so an entry remains discoverable even after
+    # its target object is deleted (the generic FK can't be queried then). Null
+    # for entries not tied to a POC (e.g. custom reports).
+    poc = models.ForeignKey(
+        POC,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+
     action = models.CharField(
         max_length=50,
         help_text='e.g. "status_changed", "result_added", "file_uploaded".',
@@ -741,6 +759,17 @@ class AuditLog(models.Model):
     def action_label(self):
         """Human-readable action phrase for display, e.g. 'status changed on'."""
         return self.action.replace("_", " ") + " on"
+
+    @property
+    def target_label(self):
+        """Friendly noun for the audited model (instead of the raw model name)."""
+        return {
+            "task": "task",
+            "test": "test",
+            "phasedocument": "document",
+            "phaseimage": "image",
+            "generatedreport": "report",
+        }.get(self.content_type.model, self.content_type.model)
 
 
 # ---------------------------------------------------------------------------
