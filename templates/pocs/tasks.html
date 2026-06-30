@@ -13,10 +13,22 @@
   </div>
 
   {# Filters #}
-  <div class="flex items-center gap-2 text-sm">
-    <a href="?" class="px-3 py-1.5 rounded-lg border {% if not filter %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">All</a>
-    <a href="?f=pending" class="px-3 py-1.5 rounded-lg border {% if filter == 'pending' %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Pending</a>
-    <a href="?f=overdue" class="px-3 py-1.5 rounded-lg border {% if filter == 'overdue' %}border-danger text-danger bg-danger/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Overdue</a>
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="?{% if assignee_filter %}u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if not filter %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">All</a>
+    <a href="?f=pending{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'pending' %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Pending</a>
+    <a href="?f=overdue{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'overdue' %}border-danger text-danger bg-danger/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Overdue</a>
+    {% if users %}
+      <form method="get" class="ml-1">
+        {% if filter %}<input type="hidden" name="f" value="{{ filter }}">{% endif %}
+        <select name="u" onchange="this.form.submit()"
+                class="rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+          <option value="">All assignees</option>
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if assignee_filter == u.id|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
     <span class="text-xs text-ink-muted ml-auto">{{ total }} task{{ total|pluralize }}</span>
   </div>
 

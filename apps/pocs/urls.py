@@ -1,13 +1,20 @@
 """POC URL configuration."""
 
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
 app_name = "pocs"
 
 urlpatterns = [
-    path("", views.POCListView.as_view(), name="list"),
+    # The POCs list is merged into the unified Dashboard; keep the name so
+    # existing links/redirects resolve, but send users to the dashboard.
+    path(
+        "",
+        RedirectView.as_view(pattern_name="core:dashboard", permanent=False),
+        name="list",
+    ),
     path("tasks/", views.TasksView.as_view(), name="tasks"),
     path("import/", views.POCImportView.as_view(), name="import"),
     path("create/", views.POCCreateView.as_view(), name="create"),

@@ -4,7 +4,7 @@
 
 {% block title %}{{ poc.name }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
+  <a href="{% url 'core:dashboard' %}" class="hover:text-ink">Dashboard</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <span class="text-ink font-medium truncate max-w-xs">{{ poc.name }}</span>
 {% endblock %}
@@ -122,8 +122,8 @@
       {% endif %}
     </div>
 
-    {# Imported business details (only shown when present) #}
-    {% if poc.external_id %}
+    {# Business details (shown when there's data beyond the status) #}
+    {% if has_details %}
       <div class="bg-surface border border-line rounded-xl p-6">
         <h2 class="font-medium text-ink mb-4">Details</h2>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">

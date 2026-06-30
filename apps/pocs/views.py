@@ -339,8 +339,10 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         if can_lead:
             ctx["audit_logs"] = _poc_audit_logs(poc)
         # Imported business details for the Overview tab (label, value pairs).
+        # "Status" mirrors the POC's own lifecycle status (single source of truth),
+        # not the imported external_status, so it always matches the header badge.
         ctx["poc_details"] = [
-            ("Status", poc.external_status),
+            ("Status", poc.get_status_display()),
             ("Customer", poc.customer),
             ("Customer Segment", poc.customer_segment),
             ("Initiative", poc.initiative),
@@ -367,6 +369,11 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
             ("Integration Leader", poc.integration_leader),
             ("Initiative (QUA)", poc.initiative_qua),
         ]
+        # Show the Details panel whenever there is any business data beyond the
+        # always-present Status (covers both imported and manually-edited POCs).
+        ctx["has_details"] = any(
+            value for label, value in ctx["poc_details"] if label != "Status"
+        )
         # Reports tab: only phases (any level) that have a template attached.
         ctx["reportable_phases"] = poc.phases.exclude(report_template="").exclude(
             report_template__isnull=True
@@ -1535,6 +1542,11 @@ class TasksView(LoginRequiredMixin, View):
         elif flt == "overdue":
             qs = qs.filter(due_date__lt=today).exclude(status=Task.Status.COMPLETED)
 
+        # Admin-only: narrow down to a single assignee.
+        assignee_filter = request.GET.get("u", "").strip()
+        if user.is_admin and assignee_filter:
+            qs = qs.filter(assigned_to_id=assignee_filter)
+
         tasks = list(qs.order_by("phase__poc__name", "phase__order", "id"))
         groups, current = [], None
         for t in tasks:
@@ -1547,16 +1559,19 @@ class TasksView(LoginRequiredMixin, View):
                 groups.append(current)
             current["tasks"].append(t)
 
-        return render(
-            request,
-            self.template_name,
-            {
-                "groups": groups,
-                "manager": manager,
-                "filter": flt,
-                "total": len(tasks),
-            },
-        )
+        ctx = {
+            "groups": groups,
+            "manager": manager,
+            "filter": flt,
+            "total": len(tasks),
+        }
+        if user.is_admin:
+            ctx["users"] = User.objects.filter(is_active=True).order_by(
+                "first_name", "last_name", "username"
+            )
+            ctx["assignee_filter"] = assignee_filter
+
+        return render(request, self.template_name, ctx)
 
 
 @require_POST

@@ -28,12 +28,6 @@ def navigation(request):
             "available": True,
         },
         {
-            "label": "POCs",
-            "url_name": "pocs:list",
-            "icon": "folder",
-            "available": True,
-        },
-        {
             "label": "Tasks",
             "url_name": "pocs:tasks",
             "icon": "list-checks",

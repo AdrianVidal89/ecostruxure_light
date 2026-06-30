@@ -29,6 +29,43 @@ INPUT_CLASS = (
     "focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
 )
 
+# Imported business fields shown in the POC "Details" panel. Editable by
+# admins/leads through the edit form (rendered generically — see poc_form.html).
+POC_DETAIL_FIELDS = (
+    "customer",
+    "customer_segment",
+    "region",
+    "initiative",
+    "initiative_qua",
+    "initiative_qua_id",
+    "leading_organization",
+    "l2_wbs",
+    "bfo_no",
+    "investment_type",
+    "leadership",
+    "finance_kpi",
+    "schedule_kpi",
+    "proposal_duration",
+    "tendering_start",
+    "tendering_finish",
+    "execution_start",
+    "execution_finish",
+    "pilot_requestor",
+    "opportunity_leader",
+    "ecostruxure_lead",
+    "pilot_tender_leader",
+    "pilot_tender_tl",
+    "pilot_pm",
+    "pilot_exec_tl",
+    "integration_leader",
+)
+
+
+def _date_input():
+    return forms.DateInput(
+        attrs={"type": "date", "class": INPUT_CLASS}, format="%Y-%m-%d"
+    )
+
 
 class NonBlankMixin:
     """Reject whitespace-only values and trim the listed text fields.
@@ -53,25 +90,48 @@ class NonBlankMixin:
 
 
 class POCForm(NonBlankMixin, forms.ModelForm):
-    """Create / edit a POC. ``description`` is edited with EasyMDE client-side."""
+    """Create / edit a POC. ``description`` is edited with EasyMDE client-side.
+
+    Besides the core fields, every imported business detail (``POC_DETAIL_FIELDS``)
+    is editable here; the template renders them generically via ``detail_fields``.
+    """
 
     non_blank_fields = ("name",)
 
     class Meta:
         model = POC
-        fields = ("name", "description", "status", "start_date", "end_date")
+        fields = (
+            "name",
+            "description",
+            "status",
+            "start_date",
+            "end_date",
+        ) + POC_DETAIL_FIELDS
         widgets = {
             "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
             # id_description is the EasyMDE mount point (see poc_form.html).
             "description": forms.Textarea(attrs={"rows": 8}),
             "status": forms.Select(attrs={"class": INPUT_CLASS}),
-            "start_date": forms.DateInput(
-                attrs={"type": "date", "class": INPUT_CLASS}, format="%Y-%m-%d"
-            ),
-            "end_date": forms.DateInput(
-                attrs={"type": "date", "class": INPUT_CLASS}, format="%Y-%m-%d"
-            ),
+            "start_date": _date_input(),
+            "end_date": _date_input(),
+            "tendering_start": _date_input(),
+            "tendering_finish": _date_input(),
+            "execution_start": _date_input(),
+            "execution_finish": _date_input(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # All imported details are optional; give them the shared input styling.
+        for name in POC_DETAIL_FIELDS:
+            field = self.fields.get(name)
+            if field is not None:
+                field.required = False
+                field.widget.attrs.setdefault("class", INPUT_CLASS)
+
+    def detail_fields(self):
+        """Bound fields for the imported "Details" section, in display order."""
+        return [self[name] for name in POC_DETAIL_FIELDS]
 
     def clean(self):
         cleaned = super().clean()

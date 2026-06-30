@@ -15,32 +15,139 @@ from .mixins import AdminRequiredMixin
 from .models import SiteBranding
 
 
+# Imported business fields offered as fine-grain dropdown filters (admin only).
+# Each tuple is (POC field name, GET param / label key, human label).
+FINE_GRAIN_FILTERS = (
+    ("customer_segment", "Customer Segment"),
+    ("leading_organization", "Leading Organization"),
+    ("l2_wbs", "L2 WBS"),
+    ("investment_type", "Investment Type"),
+    ("leadership", "Leadership"),
+    ("pilot_requestor", "Pilot Requestor"),
+    ("ecostruxure_lead", "EcoStruxure Lead"),
+    ("integration_leader", "Integration Leader"),
+)
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
-    """Post-login landing: assigned POCs (all, for admins) + admin stats."""
+    """Unified landing page (merges the old Dashboard + POCs list).
+
+    Shows admin stats widgets, the full filter bar (search, assigned member and
+    status as main filters, plus a fine-grain row of business-field dropdowns and
+    an execution-date range) and the paginated grid of POC cards.
+    """
 
     template_name = "core/dashboard.html"
+    paginate_by = 12
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         # Imported here to avoid a core → pocs import at app-load time.
+        from django.contrib.auth import get_user_model
+        from django.core.paginator import Paginator
+        from django.db.models import Q
+
         from apps.pocs.models import POC
 
         user = self.request.user
-        if user.is_admin:
-            pocs = POC.objects.all()
-        else:
-            pocs = POC.objects.filter(memberships__user=user).distinct()
+        is_admin = user.is_admin
+        G = self.request.GET
 
-        ctx["pocs"] = pocs.order_by("-created_at")
+        # Base scope: every POC for admins, own POCs otherwise.
+        base = POC.objects.all() if is_admin else POC.objects.filter(memberships__user=user)
+        pocs = base
 
-        if user.is_admin:
+        # --- Main filters (available to everyone) ---
+        query = G.get("q", "").strip()
+        if query:
+            pocs = pocs.filter(Q(name__icontains=query) | Q(description__icontains=query))
+        status = G.get("status", "").strip()
+        if status:
+            pocs = pocs.filter(status=status)
+
+        # --- Admin-only filters: assigned member + fine-grain business fields ---
+        member_filter = ""
+        fine_values = {}
+        exec_from = exec_to = ""
+        if is_admin:
+            member_filter = G.get("u", "").strip()
+            if member_filter:
+                pocs = pocs.filter(memberships__user_id=member_filter)
+
+            for field, _label in FINE_GRAIN_FILTERS:
+                val = G.get(field, "").strip()
+                fine_values[field] = val
+                if val:
+                    pocs = pocs.filter(**{field: val})
+
+            exec_from = G.get("exec_from", "").strip()
+            exec_to = G.get("exec_to", "").strip()
+            if exec_from:
+                pocs = pocs.filter(execution_start__gte=exec_from)
+            if exec_to:
+                pocs = pocs.filter(execution_start__lte=exec_to)
+
+        pocs = pocs.distinct().order_by("-created_at")
+
+        # Stats (admin) follow the current selection.
+        if is_admin:
             ctx["stats"] = {
-                "total": POC.objects.count(),
-                "active": POC.objects.filter(status=POC.Status.ACTIVE).count(),
-                "completed": POC.objects.filter(
-                    status=POC.Status.COMPLETED
-                ).count(),
+                "total": pocs.count(),
+                "active": pocs.filter(status=POC.Status.ACTIVE).count(),
+                "completed": pocs.filter(status=POC.Status.COMPLETED).count(),
             }
+
+        # Pagination.
+        page_obj = Paginator(pocs, self.paginate_by).get_page(G.get("page"))
+        ctx["pocs"] = page_obj
+        ctx["page_obj"] = page_obj
+        ctx["is_paginated"] = page_obj.has_other_pages()
+
+        # Filter UI state.
+        ctx["query"] = query
+        ctx["status_filter"] = status
+        ctx["status_choices"] = POC.Status.choices
+        ctx["can_manage"] = is_admin
+
+        if is_admin:
+            ctx["users"] = (
+                get_user_model()
+                .objects.filter(is_active=True)
+                .order_by("first_name", "last_name", "username")
+            )
+            ctx["member_filter"] = member_filter
+
+            # Fine-grain dropdowns: distinct non-empty values across the scope.
+            def options(field):
+                return sorted(
+                    v
+                    for v in base.exclude(**{field: ""})
+                    .values_list(field, flat=True)
+                    .distinct()
+                    if v
+                )
+
+            ctx["fine_filters"] = [
+                {
+                    "name": field,
+                    "label": label,
+                    "value": fine_values.get(field, ""),
+                    "options": options(field),
+                }
+                for field, label in FINE_GRAIN_FILTERS
+            ]
+            ctx["exec_from"] = exec_from
+            ctx["exec_to"] = exec_to
+            active = [v for v in fine_values.values() if v]
+            if exec_from or exec_to:
+                active.append("exec")
+            ctx["fine_filter_count"] = len(active)
+            ctx["has_fine_filter"] = bool(active)
+
+        # Querystring (minus page) so pagination links keep the active filters.
+        params = G.copy()
+        params.pop("page", None)
+        ctx["querystring"] = params.urlencode()
         return ctx
 
 
