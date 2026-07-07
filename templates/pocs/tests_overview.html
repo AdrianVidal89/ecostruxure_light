@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Tests · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">Tests</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">{% if manager %}All tests{% else %}My tests{% endif %}</h1>
+    <p class="text-ink-muted mt-1">
+      {% if manager %}Every test in your POCs, grouped by POC.{% else %}Tests assigned to you, grouped by POC.{% endif %}
+    </p>
+  </div>
+
+  {# Filters #}
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="?{% if assignee_filter %}u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if not filter %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">All</a>
+    <a href="?f=pending{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'pending' %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Pending</a>
+    <a href="?f=awaiting{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'awaiting' %}border-warning text-warning bg-warning/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Awaiting validation</a>
+    {% if users %}
+      <form method="get" class="ml-1">
+        {% if filter %}<input type="hidden" name="f" value="{{ filter }}">{% endif %}
+        <select name="u" onchange="this.form.submit()"
+                class="rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+          <option value="">All assignees</option>
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if assignee_filter == u.id|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
+    <span class="text-xs text-ink-muted ml-auto">{{ total }} test{{ total|pluralize }}</span>
+  </div>
+
+  {% for group in groups %}
+    <div>
+      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark mb-2">
+        <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
+        <span class="text-xs text-ink-muted">({{ group.tests|length }})</span>
+      </a>
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for test in group.tests %}
+          <div class="flex items-center gap-3 p-4">
+            <a href="{% url 'pocs:phase_detail' test.phase.pk %}" class="min-w-0 flex-1">
+              <p class="font-medium text-ink truncate">
+                {% if test.test_code %}<span class="text-xs font-mono text-ink-muted mr-1">{{ test.test_code }}</span>{% endif %}{{ test.title }}
+              </p>
+              <p class="text-xs text-ink-muted truncate">
+                {{ test.phase.name }}
+                {% if manager %} · {% if test.assigned_to %}{{ test.assigned_to.get_full_name|default:test.assigned_to.username }}{% else %}Unassigned{% endif %}{% endif %}
+              </p>
+            </a>
+            {% if test.pending_validation %}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning whitespace-nowrap shrink-0">
+                <i data-lucide="clock" class="w-3 h-3"></i> Awaiting
+              </span>
+            {% endif %}
+            {% if test.result %}
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
+                {% if test.result == 'passed' %}bg-brand/10 text-brand-dark
+                {% elif test.result == 'not_passed' %}bg-danger/10 text-danger
+                {% else %}bg-warning/10 text-warning{% endif %}">{{ test.get_result_display }}</span>
+            {% else %}
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
+                {% if test.execution_status == 'test_completed' %}bg-info/10 text-info
+                {% elif test.execution_status == 'in_progress' %}bg-warning/10 text-warning
+                {% elif test.execution_status == 'skipped' %}bg-line text-ink-muted
+                {% else %}bg-line text-ink-muted{% endif %}">{{ test.get_execution_status_display }}</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% empty %}
+    <div class="bg-surface border border-line rounded-xl p-12 text-center">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-canvas flex items-center justify-center text-ink-muted">
+        <i data-lucide="flask-conical" class="w-6 h-6"></i>
+      </div>
+      <p class="mt-3 text-ink font-medium">Nothing here</p>
+      <p class="text-sm text-ink-muted mt-1">
+        {% if filter %}No tests match this filter.{% elif manager %}No tests in your POCs yet.{% else %}You have no tests assigned.{% endif %}
+      </p>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

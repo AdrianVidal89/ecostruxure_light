@@ -1,0 +1,46 @@
+{% load core_extras %}
+<div class="space-y-4">
+  <div>
+    <p class="text-xs font-mono text-ink-muted">{{ usecase.code }}</p>
+    <h3 class="text-lg font-semibold text-ink break-words">{{ usecase.title }}</h3>
+    <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ usecase.get_priority_display }}</span>
+      <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
+      {% if usecase.is_approved %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+      {% endif %}
+      {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
+    </div>
+  </div>
+
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+    {% if usecase.description %}
+      <div class="prose prose-sm max-w-none text-ink">{{ usecase.description|markdownify }}</div>
+    {% else %}
+      <p class="text-sm text-ink-muted italic">No description.</p>
+    {% endif %}
+  </div>
+
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked requirements</p>
+    {% if usecase.requirements.exists %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for r in usecase.requirements.all %}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink">
+            <i data-lucide="link" class="w-3 h-3"></i>{{ r.code }}{% if r.sub_system %} · {{ r.sub_system }}{% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-ink-muted italic">No linked requirements.</p>
+    {% endif %}
+  </div>
+
+  {% if usecase.remarks %}
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Remarks</p>
+      <div class="prose prose-sm max-w-none text-ink">{{ usecase.remarks|markdownify }}</div>
+    </div>
+  {% endif %}
+</div>

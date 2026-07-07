@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Import requirements · {{ poc.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Requirements &amp; Use Cases</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Import</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">Import requirements — {{ poc.name }}</h1>
+
+  {# Upload #}
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
+    <p class="text-sm text-ink-muted">
+      Upload an <code>.xlsx</code> with one requirement per row. Expected columns
+      (headers, case-insensitive): <code>sub_system</code>, <code>req_gravity</code>,
+      <code>req_operation</code>, <code>req_functional</code>, <code>req_category</code>,
+      <code>validation_criteria</code>, <code>life_cycle_phase</code>,
+      <code>reference_documentations</code>, <code>remarks</code>, <code>use_cases</code>.
+      The <code>code</code> is generated automatically. <code>req_gravity</code>,
+      <code>req_operation</code>, <code>req_functional</code> and <code>req_category</code>
+      accept either a value or its label from the suggested list below — but they're not
+      limited to it: any other text is accepted too and saved as a new suggestion for this
+      POC, available next time (from the importer or the "+ Add new…" option on the manual
+      form). <code>use_cases</code> is optional — a comma-separated list of existing use
+      case codes to link; leave it blank (or omit the column) and the requirement is
+      imported with no use cases linked. A requirement has no title, so
+      <code>validation_criteria</code> is used to catch duplicates: a row whose
+      validation criteria matches one already in this POC (or an earlier row in the
+      same file) is flagged and skipped — safe to re-upload the same sheet without
+      creating copies.
+    </p>
+    <a href="{% url 'pocs:requirement_import_template' poc.pk %}" class="inline-flex items-center gap-2 text-sm text-brand-dark hover:underline">
+      <i data-lucide="download" class="w-4 h-4"></i> Download blank .xlsx template
+    </a>
+    <form method="post" enctype="multipart/form-data" class="space-y-3">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<p class="text-xs text-danger">{{ form.non_field_errors }}</p>{% endif %}
+      {% include "components/filedrop.html" with field=form.file hint=".xlsx only" %}
+      {% for error in form.file.errors %}<p class="text-xs text-danger">{{ error }}</p>{% endfor %}
+      <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="upload" class="w-4 h-4"></i> Upload &amp; preview
+      </button>
+    </form>
+  </div>
+
+  {# Preview #}
+  {% if preview %}
+    <div class="bg-surface border border-line rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-medium text-ink">Preview</h2>
+        <p class="text-sm">
+          <span class="text-brand-dark font-medium">{{ valid_count }} valid</span>
+          {% if error_count %}· <span class="text-danger font-medium">{{ error_count }} with errors</span>{% endif %}
+        </p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-left text-xs text-ink-muted uppercase tracking-wide">
+              <th class="px-2 py-2 border-b border-line">Row</th>
+              <th class="px-2 py-2 border-b border-line">Status</th>
+              <th class="px-2 py-2 border-b border-line">Sub-system</th>
+              <th class="px-2 py-2 border-b border-line">Gravity</th>
+              <th class="px-2 py-2 border-b border-line">Operation</th>
+              <th class="px-2 py-2 border-b border-line">Category</th>
+              <th class="px-2 py-2 border-b border-line">Use cases</th>
+              <th class="px-2 py-2 border-b border-line">Issues</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in preview %}
+              <tr class="{% if not r.valid %}bg-danger/5{% endif %}">
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.row }}</td>
+                <td class="px-2 py-2 border-b border-line">
+                  {% if r.valid %}
+                    <span class="inline-flex items-center gap-1 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Valid</span>
+                  {% else %}
+                    <span class="inline-flex items-center gap-1 text-danger"><i data-lucide="x" class="w-3.5 h-3.5"></i> Error</span>
+                  {% endif %}
+                </td>
+                <td class="px-2 py-2 border-b border-line text-ink">{{ r.data.sub_system|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.req_gravity|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.req_operation|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.req_category|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.use_case_ids|length }}</td>
+                <td class="px-2 py-2 border-b border-line text-danger text-xs">
+                  {% for e in r.errors %}{{ e }}{% if not forloop.last %}; {% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if valid_count %}
+        <form method="post" class="pt-2">
+          {% csrf_token %}
+          <input type="hidden" name="confirm" value="1">
+          <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+            <i data-lucide="check-check" class="w-4 h-4"></i> Import {{ valid_count }} valid requirement(s)
+          </button>
+          {% if error_count %}<span class="text-xs text-ink-muted ml-2">Rows with errors are skipped.</span>{% endif %}
+        </form>
+      {% else %}
+        <p class="text-sm text-danger">No valid rows to import — fix the file and upload again.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

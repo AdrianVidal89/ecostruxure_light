@@ -17,14 +17,54 @@ Markdown fields store raw Markdown; rendering happens at the template layer
 (markdown2) in later steps.
 """
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
 
 USER = settings.AUTH_USER_MODEL
+
+# Test-code abbreviations by Test-phase type (used to build ``Test.test_code``,
+# e.g. "Unit Testing" → UT-001). Keyed by a lowercase match on the phase name;
+# see ``test_phase_abbreviation`` for the (looser) matching used when
+# generating a code — a phase named e.g. "Unitary Testing" still resolves to UT.
+TEST_PHASE_ABBREVIATIONS = {
+    "unit testing": "UT",
+    "integration testing": "IT",
+    "system testing": "ST",
+    "performing testing": "PT",
+    "scalability testing": "SCAT",
+    "stress testing": "STT",
+    "cybersecurity testing": "CST",
+}
+
+
+def test_phase_abbreviation(phase_name):
+    """Resolve a Test-phase name to its ``Test.test_code`` prefix.
+
+    Tries an exact (case-insensitive) match against ``TEST_PHASE_ABBREVIATIONS``
+    first, then a looser match on the phase's first word against each known
+    abbreviation's first word (so a locally-renamed phase like "Unitary
+    Testing" still resolves to "UT"). Falls back to the initials of the phase
+    name's words (e.g. "Load Testing" → LT), or "TC" (Test Case) if that's empty.
+    """
+    name = (phase_name or "").strip().lower()
+    if name in TEST_PHASE_ABBREVIATIONS:
+        return TEST_PHASE_ABBREVIATIONS[name]
+    words = name.split()
+    first_word = words[0] if words else ""
+    if first_word:
+        for key, abbr in TEST_PHASE_ABBREVIATIONS.items():
+            key_word = key.split()[0]
+            if first_word.startswith(key_word) or key_word.startswith(first_word):
+                return abbr
+    initials = "".join(w[0] for w in words if w).upper()[:4]
+    return initials or "TC"
 
 
 class PhaseKind(models.TextChoices):
@@ -46,6 +86,22 @@ class PhaseKind(models.TextChoices):
 # ---------------------------------------------------------------------------
 # POC
 # ---------------------------------------------------------------------------
+def _board_cell_status(tests):
+    """Aggregate a set of tests into one status-board cell state (spec 10a)."""
+    if not tests:
+        return "none"
+    results = [t.result for t in tests]
+    if any(r == "not_passed" for r in results):
+        return "not_expected"
+    if all(r in ("passed", "passed_with_comments") for r in results):
+        return "as_expected"
+    if any(
+        t.execution_status in ("in_progress", "test_completed") for t in tests
+    ) or any(results):
+        return "in_progress"
+    return "not_started"
+
+
 class POC(models.Model):
     """A Proof of Concept project."""
 
@@ -116,6 +172,31 @@ class POC(models.Model):
     )
     external_created = models.DateTimeField(null=True, blank=True)
 
+    # Official closure (spec Fase 6). Once closed the POC is locked (only an
+    # admin can revert). ``closure_date`` is the user-entered official date;
+    # ``closed_at``/``closed_by`` record who sealed it and when.
+    closure_date = models.DateField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="closed_pocs",
+    )
+    closure_conclusion = models.TextField(
+        blank=True, help_text="Optional final conclusion / notes (Markdown)."
+    )
+
+    # Architecture diagram for the POC quick-view dashboard (spec Fase 10a).
+    architecture_image = models.FileField(
+        upload_to="poc_architecture/%Y/%m/",
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp"])],
+        help_text="Architecture diagram shown on the POC dashboard (PNG/JPG/GIF/WEBP).",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -127,6 +208,88 @@ class POC(models.Model):
     def __str__(self):
         return self.name
 
+    @property
+    def is_closed(self):
+        return self.closed_at is not None
+
+    @property
+    def all_phases_approved(self):
+        """True when the POC has leaf work-phases and all of them are approved.
+
+        Phases marked Not Applicable are excluded — they carry no work to approve.
+        """
+        leaves = self.phases.filter(children__isnull=True)
+        work = [p for p in leaves if p.has_own_items and not p.is_na]
+        return bool(work) and all(p.is_approved for p in work)
+
+    def test_timeline(self):
+        """Roadmap view: one row per Test-kind leaf phase, its tests plotted
+        chronologically on a shared axis (executed tests at their actual
+        execution date; not-yet-executed tests clustered toward the project's
+        target finish date so the row still reads left-to-right). A row turns
+        green once every one of its tests has passed/skipped; the whole board
+        flags "Testing complete" once every row is green.
+        """
+        today = timezone.now().date()
+        phases = list(
+            self.phases.filter(kind=PhaseKind.TEST, children__isnull=True)
+            .prefetch_related("tests")
+        )
+        all_tests = [t for p in phases for t in p.tests.all()]
+        if not all_tests:
+            return None
+
+        executed_dates = [t.executed_at.date() for t in all_tests if t.executed_at]
+        target_finish = self.execution_finish
+        candidates_end = [today] + executed_dates
+        if target_finish:
+            candidates_end.append(target_finish)
+        axis_start = min([today] + executed_dates)
+        axis_end = max(candidates_end) if target_finish or executed_dates else today + timedelta(days=30)
+        if axis_end <= axis_start:
+            axis_end = axis_start + timedelta(days=30)
+        span_days = (axis_end - axis_start).days or 1
+
+        def pos_for(d):
+            return max(0, min(100, round((d - axis_start).days / span_days * 100)))
+
+        today_pos = pos_for(today)
+
+        # Not-yet-executed tests have no date to plot — spread them across the
+        # tail of the axis (today → end) in id order so they don't overlap.
+        pending = sorted((t for t in all_tests if not t.executed_at), key=lambda t: t.id)
+        pending_pos = {}
+        if pending:
+            tail_start = max(today_pos, 60)
+            step = (100 - tail_start) / (len(pending) + 1)
+            for i, t in enumerate(pending, start=1):
+                pending_pos[t.id] = round(tail_start + step * i)
+
+        rows = []
+        for phase in phases:
+            tests = list(phase.tests.all())
+            if not tests:
+                continue
+            markers = []
+            for t in tests:
+                pos = pos_for(t.executed_at.date()) if t.executed_at else pending_pos[t.id]
+                markers.append({"test": t, "pos": pos, "status": _board_cell_status([t])})
+            rows.append({
+                "phase": phase,
+                "status": _board_cell_status(tests),
+                "markers": sorted(markers, key=lambda m: m["pos"]),
+            })
+        if not rows:
+            return None
+
+        return {
+            "axis_start": axis_start,
+            "axis_end": axis_end,
+            "today_pos": today_pos,
+            "rows": rows,
+            "all_complete": all(r["status"] == "as_expected" for r in rows),
+        }
+
     # --- Progress metrics (consumed by the dashboard) ---------------------
     def progress_percent(self):
         """Overall completion = completed phases / total phases.
@@ -135,6 +298,12 @@ class POC(models.Model):
         are groupings). A phase counts as done only when its status is
         ``completed`` — any other state (pending / in progress) is "in progress"
         and does not count. Returns 0 when there are no phases.
+
+        Note: a leaf whose tasks/tests are all finished but not yet approved by
+        the phase lead deliberately still counts as "in progress" here (Fase 5
+        design) — a milestone/placeholder leaf with no tasks/tests reaches
+        "completed" only via a manual status override or being marked Not
+        Applicable, both of which already count it as done.
         """
         # A POC marked completed always reads 100% (no "completed but 0%").
         if self.status == self.Status.COMPLETED:
@@ -144,7 +313,9 @@ class POC(models.Model):
         total = leaves.count()
         if not total:
             return 0
-        done = leaves.filter(status=Phase.Status.COMPLETED).count()
+        done = leaves.filter(
+            status__in=[Phase.Status.COMPLETED, Phase.Status.NOT_APPLICABLE]
+        ).count()
         return round(done / total * 100)
 
     @property
@@ -343,6 +514,16 @@ class Phase(models.Model):
         PENDING = "pending", "Pending"
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
+        NOT_APPLICABLE = "not_applicable", "Not applicable"
+
+    # Statuses a user may pick from the click-to-set dropdown. ``NOT_APPLICABLE``
+    # is deliberately excluded — it can only be reached via ``mark_na()``, which
+    # requires a written justification (see ``phase_mark_na``).
+    MANUAL_STATUS_CHOICES = [
+        (Status.PENDING, Status.PENDING.label),
+        (Status.IN_PROGRESS, Status.IN_PROGRESS.label),
+        (Status.COMPLETED, Status.COMPLETED.label),
+    ]
 
     MAX_LEVEL = 3
 
@@ -373,6 +554,26 @@ class Phase(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
+    # Per-phase leader (TL). Introduced early (spec Fase 5) because test-result
+    # validation (Fase 3b) is routed to this user. When unset, the POC's leads
+    # act as validators as a fallback (see ``user_can_validate_test``).
+    phase_leader = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="led_phases",
+    )
+    # TL sign-off (spec Fase 5). A phase with work is only "completed" once
+    # approved; approval also locks the phase for editing until it's unlocked.
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_phases",
+    )
     # Optional Word template (.docx) attached by an admin/lead. When present, a
     # phase report can be generated from this phase's tests (see apps.reports).
     report_template = models.FileField(
@@ -382,6 +583,19 @@ class Phase(models.Model):
         validators=[FileExtensionValidator(["docx", "zip"])],
         help_text="Template file: a Word .docx (used to generate reports from "
         "Markdown) or a .zip bundle of documents (download-only).",
+    )
+    # Not Applicable (spec: leads can't delete blueprint-mandated phases, only
+    # mark them N/A with a justification — kept for the final report).
+    na_reason = models.TextField(
+        blank=True, help_text="Why this phase doesn't apply. Markdown supported."
+    )
+    na_at = models.DateTimeField(null=True, blank=True)
+    na_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marked_na_phases",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -431,6 +645,72 @@ class Phase(models.Model):
     def can_have_children(self):
         return self.level < self.MAX_LEVEL
 
+    # --- TL approval / locking (spec Fase 5) -----------------------------
+    @property
+    def is_approved(self):
+        return self.approved_at is not None
+
+    @property
+    def is_locked(self):
+        """Approved phases are locked for editing until unlocked by a lead."""
+        return self.is_approved
+
+    @property
+    def has_own_items(self):
+        return self.tasks.exists() or self.tests.exists()
+
+    @property
+    def is_na(self):
+        """Marked Not Applicable (in lieu of deletion for a blueprint phase)."""
+        return self.status == self.Status.NOT_APPLICABLE
+
+    @property
+    def can_be_deleted(self):
+        """Only lead-created phases (no blueprint provenance) may be deleted.
+
+        Blueprint-sourced phases can only be marked Not Applicable, so a lead's
+        POC never drifts structurally from the admin-defined blueprint.
+        """
+        return self.source_template_id is None
+
+    @property
+    def can_be_marked_na(self):
+        return self.source_template_id is not None and not self.is_na
+
+    def mark_na(self, user, reason):
+        """Mark this phase Not Applicable with a mandatory justification."""
+        self.status = self.Status.NOT_APPLICABLE
+        self.na_reason = reason
+        self.na_at = timezone.now()
+        self.na_by = user
+        self.save(
+            update_fields=["status", "na_reason", "na_at", "na_by", "updated_at"]
+        )
+        if self.parent_id:
+            self.parent.recalculate_status(commit=True)
+
+    def unmark_na(self):
+        """Revert a Not Applicable phase back to a normally-derived status."""
+        self.na_reason = ""
+        self.na_at = None
+        self.na_by = None
+        self.status = self.Status.PENDING
+        self.save(
+            update_fields=["status", "na_reason", "na_at", "na_by", "updated_at"]
+        )
+        self.recalculate_status(commit=True)
+
+    @property
+    def awaiting_approval(self):
+        """Has its own work, all of it settled, but not yet TL-approved."""
+        if self.is_approved:
+            return False
+        tasks = list(self.tasks.all())
+        tests = list(self.tests.all())
+        if not tasks and not tests:
+            return False
+        return all(t.is_settled for t in tasks) and all(t.is_settled for t in tests)
+
     def descendant_ids(self, include_self=True):
         """IDs of this phase and all its descendants."""
         ids = [self.id] if include_self else []
@@ -444,34 +724,69 @@ class Phase(models.Model):
     def subtree_tests(self):
         return Test.objects.filter(phase_id__in=self.descendant_ids())
 
-    def compute_status(self):
-        """Derive status from the Tasks/Tests in this phase's whole subtree.
+    def _own_work_status(self):
+        """Status derived from this phase's OWN Tasks/Tests only (not its
+        sub-phases). ``None`` when it holds no work of its own.
 
-        Completed only when every Task is ``completed`` and every Test has a
-        terminal verdict (passed/failed/skipped); in_progress once anything has
-        started; otherwise pending. For a parent phase this aggregates its
-        sub-phases; for a leaf it's just its own items.
+        Completed only once every own Task is ``completed``, every own Test has
+        a terminal execution status (test_completed/skipped) **and** this phase
+        itself has been approved by its phase lead (spec Fase 5) — otherwise it
+        stays ``in_progress`` ("awaiting approval", surfaced separately in the UI).
         """
-        ids = self.descendant_ids()
-        tasks = list(Task.objects.filter(phase_id__in=ids))
-        tests = list(Test.objects.filter(phase_id__in=ids))
-
+        tasks = list(self.tasks.all())
+        tests = list(self.tests.all())
         if not tasks and not tests:
-            return self.Status.PENDING
+            return None
 
         all_settled = all(t.is_settled for t in tasks) and all(
             t.is_settled for t in tests
         )
         if all_settled:
-            return self.Status.COMPLETED
+            return self.Status.COMPLETED if self.is_approved else self.Status.IN_PROGRESS
 
         any_started = any(t.is_started for t in tasks) or any(
             t.is_started for t in tests
         )
         return self.Status.IN_PROGRESS if any_started else self.Status.PENDING
 
+    def compute_status(self):
+        """Derive status from this phase's own work plus its sub-phases' current
+        status — recursive, bottom-up aggregation.
+
+        A sub-phase counts as done once it's ``completed`` or marked ``Not
+        applicable``. So a phase becomes ``completed`` once every part of it is
+        done: its own tasks/tests (if any) *and* every sub-phase — including a
+        milestone sub-phase that was completed manually (via the click-to-set
+        status control) rather than by finishing real tasks/tests.
+        """
+        parts = []
+        own = self._own_work_status()
+        if own is not None:
+            parts.append(own)
+        parts.extend(child.status for child in self.children.all())
+
+        if not parts:
+            return self.Status.PENDING
+
+        done_like = (self.Status.COMPLETED, self.Status.NOT_APPLICABLE)
+        if all(p in done_like for p in parts):
+            return self.Status.COMPLETED
+        if all(p == self.Status.PENDING for p in parts):
+            return self.Status.PENDING
+        return self.Status.IN_PROGRESS
+
     def recalculate_status(self, commit=True):
-        """Persist the derived status and bubble the recalculation to ancestors."""
+        """Persist the derived status and bubble the recalculation to ancestors.
+
+        A phase marked Not Applicable is frozen — it keeps that status until a
+        lead/admin explicitly reverts it via ``unmark_na()`` — but ancestors are
+        still recalculated (see ``compute_status``, which excludes it).
+        """
+        if self.is_na:
+            if self.parent_id and commit:
+                self.parent.recalculate_status(commit=True)
+            return self.status
+
         new_status = self.compute_status()
         if new_status != self.status:
             self.status = new_status
@@ -498,19 +813,29 @@ class Phase(models.Model):
 
     # --- Per-phase metrics ------------------------------------------------
     def progress_percent(self):
-        """Derived completion of the phase's whole subtree (completed ⇒ 100%)."""
-        if self.status == self.Status.COMPLETED:
+        """Derived completion (``completed`` ⇒ 100%).
+
+        A **parent** phase follows its direct sub-phases: it is the average of
+        their progress, so 2 of 4 completed sub-phases reads as 50% (each
+        sub-phase weighs the same regardless of how many items it holds).
+        A **leaf** phase is the ratio of its settled tasks/tests. A phase marked
+        Not Applicable also reads 100% — there's nothing left to do on it.
+        """
+        if self.status in (self.Status.COMPLETED, self.Status.NOT_APPLICABLE):
             return 100
-        ids = self.descendant_ids()
-        task_total = Task.objects.filter(phase_id__in=ids).count()
-        test_total = Test.objects.filter(phase_id__in=ids).count()
+        children = list(self.children.all())
+        if children:
+            return round(sum(c.progress_percent() for c in children) / len(children))
+        # Leaf phase: ratio of settled tasks/tests it holds directly.
+        task_total = self.tasks.count()
+        test_total = self.tests.count()
         total = task_total + test_total
         if not total:
             return 0
-        done = Task.objects.filter(
-            phase_id__in=ids, status=Task.Status.COMPLETED
-        ).count() + Test.objects.filter(
-            phase_id__in=ids, verdict__in=Test.SETTLED_VERDICTS
+        done = self.tasks.filter(
+            status=Task.Status.COMPLETED
+        ).count() + self.tests.filter(
+            execution_status__in=Test.SETTLED_EXECUTION
         ).count()
         return round(done / total * 100)
 
@@ -523,10 +848,12 @@ class Phase(models.Model):
 
     def test_pass_rate_percent(self):
         """Pass rate over executed (terminal) tests."""
-        executed = self.tests.filter(verdict__in=Test.SETTLED_VERDICTS).count()
+        executed = self.tests.filter(
+            execution_status__in=Test.SETTLED_EXECUTION
+        ).count()
         if not executed:
             return 0
-        passed = self.tests.filter(verdict=Test.Verdict.PASSED).count()
+        passed = self.tests.filter(result__in=Test.PASSING_RESULTS).count()
         return round(passed / executed * 100)
 
 
@@ -618,26 +945,59 @@ class Task(models.Model):
 class Test(models.Model):
     """A verification within a Phase, executed by a team member."""
 
-    class Verdict(models.TextChoices):
-        PENDING = "pending", "Pending"
-        PASSED = "passed", "Passed"
-        FAILED = "failed", "Failed"
-        BLOCKED = "blocked", "Blocked"
+    class ExecutionStatus(models.TextChoices):
+        NOT_TESTED = "not_tested", "Not tested"
+        IN_PROGRESS = "in_progress", "In progress"
+        TEST_COMPLETED = "test_completed", "Test completed"
         SKIPPED = "skipped", "Skipped"
 
-    # Verdicts that count as "executed/terminal" for phase completion & metrics.
-    SETTLED_VERDICTS = (Verdict.PASSED, Verdict.FAILED, Verdict.SKIPPED)
+    class Result(models.TextChoices):
+        PASSED = "passed", "Passed"
+        NOT_PASSED = "not_passed", "Not Passed"
+        PASSED_WITH_COMMENTS = "passed_with_comments", "Passed with comments"
+
+    # Execution statuses that count as "terminal" for phase completion & metrics.
+    SETTLED_EXECUTION = (ExecutionStatus.TEST_COMPLETED, ExecutionStatus.SKIPPED)
+    # Results that count as a pass for the pass-rate metric.
+    PASSING_RESULTS = (Result.PASSED, Result.PASSED_WITH_COMMENTS)
+    # Results that make the notes field mandatory (see ``clean``/forms).
+    RESULTS_REQUIRING_NOTES = (Result.NOT_PASSED, Result.PASSED_WITH_COMMENTS)
 
     phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="tests")
+    # Auto-generated on save, formatted {PHASE_ABBR}-{NNN} (e.g. UT-001, IT-002)
+    # — see ``test_phase_abbreviation``/``_generate_test_code``. Must be unique
+    # within the owning POC — that rule can't be expressed as a DB constraint
+    # (it spans the Test→phase→poc relation), so it is enforced in ``clean()``.
+    test_code = models.CharField(
+        max_length=50,
+        blank=True,
+        db_index=True,
+        help_text="Auto-generated, e.g. UT-001. Unique within the POC.",
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, help_text="Markdown supported.")
     acceptance_criteria = models.TextField(blank=True, help_text="Markdown supported.")
     expected_result = models.TextField(blank=True, help_text="Markdown supported.")
     actual_result = models.TextField(
-        blank=True, help_text="Markdown — filled by the team member."
+        blank=True, help_text="Notes — filled by the team member."
     )
-    verdict = models.CharField(
-        max_length=20, choices=Verdict.choices, default=Verdict.PENDING
+    # Execution and result are two separate concerns (spec Fase 3a):
+    #  * execution_status — how far the run got.
+    #  * result — the outcome, only meaningful once the run is completed.
+    execution_status = models.CharField(
+        max_length=20,
+        choices=ExecutionStatus.choices,
+        default=ExecutionStatus.NOT_TESTED,
+    )
+    result = models.CharField(
+        max_length=25,
+        choices=Result.choices,
+        blank=True,
+        help_text="Outcome once the test is completed (blank until then).",
+    )
+    # Requirements of the same POC this test verifies (spec Fase 3d).
+    requirements = models.ManyToManyField(
+        "Requirement", related_name="tests", blank=True
     )
     assigned_to = models.ForeignKey(
         USER,
@@ -645,17 +1005,6 @@ class Test(models.Model):
         null=True,
         blank=True,
         related_name="assigned_tests",
-    )
-    evidence_file = models.FileField(
-        upload_to="evidence/%Y/%m/",
-        null=True,
-        blank=True,
-        validators=[
-            FileExtensionValidator(
-                ["jpg", "jpeg", "png", "gif", "pdf", "txt", "log"]
-            )
-        ],
-        help_text="Image, PDF, txt or log.",
     )
     evidence_url = models.URLField(
         null=True, blank=True, help_text="Alternative to an uploaded file."
@@ -682,31 +1031,280 @@ class Test(models.Model):
 
     @property
     def is_settled(self):
-        """Terminal verdict (passed/failed/skipped)."""
-        return self.verdict in self.SETTLED_VERDICTS
+        """Terminal execution status (test_completed / skipped)."""
+        return self.execution_status in self.SETTLED_EXECUTION
 
     @property
     def is_started(self):
-        return self.verdict != self.Verdict.PENDING
+        return self.execution_status != self.ExecutionStatus.NOT_TESTED
 
-    def mark_executed(self, user, verdict=None, actual_result=None):
-        """Record an execution result and stamp who/when. Saves the instance."""
-        if verdict is not None:
-            self.verdict = verdict
+    @property
+    def needs_validation(self):
+        """A finished outcome requires a phase lead's validation (spec 3b).
+
+        Only a terminal result (passed / not passed / passed with comments) or a
+        ``skipped`` execution triggers approval; intermediate progress does not.
+        """
+        return bool(self.result) or (
+            self.execution_status == self.ExecutionStatus.SKIPPED
+        )
+
+    @property
+    def pending_validation(self):
+        """The open (undecided) validation request for this test, if any."""
+        return self.validations.filter(
+            status=TestValidation.Decision.PENDING
+        ).first()
+
+    @property
+    def display_execution_status(self):
+        """Execution status for the UI: the pending proposal's if one exists,
+        else the persisted value — so a submitted-but-unapproved outcome
+        doesn't misleadingly look untouched."""
+        pv = self.pending_validation
+        return pv.execution_status if pv else self.execution_status
+
+    @property
+    def display_execution_status_label(self):
+        return self.ExecutionStatus(self.display_execution_status).label
+
+    @property
+    def display_result(self):
+        """Result for the UI — see ``display_execution_status``."""
+        pv = self.pending_validation
+        return pv.result if pv else self.result
+
+    @property
+    def display_result_label(self):
+        return self.Result(self.display_result).label if self.display_result else ""
+
+    @property
+    def display_actual_result(self):
+        """Notes for the UI — see ``display_execution_status``."""
+        pv = self.pending_validation
+        return pv.actual_result if pv else self.actual_result
+
+    @property
+    def display_evidence_files(self):
+        """Evidence for the UI: the pending proposal's own uploads while one is
+        awaiting approval (they aren't attached to the Test yet), else the
+        Test's own."""
+        pv = self.pending_validation
+        return pv.evidence_files.all() if pv else self.evidence_files.all()
+
+    @property
+    def display_evidence_url(self):
+        pv = self.pending_validation
+        return pv.evidence_url if pv else self.evidence_url
+
+    def clean(self):
+        """Model-level validation.
+
+        * ``test_code`` uniqueness within the owning POC (can't be a DB
+          constraint — it spans Test→phase→poc).
+        * mandatory notes when the result is Not Passed / Passed with comments,
+          or when the execution is Skipped (spec 3a).
+        """
+        super().clean()
+        if self.test_code and self.phase_id:
+            clash = (
+                Test.objects.filter(
+                    phase__poc_id=self.phase.poc_id, test_code=self.test_code
+                )
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if clash:
+                raise ValidationError(
+                    {"test_code": "This test code is already used in this POC."}
+                )
+        if (
+            self.result in self.RESULTS_REQUIRING_NOTES
+            or self.execution_status == self.ExecutionStatus.SKIPPED
+        ) and not (self.actual_result or "").strip():
+            raise ValidationError(
+                {"actual_result": "Notes are required for this outcome."}
+            )
+
+    def mark_executed(self, user, execution_status=None, result=None, actual_result=None):
+        """Record an execution outcome and stamp who/when. Saves the instance."""
+        if execution_status is not None:
+            self.execution_status = execution_status
+        if result is not None:
+            self.result = result
         if actual_result is not None:
             self.actual_result = actual_result
         self.executed_by = user
         self.executed_at = timezone.now()
         self.save()
 
+    def _generate_test_code(self):
+        abbr = test_phase_abbreviation(self.phase.name)
+        prefix = f"{abbr}-"
+        poc_id = self.phase.poc_id
+        n = (
+            Test.objects.filter(phase__poc_id=poc_id, test_code__startswith=prefix).count()
+            + 1
+        )
+        code = f"{prefix}{n:03d}"
+        while (
+            Test.objects.filter(phase__poc_id=poc_id, test_code=code)
+            .exclude(pk=self.pk)
+            .exists()
+        ):
+            n += 1
+            code = f"{prefix}{n:03d}"
+        return code
+
     def save(self, *args, **kwargs):
-        # Keep the execution timestamp consistent with the verdict.
-        if self.verdict != self.Verdict.PENDING and self.executed_at is None:
-            self.executed_at = timezone.now()
-        elif self.verdict == self.Verdict.PENDING:
+        # Auto-assign a code on first save — linked to the POC (unique within
+        # it) and to the test-phase type (its abbreviation), e.g. UT-001.
+        if not self.test_code and self.phase_id:
+            self.test_code = self._generate_test_code()
+        # Keep the execution timestamp consistent with the execution status, and
+        # clear the result once the test is back to "not tested".
+        if self.execution_status != self.ExecutionStatus.NOT_TESTED:
+            if self.executed_at is None:
+                self.executed_at = timezone.now()
+        else:
             self.executed_at = None
             self.executed_by = None
+            self.result = ""
         super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# TestValidation — proposed test outcome awaiting a phase lead's approval (3b)
+# ---------------------------------------------------------------------------
+class TestValidation(models.Model):
+    """A proposed test outcome held until a phase lead validates it.
+
+    When an executor records a terminal outcome (a result, or a ``skipped``
+    execution), the change is NOT applied to the Test directly. Instead the
+    proposed execution status / result / notes / evidence are stored here as a
+    PENDING request. A phase lead (or admin) then approves — which copies the
+    proposal onto the Test — or rejects it (the Test stays unchanged).
+    """
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    test = models.ForeignKey(
+        Test, on_delete=models.CASCADE, related_name="validations"
+    )
+
+    # The proposed outcome (mirrors the Test execution fields).
+    execution_status = models.CharField(
+        max_length=20, choices=Test.ExecutionStatus.choices
+    )
+    result = models.CharField(max_length=25, choices=Test.Result.choices, blank=True)
+    actual_result = models.TextField(blank=True)
+    evidence_url = models.URLField(null=True, blank=True)
+
+    submitted_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_test_validations",
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    status = models.CharField(
+        max_length=10, choices=Decision.choices, default=Decision.PENDING
+    )
+    decided_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decided_test_validations",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_comment = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-submitted_at"]
+
+    def __str__(self):
+        return f"Validation of {self.test} ({self.get_status_display()})"
+
+    def apply_to_test(self, decided_by):
+        """Approve: copy the proposal onto the Test and stamp the decision."""
+        test = self.test
+        test.execution_status = self.execution_status
+        test.result = self.result
+        test.actual_result = self.actual_result
+        if self.evidence_url:
+            test.evidence_url = self.evidence_url
+        test.mark_executed(self.submitted_by or decided_by)
+        # Re-parent the proposal's evidence files onto the test — no copying.
+        self.evidence_files.update(test=test, validation=None)
+        self.status = self.Decision.APPROVED
+        self.decided_by = decided_by
+        self.decided_at = timezone.now()
+        self.save(update_fields=["status", "decided_by", "decided_at"])
+        test.phase.recalculate_status()
+
+    def reject(self, decided_by, comment=""):
+        """Reject: leave the Test unchanged, record who/when/why."""
+        for f in self.evidence_files.all():
+            f.file.delete(save=False)
+            f.delete()
+        self.status = self.Decision.REJECTED
+        self.decided_by = decided_by
+        self.decided_at = timezone.now()
+        self.decision_comment = comment
+        self.save(
+            update_fields=["status", "decided_by", "decided_at", "decision_comment"]
+        )
+
+
+EVIDENCE_EXTENSIONS = [
+    "jpg", "jpeg", "png", "gif", "svg", "pdf", "txt", "log", "xlsx", "docx"
+]
+EVIDENCE_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "svg"}
+
+
+class EvidenceFile(models.Model):
+    """A file attached as evidence for a test run (many per test).
+
+    Attached either to a ``Test`` directly (applied outcomes) or to a pending
+    ``TestValidation`` (held proposals) — exactly one of the two is set at a
+    time. On approval the validation's files are re-parented onto the Test
+    (``TestValidation.apply_to_test``); on rejection they're deleted.
+    """
+
+    test = models.ForeignKey(
+        Test, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="evidence_files",
+    )
+    validation = models.ForeignKey(
+        TestValidation, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="evidence_files",
+    )
+    file = models.FileField(
+        upload_to="evidence/%Y/%m/",
+        validators=[FileExtensionValidator(EVIDENCE_EXTENSIONS)],
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        USER, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="uploaded_evidence",
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.file.name.rsplit("/", 1)[-1]
+
+    @property
+    def is_image(self):
+        ext = self.file.name.rsplit(".", 1)[-1].lower() if "." in self.file.name else ""
+        return ext in EVIDENCE_IMAGE_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +1367,8 @@ class AuditLog(models.Model):
             "phasedocument": "document",
             "phaseimage": "image",
             "generatedreport": "report",
+            "requirement": "requirement",
+            "usecase": "use case",
         }.get(self.content_type.model, self.content_type.model)
 
 
@@ -782,12 +1382,27 @@ class FunctionalAnalysisStep(models.Model):
     Analysis phase seeds one :class:`PhaseDocument` per step (title locked, the
     description shown as help); the user fills each section with Markdown and
     images and turns the whole set into a report.
+
+    ``section_kind`` lets the admin wire a step to the POC's own Use Cases or
+    Requirements registry instead of free text: the seeded section's content is
+    then kept in sync with that data (see ``ensure_fa_documents``) and the POC
+    lead can only preview it, not edit it.
     """
+
+    class SectionKind(models.TextChoices):
+        USE_CASES = "use_cases", "Use Cases"
+        REQUIREMENTS = "requirements", "Requirements"
+        OTHER = "other", "Other"
 
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=255)
     description = models.TextField(
         blank=True, help_text="Guidance shown to the user. Markdown supported."
+    )
+    section_kind = models.CharField(
+        max_length=20, choices=SectionKind.choices, default=SectionKind.OTHER,
+        help_text="Use Cases/Requirements sections are auto-filled from the POC's "
+                   "registry and locked for editing; Other is free Markdown.",
     )
 
     class Meta:
@@ -818,7 +1433,12 @@ class PhaseDocument(models.Model):
     )
     source_fa_step = models.ForeignKey(
         FunctionalAnalysisStep,
-        on_delete=models.SET_NULL,
+        # CASCADE (not SET_NULL): a POC's Functional Analysis structure must
+        # always mirror the admin's current template — if a step is removed, its
+        # seeded section disappears everywhere too, instead of surviving as an
+        # orphaned "Other" document that duplicates a later, differently-shaped
+        # section seeded for a replacement step.
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="phase_documents",
@@ -845,6 +1465,19 @@ class PhaseDocument(models.Model):
     def guidance(self):
         """Help text for FA sections (the step's description); empty otherwise."""
         return self.source_fa_step.description if self.source_fa_step_id else ""
+
+    @property
+    def section_kind(self):
+        """The step's ``section_kind`` for an FA section; ``OTHER`` otherwise."""
+        if self.source_fa_step_id:
+            return self.source_fa_step.section_kind
+        return FunctionalAnalysisStep.SectionKind.OTHER
+
+    @property
+    def is_locked_section(self):
+        """True for a Use Cases/Requirements section — content is auto-filled and
+        read-only for the POC lead (see ``ensure_fa_documents``)."""
+        return self.section_kind != FunctionalAnalysisStep.SectionKind.OTHER
 
 
 class PhaseImage(models.Model):
@@ -881,3 +1514,399 @@ class PhaseImage(models.Model):
     @property
     def markdown_snippet(self):
         return f"![{self.caption}]({self.image.url})"
+
+
+class POCImage(models.Model):
+    """An image uploaded to a POC's official-closure conclusion (same shape as
+    ``PhaseImage``, but scoped to the whole POC rather than a phase)."""
+
+    poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="images")
+    image = models.FileField(
+        upload_to="poc_images/%Y/%m/",
+        validators=[
+            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp"])
+        ],
+        help_text="PNG/JPG/GIF/WEBP.",
+    )
+    caption = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="poc_images",
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.caption or self.image.name.rsplit("/", 1)[-1]
+
+    @property
+    def markdown_snippet(self):
+        return f"![{self.caption}]({self.image.url})"
+
+
+# ---------------------------------------------------------------------------
+# Requirements & Use Cases (per-POC registry)
+# ---------------------------------------------------------------------------
+def _poc_code_prefix(poc):
+    """Human-readable POC prefix for auto-generated codes: POC-{l2_wbs|id}."""
+    token = (poc.l2_wbs or "").strip().replace(" ", "") or str(poc.pk)
+    return f"POC-{token}"
+
+
+class Requirement(models.Model):
+    """A formal requirement of a POC.
+
+    Identified by an auto-generated ``code`` (``POC-{l2_wbs}-{CAT}-{OP}-{NNN}``);
+    the user never types it. Requirements are a plain list — they carry NO manual
+    approval; a requirement is *validated* implicitly once the tests linked to it
+    all pass/skip (see :meth:`is_validated`).
+    """
+
+    # Abbreviations used to build the code (spec: "depende de la categoría").
+    CATEGORY_ABBR = {
+        "normal_operation": "NO",
+        "maintenance_mode": "MM",
+    }
+    OPERATION_ABBR = {
+        "navigation": "NAV",
+        "cybersecurity": "CS",
+        "scalability": "SC",
+        "iam_management": "IAM",
+        "control_operation": "CO",
+        "acquire_visualize": "AV",
+        "ui_ux_feature": "UX",
+    }
+
+    class Gravity(models.TextChoices):
+        IMPOSES_MVP = "imposes_mvp", "Imposes (MVP)"
+        OPTIONALLY = "optionally", "Optionally"
+        PREFERRED = "preferred", "Preferred but not required"
+
+    class Operation(models.TextChoices):
+        NAVIGATION = "navigation", "Navigation"
+        CYBERSECURITY = "cybersecurity", "Cybersecurity"
+        SCALABILITY = "scalability", "Scalability"
+        IAM_MANAGEMENT = "iam_management", "IAM Management"
+        CONTROL_OPERATION = "control_operation", "Control & Operation"
+        ACQUIRE_VISUALIZE = "acquire_visualize", "Acquire & Visualize"
+        UI_UX_FEATURE = "ui_ux_feature", "UI/UX Feature"
+
+    class Functional(models.TextChoices):
+        PERFORMANCE = "performance", "Performance"
+        OPERABILITY = "operability", "Operability"
+        SAFETY_SECURITY = "safety_security", "Safety & Security"
+        EVOLVABILITY_DURABILITY = "evolvability_durability", "Evolvability & Durability"
+
+    class Category(models.TextChoices):
+        NORMAL_OPERATION = "normal_operation", "Normal Operation"
+        MAINTENANCE_MODE = "maintenance_mode", "Maintenance Mode"
+
+    # Classification fields are POC-extensible (see RequirementFieldOption):
+    # these TextChoices are offered as suggestions, not enforced as the only
+    # valid values — a POC lead may add new ones, and the Excel importer
+    # accepts any non-empty text for them.
+    FIELD_CHOICE_SOURCES = {
+        "req_gravity": Gravity,
+        "req_operation": Operation,
+        "req_functional": Functional,
+        "req_category": Category,
+    }
+
+    code = models.CharField(
+        max_length=100,
+        unique=True,
+        blank=True,
+        help_text="Auto-generated, e.g. POC-6000020869-NO-CS-001.",
+    )
+    poc = models.ForeignKey(
+        POC, on_delete=models.CASCADE, related_name="requirements"
+    )
+    sub_system = models.CharField(max_length=255, blank=True)
+
+    req_gravity = models.CharField(max_length=100)
+    req_operation = models.CharField(max_length=100)
+    req_functional = models.CharField(max_length=100)
+    req_category = models.CharField(max_length=100)
+
+    validation_criteria = models.TextField(blank=True)
+    life_cycle_phase = models.CharField(max_length=255, blank=True)
+    reference_documentations = models.TextField(blank=True)
+    remarks = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(
+        USER,
+        on_delete=models.PROTECT,
+        related_name="created_requirements",
+    )
+    created_date = models.DateTimeField(auto_now_add=True)
+    modified_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_requirements",
+    )
+    modified_date = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return self.code
+
+    def _generate_code(self):
+        prefix = _poc_code_prefix(self.poc)
+        cat = self.CATEGORY_ABBR.get(self.req_category, "XX")
+        op = self.OPERATION_ABBR.get(self.req_operation, "XX")
+        n = Requirement.objects.filter(poc=self.poc).count() + 1
+        code = f"{prefix}-{cat}-{op}-{n:03d}"
+        while Requirement.objects.filter(code=code).exclude(pk=self.pk).exists():
+            n += 1
+            code = f"{prefix}-{cat}-{op}-{n:03d}"
+        return code
+
+    def save(self, *args, **kwargs):
+        if not self.code and self.poc_id:
+            self.code = self._generate_code()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def predefined_choices(cls, field_name):
+        """The built-in (value, label) suggestions for a classification field."""
+        return list(cls.FIELD_CHOICE_SOURCES[field_name].choices)
+
+    @classmethod
+    def field_choices(cls, poc, field_name):
+        """Predefined suggestions plus ``poc``'s own custom additions.
+
+        Classification fields (gravity/operation/functional/category) are not
+        a closed set: a POC lead can add new values via "+ Add new" on the
+        form, and the Excel importer accepts any non-empty text — see
+        :class:`RequirementFieldOption`.
+        """
+        predefined = cls.predefined_choices(field_name)
+        seen = {v for v, _ in predefined}
+        custom = []
+        if poc is not None:
+            custom = list(
+                poc.requirement_field_options.filter(field=field_name)
+                .exclude(value__in=seen)
+                .order_by("value")
+                .values_list("value", flat=True)
+            )
+        return predefined + [(v, v) for v in custom]
+
+    def _display_for(self, field_name):
+        value = getattr(self, field_name)
+        return dict(self.predefined_choices(field_name)).get(value, value)
+
+    def get_req_gravity_display(self):
+        return self._display_for("req_gravity")
+
+    def get_req_operation_display(self):
+        return self._display_for("req_operation")
+
+    def get_req_functional_display(self):
+        return self._display_for("req_functional")
+
+    def get_req_category_display(self):
+        return self._display_for("req_category")
+
+    @property
+    def is_validated(self):
+        """True once every linked test is settled and passed or skipped.
+
+        A requirement with no linked tests is not validated. A linked test that
+        is Not Passed, or not yet finished, keeps it unvalidated (spec 4/user).
+        """
+        tests = list(self.tests.all())
+        if not tests:
+            return False
+        for t in tests:
+            if t.execution_status == Test.ExecutionStatus.SKIPPED:
+                continue
+            if (
+                t.execution_status == Test.ExecutionStatus.TEST_COMPLETED
+                and t.result in Test.PASSING_RESULTS
+            ):
+                continue
+            return False
+        return True
+
+
+class RequirementSnapshot(models.Model):
+    """A file attached to a Requirement (``reference_snapshots`` — many per req)."""
+
+    requirement = models.ForeignKey(
+        Requirement, on_delete=models.CASCADE, related_name="snapshots"
+    )
+    file = models.FileField(upload_to="requirement_snapshots/%Y/%m/")
+    caption = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requirement_snapshots",
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.caption or self.file.name.rsplit("/", 1)[-1]
+
+
+class RequirementFieldOption(models.Model):
+    """A custom value added to a Requirement classification field, scoped to a POC.
+
+    ``Requirement.Gravity`` / ``Operation`` / ``Functional`` / ``Category`` are
+    offered as suggestions, but a POC lead may add new ones from the "+ Add
+    new" control on the requirement form; the Excel importer registers any
+    unrecognised value the same way so it becomes a future suggestion too.
+    """
+
+    class Field(models.TextChoices):
+        GRAVITY = "req_gravity", "Gravity"
+        OPERATION = "req_operation", "Operation"
+        FUNCTIONAL = "req_functional", "Functional"
+        CATEGORY = "req_category", "Category"
+
+    poc = models.ForeignKey(
+        POC, on_delete=models.CASCADE, related_name="requirement_field_options"
+    )
+    field = models.CharField(max_length=20, choices=Field.choices)
+    value = models.CharField(max_length=100)
+    created_by = models.ForeignKey(
+        USER, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["field", "value"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["poc", "field", "value"], name="unique_requirement_field_option"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_field_display()}: {self.value}"
+
+
+class UseCase(models.Model):
+    """A use case of a POC, optionally linked to one or more Requirements."""
+
+    class Priority(models.TextChoices):
+        HIGH = "high", "High"
+        MEDIUM = "medium", "Medium"
+        LOW = "low", "Low"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        DEPRECATED = "deprecated", "Deprecated"
+
+    code = models.CharField(
+        max_length=100,
+        unique=True,
+        blank=True,
+        help_text="Auto-generated, e.g. POC-6000020869-UC001.",
+    )
+    poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="use_cases")
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    actor = models.CharField(
+        max_length=255, blank=True, help_text='Who runs it, e.g. "Operator".'
+    )
+    priority = models.CharField(
+        max_length=10, choices=Priority.choices, default=Priority.MEDIUM
+    )
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.DRAFT
+    )
+    remarks = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, related_name="created_use_cases"
+    )
+    created_date = models.DateTimeField(auto_now_add=True)
+    modified_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_use_cases",
+    )
+    modified_date = models.DateTimeField(auto_now=True)
+
+    requirements = models.ManyToManyField(
+        Requirement, related_name="use_cases", blank=True
+    )
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [
+            # Title unique within a POC (code is globally unique on its own).
+            models.UniqueConstraint(
+                fields=["poc", "title"], name="unique_usecase_title_per_poc"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.code} · {self.title}"
+
+    def _generate_code(self):
+        prefix = _poc_code_prefix(self.poc)
+        n = UseCase.objects.filter(poc=self.poc).count() + 1
+        code = f"{prefix}-UC{n:03d}"
+        while UseCase.objects.filter(code=code).exclude(pk=self.pk).exists():
+            n += 1
+            code = f"{prefix}-UC{n:03d}"
+        return code
+
+    def save(self, *args, **kwargs):
+        if not self.code and self.poc_id:
+            self.code = self._generate_code()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_approved(self):
+        """Approved/finished when it has requirements and all are validated."""
+        reqs = list(self.requirements.all())
+        return bool(reqs) and all(r.is_validated for r in reqs)
+
+
+# ---------------------------------------------------------------------------
+# Blueprint version history (spec Fase 8 — undo / restore)
+# ---------------------------------------------------------------------------
+class BlueprintVersion(models.Model):
+    """A JSON snapshot of the whole phase blueprint, for undo / restore.
+
+    Snapshots are taken *before* each blueprint mutation, so restoring the most
+    recent one reverts the last change. ``data`` holds the serialised forest of
+    :class:`PhaseTemplate` nodes plus their base tasks/tests/documents.
+    """
+
+    data = models.JSONField()
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="blueprint_versions",
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"Blueprint @ {self.created_at:%Y-%m-%d %H:%M} ({self.note})"

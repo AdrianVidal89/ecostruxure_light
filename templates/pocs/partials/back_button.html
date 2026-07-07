@@ -1,0 +1,17 @@
+{% comment %}
+Minimalist "Back" control. Context:
+  url   — where to go back to (required)
+  label — what you go back to, e.g. "Phase name" (required)
+  plain — pass True to render it inline (not sticky), e.g. on tall editor pages
+          where a floating bar would overlap the content.
+By default it sticks to the top of the scrolling content so it stays reachable.
+{% endcomment %}
+<div class="mb-2 {% if not plain %}sticky top-0 z-20 -mx-6 px-6 py-2 bg-canvas/80 backdrop-blur supports-[backdrop-filter]:bg-canvas/60{% endif %}">
+  <a href="{{ url }}"
+     class="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-brand-dark transition-soft group">
+    <span class="w-7 h-7 rounded-full border border-line flex items-center justify-center group-hover:border-brand group-hover:neon-glow transition-soft">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i>
+    </span>
+    <span class="truncate max-w-[16rem]">Back to {{ label }}</span>
+  </a>
+</div>

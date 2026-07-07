@@ -1,0 +1,72 @@
+{% load core_extras %}
+{% comment %}
+One pending test-outcome validation: the test, the proposed outcome and the
+Approve / Reject decision form. Context: validation, form (optional, for errors).
+{% endcomment %}
+<div class="space-y-4">
+  {% if validation.test.phase.phase_leader and validation.test.phase.phase_leader != request.user %}
+    <div class="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2 text-sm text-ink">
+      <i data-lucide="info" class="w-4 h-4 text-info shrink-0 mt-0.5"></i>
+      <span>This phase has a designated lead —
+        <strong>{{ validation.test.phase.phase_leader.get_full_name|default:validation.test.phase.phase_leader.username }}</strong>.
+        You are validating as the POC lead.</span>
+    </div>
+  {% endif %}
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Expected result</p>
+    {% if validation.test.expected_result %}
+      <div class="prose prose-sm max-w-none text-ink">{{ validation.test.expected_result|markdownify }}</div>
+    {% else %}
+      <p class="text-sm text-ink-muted">No expected result defined.</p>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Proposed execution</p>
+      <p class="text-ink">{{ validation.get_execution_status_display }}</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Proposed result</p>
+      <p class="text-ink">{{ validation.get_result_display|default:"—" }}</p>
+    </div>
+  </div>
+
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Notes</p>
+    {% if validation.actual_result %}
+      <div class="prose prose-sm max-w-none text-ink">{{ validation.actual_result|markdownify }}</div>
+    {% else %}
+      <p class="text-sm text-ink-muted">No notes.</p>
+    {% endif %}
+  </div>
+
+  {% if validation.evidence_files.all or validation.evidence_url %}
+    <div class="flex flex-wrap items-center gap-3 text-xs">
+      {% for ev in validation.evidence_files.all %}
+        <a href="{{ ev.file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline"><i data-lucide="paperclip" class="w-3.5 h-3.5"></i> {{ ev.file.name|slice:"-40:" }}</a>
+      {% endfor %}
+      {% if validation.evidence_url %}
+        <a href="{{ validation.evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline"><i data-lucide="link" class="w-3.5 h-3.5"></i> Evidence link</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'pocs:validation_decide' validation.id %}" class="space-y-2 pt-2 border-t border-line">
+    {% csrf_token %}
+    <label class="block text-xs font-medium text-ink">Comment <span class="text-ink-muted font-normal">(required when rejecting)</span></label>
+    <textarea name="comment" rows="2" placeholder="Optional comment…"
+              class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"></textarea>
+    {% if form %}{% for e in form.comment.errors %}<p class="text-xs text-danger">{{ e }}</p>{% endfor %}{% endif %}
+    <div class="flex items-center gap-2">
+      <button type="submit" name="decision" value="approve"
+              class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+        <i data-lucide="check" class="w-4 h-4"></i> Approve
+      </button>
+      <button type="submit" name="decision" value="reject"
+              class="inline-flex items-center gap-1.5 border border-danger/40 text-danger hover:bg-danger/5 font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+        <i data-lucide="x" class="w-4 h-4"></i> Reject
+      </button>
+    </div>
+  </form>
+</div>

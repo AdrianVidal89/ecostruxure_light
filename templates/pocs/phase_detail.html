@@ -3,9 +3,9 @@
 
 {% block title %}{{ phase.name }} · {{ poc.name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
+  <a href="{% url 'core:dashboard' %}" class="hover:text-ink">Dashboard</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[9rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[9rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   {% if phase.parent %}
     <a href="{% url 'pocs:phase_detail' phase.parent.pk %}" class="hover:text-ink truncate max-w-[8rem]">{{ phase.parent.name }}</a>
@@ -17,18 +17,40 @@
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
 
+  {% if phase.parent %}
+    {% url 'pocs:phase_detail' phase.parent.pk as back_url %}
+    {% include "pocs/partials/back_button.html" with url=back_url label=phase.parent.name plain=True %}
+  {% else %}
+    {% url 'pocs:detail' poc.pk as back_url %}
+    {% include "pocs/partials/back_button.html" with url=back_url|add:"?tab=phases" label=poc.name plain=True %}
+  {% endif %}
+
   {# Header #}
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0">
       <div class="flex items-center gap-3 flex-wrap">
         <h1 class="text-2xl font-semibold text-ink truncate">{{ phase.name }}</h1>
         <span class="text-xs text-ink-muted">Level {{ phase.level }}</span>
-        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
-          {% if phase.status == 'completed' %}bg-brand/10 text-brand-dark
-          {% elif phase.status == 'in_progress' %}bg-info/10 text-info
-          {% else %}bg-line text-ink-muted{% endif %}">
-          {{ phase.get_status_display }}
-        </span>
+        {% if is_leaf %}
+          {# A leaf phase has no sub-phases to derive its status from — offer the same click-to-set control as the main view. #}
+          {% include "pocs/partials/phase_status_control.html" with editable=can_edit %}
+        {% else %}
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+            {% if phase.status == 'completed' %}bg-brand/10 text-brand-dark
+            {% elif phase.status == 'in_progress' %}bg-info/10 text-info
+            {% else %}bg-line text-ink-muted{% endif %}">
+            {{ phase.get_status_display }}
+          </span>
+        {% endif %}
+        {% if awaiting_approval %}
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning whitespace-nowrap">Awaiting approval</span>
+        {% endif %}
+        {% if is_approved %}
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand/10 text-brand-dark whitespace-nowrap"><i data-lucide="lock" class="w-3 h-3"></i> Approved</span>
+        {% endif %}
+        {% if phase.phase_leader %}
+          <span class="text-xs text-ink-muted inline-flex items-center gap-1"><i data-lucide="user-check" class="w-3.5 h-3.5"></i> TL: {{ phase.phase_leader.get_full_name|default:phase.phase_leader.username }}</span>
+        {% endif %}
       </div>
       {% if phase.description %}<p class="text-ink-muted mt-1">{{ phase.description }}</p>{% endif %}
     </div>
@@ -46,6 +68,8 @@
            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
           <i data-lucide="pencil" class="w-4 h-4"></i> Edit
         </a>
+      {% endif %}
+      {% if can_delete %}
         <form method="post" action="{% url 'pocs:phase_delete' phase.pk %}"
               onsubmit="return confirm('Delete “{{ phase.name|escapejs }}” and everything under it?');">
           {% csrf_token %}
@@ -53,9 +77,79 @@
             <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
           </button>
         </form>
+      {% elif can_mark_na %}
+        <a href="{% url 'pocs:phase_mark_na' phase.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium text-warning hover:bg-warning/5"
+           title="Blueprint phases can't be deleted by a lead — mark it Not Applicable instead.">
+          <i data-lucide="ban" class="w-4 h-4"></i> Mark N/A
+        </a>
+      {% elif is_na and can_edit %}
+        <form method="post" action="{% url 'pocs:phase_unmark_na' phase.pk %}"
+              onsubmit="return confirm('Restore “{{ phase.name|escapejs }}” to Pending?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Revert N/A
+          </button>
+        </form>
       {% endif %}
     </div>
   </div>
+
+  {% if is_na %}
+    <div class="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-canvas px-4 py-3">
+      <i data-lucide="ban" class="w-5 h-5 text-ink-muted shrink-0 mt-0.5"></i>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm text-ink">
+          Marked <strong>Not Applicable</strong>
+          {% if phase.na_by %}by <strong>{{ phase.na_by.get_full_name|default:phase.na_by.username }}</strong>{% endif %}
+          {% if phase.na_at %}on {{ phase.na_at|date:"Y-m-d H:i" }}{% endif %}.
+          This reason will be shown in the final report.
+        </p>
+        {% if phase.na_reason %}
+          <div class="prose prose-sm max-w-none mt-2 text-ink-muted">{{ phase.na_reason|markdownify }}</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# Phase approval / locking (spec Fase 5) #}
+  {% if is_approved %}
+    <div class="flex flex-wrap items-center gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3">
+      <i data-lucide="lock" class="w-5 h-5 text-brand-dark shrink-0"></i>
+      <p class="text-sm text-ink flex-1">
+        Approved and locked
+        {% if phase.approved_by %}by <strong>{{ phase.approved_by.get_full_name|default:phase.approved_by.username }}</strong>{% endif %}
+        {% if phase.approved_at %}on {{ phase.approved_at|date:"Y-m-d H:i" }}{% endif %}.
+        Editing is disabled until the phase is unlocked.
+      </p>
+      {% if can_validate_phase %}
+        <form method="post" action="{% url 'pocs:phase_unlock' phase.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="lock-open" class="w-4 h-4"></i> Unlock
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  {% elif awaiting_approval %}
+    <div class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3">
+      <i data-lucide="shield-alert" class="w-5 h-5 text-warning shrink-0"></i>
+      <p class="text-sm text-ink flex-1">
+        All work in this phase is finished. It isn’t complete until the phase lead approves it.
+      </p>
+      {% if can_validate_phase %}
+        <form method="post" action="{% url 'pocs:phase_approve' phase.pk %}"
+              onsubmit="return confirm('Approve this phase? It will be marked complete and locked for editing.');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+            <i data-lucide="check-circle" class="w-4 h-4"></i> Approve phase
+          </button>
+        </form>
+      {% else %}
+        <span class="text-xs text-ink-muted">Awaiting the phase lead.</span>
+      {% endif %}
+    </div>
+  {% endif %}
 
   {% if not is_leaf %}
     {# ---------- Sub-phases (this phase delegates work to them) ---------- #}
@@ -96,6 +190,10 @@
         </a>
       {% endif %}
     </div>
+    {# Timeline always visible above the task list (spec Fase 7) #}
+    {% if tasks %}
+      {% include "pocs/partials/task_timeline.html" %}
+    {% endif %}
     {% if bulk_enabled and tasks %}
       {% comment %}
         Bulk "autoasignar progreso": set one status on several tasks at once.
@@ -149,41 +247,157 @@
     </section>
   {% endif %}
 
-  {% if is_leaf %}
-    {# ---------- Report: two clearly divided options ---------- #}
-    <section class="space-y-4">
-      <div>
+  {% if is_leaf and not is_test %}
+    {# ---------- Sections: Markdown documents (Functional Analysis structure, or a Documentation phase's own sections) ---------- #}
+    <section class="space-y-3"
+             x-data="{ previewOpen: false, previewHtml: '',
+               openPreview(url) {
+                 this.previewHtml = '';
+                 this.previewOpen = true;
+                 fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
+               } }">
+      <div class="flex items-center justify-between">
         <h2 class="font-medium text-ink flex items-center gap-2">
-          <i data-lucide="file-text" class="w-4 h-4"></i> Report
+          <i data-lucide="list-tree" class="w-4 h-4"></i>
+          {% if is_functional_analysis %}Functional Analysis structure{% else %}Sections{% endif %}
+          <span class="text-ink-muted font-normal">({{ documents|length }})</span>
         </h2>
-        <p class="text-xs text-ink-muted mt-1">
-          Two options: <strong>upload</strong> a finished report, or <strong>generate</strong> one from Markdown.
-          Either way it appears in the POC’s Reports tab.
-        </p>
+        {% if can_edit %}
+          <a href="{% url 'pocs:document_create' phase.pk %}"
+             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="plus" class="w-4 h-4"></i> New section
+          </a>
+        {% endif %}
       </div>
 
-      {# ----- Option A: upload a finished report (kept as-is) ----- #}
-      <div class="bg-surface border border-line rounded-xl p-5 space-y-3">
-        <h3 class="font-medium text-ink flex items-center gap-2">
-          <i data-lucide="upload" class="w-4 h-4"></i> Upload your report
-        </h3>
-        <p class="text-xs text-ink-muted">
-          Attach a finished file (<code>.docx</code>, <code>.pdf</code>, …). It’s stored exactly as
-          uploaded — no extraction — and listed below and in the Reports tab for download.
-        </p>
-        <form method="post" action="{% url 'reports:phase_upload' phase.pk %}" enctype="multipart/form-data" class="space-y-3">
-          {% csrf_token %}
-          {% include "components/filedrop.html" with field=upload_form.report_file hint=".docx · .pdf · .doc · .odt · .xlsx · .pptx · .md · .txt" %}
-          <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
-            <i data-lucide="paperclip" class="w-4 h-4"></i> Attach report
-          </button>
-        </form>
+      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+        {% for document in documents %}
+          {% if document.is_locked_section %}
+            <button type="button" @click="openPreview('{% url 'pocs:fa_section_preview' document.pk %}')"
+                    class="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-canvas/50">
+              <span class="min-w-0 flex items-center gap-2">
+                {% if document.section_kind == 'use_cases' %}<i data-lucide="layers" class="w-4 h-4 text-info shrink-0"></i>
+                {% else %}<i data-lucide="list-checks" class="w-4 h-4 text-info shrink-0"></i>{% endif %}
+                <span class="font-medium text-ink truncate">{{ document.title }}</span>
+                <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-info/10 text-info shrink-0">
+                  {% if document.section_kind == 'use_cases' %}Use Cases{% else %}Requirements{% endif %}
+                </span>
+                <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-line text-ink-muted shrink-0 inline-flex items-center gap-1">
+                  <i data-lucide="lock" class="w-3 h-3"></i> Auto-filled
+                </span>
+              </span>
+              <i data-lucide="eye" class="w-4 h-4 text-ink-muted shrink-0"></i>
+            </button>
+          {% else %}
+            <div class="flex items-center justify-between gap-3 p-4 hover:bg-canvas/50">
+              <a href="{% url 'pocs:document_edit' document.pk %}" class="min-w-0 flex-1 flex items-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4 text-ink-muted shrink-0"></i>
+                <span class="font-medium text-ink truncate">{{ document.title }}</span>
+                {% if not document.content %}<span class="text-xs text-ink-muted shrink-0">Empty</span>{% endif %}
+              </a>
+              <div class="flex items-center gap-1 shrink-0">
+                <button type="button" @click="openPreview('{% url 'pocs:fa_section_preview' document.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                <a href="{% url 'pocs:document_edit' document.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+                {% if can_edit %}
+                  <form method="post" action="{% url 'pocs:document_delete' document.pk %}" onsubmit="return confirm('Delete “{{ document.title|escapejs }}”?');" class="contents">
+                    {% csrf_token %}
+                    <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-danger/5" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+        {% empty %}
+          <div class="p-8 text-center text-sm text-ink-muted">
+            {% if is_functional_analysis %}
+              No sections defined yet.{% if user.is_admin %} <a href="{% url 'pocs:fa_step_list' %}" class="text-brand-dark hover:underline">Define the Functional Analysis structure</a>.{% endif %}
+            {% else %}
+              No sections yet.{% if can_edit %} Use “New section” to add one.{% endif %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
 
-        {% if uploaded_reports %}
-          <div class="border border-line rounded-xl divide-y divide-line mt-2">
+      {# Preview popup for locked (Use Cases/Requirements) sections. #}
+      <div x-show="previewOpen" x-cloak
+           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+           @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
+        <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+          <div class="flex justify-end mb-2">
+            <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div x-html="previewHtml"></div>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if is_leaf %}
+    {# ---------- Report: two clear options — Attach (upload) or Generate (from tests/sections) ---------- #}
+    <section class="space-y-3" x-data="{ attachOpen: false }">
+      <h2 class="font-medium text-ink flex items-center gap-2">
+        <i data-lucide="file-text" class="w-4 h-4"></i> Report
+        {% if uploaded_reports %}<span class="text-xs text-ink-muted font-normal">({{ uploaded_reports|length }} uploaded)</span>{% endif %}
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {# ----- Option 1: Attach (upload) ----- #}
+        <button type="button" @click="attachOpen = true"
+                class="card card-hover p-5 text-left flex items-start gap-4">
+          <span class="w-11 h-11 rounded-xl bg-info/10 text-info flex items-center justify-center shrink-0">
+            <i data-lucide="upload" class="w-5 h-5"></i>
+          </span>
+          <span class="min-w-0">
+            <span class="block font-semibold text-ink">Attach report</span>
+            <span class="block text-sm text-ink-muted mt-0.5">Upload a finished file (Word, PDF, Excel…). Stored as-is.</span>
+          </span>
+        </button>
+
+        {# ----- Option 2: Generate directly — content comes from the tests (Test phases) or the sections above (Documentation / Functional Analysis). ----- #}
+        {% if can_edit and is_reportable %}
+          <form method="post"
+                action="{% if is_test %}{% url 'reports:phase_generate' phase.pk %}{% else %}{% url 'reports:phase_documents' phase.pk %}{% endif %}"
+                class="contents">
+            {% csrf_token %}
+            <button type="submit" class="card card-hover p-5 text-left flex items-start gap-4">
+              <span class="w-11 h-11 rounded-xl bg-brand/10 text-brand-dark flex items-center justify-center shrink-0">
+                <i data-lucide="file-output" class="w-5 h-5"></i>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-ink">Generate report</span>
+                <span class="block text-sm text-ink-muted mt-0.5">
+                  {% if is_test %}Builds the report from the tests below.
+                  {% elif is_functional_analysis %}Builds the report from the Functional Analysis structure above.
+                  {% else %}Builds the report from the sections above.{% endif %}
+                </span>
+              </span>
+            </button>
+          </form>
+        {% else %}
+          <div class="card p-5 flex items-start gap-4 opacity-60">
+            <span class="w-11 h-11 rounded-xl bg-brand/10 text-brand-dark flex items-center justify-center shrink-0">
+              <i data-lucide="file-output" class="w-5 h-5"></i>
+            </span>
+            <span class="min-w-0">
+              <span class="block font-semibold text-ink">Generate report</span>
+              <span class="block text-sm text-ink-muted mt-0.5">
+                {% if not can_edit %}Only editors can generate the report.{% else %}No .docx template available yet.{% endif %}
+              </span>
+            </span>
+          </div>
+        {% endif %}
+      </div>
+
+      {# Uploaded reports for this phase (manually attached) #}
+      {% if uploaded_reports %}
+        <div>
+          <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Uploaded reports</p>
+          <div class="card divide-y divide-line">
             {% for r in uploaded_reports %}
               <div class="flex items-center gap-3 p-3">
-                <i data-lucide="file" class="w-4 h-4 text-ink-muted shrink-0"></i>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning shrink-0">UPLOADED</span>
                 <div class="min-w-0 flex-1">
                   <p class="text-sm font-medium text-ink truncate">{{ r.title }}</p>
                   <p class="text-xs text-ink-muted">{{ r.requested_at|date:"Y-m-d H:i" }}{% if r.requested_by %} · {{ r.requested_by.username }}{% endif %}</p>
@@ -202,69 +416,27 @@
               </div>
             {% endfor %}
           </div>
-        {% endif %}
-      </div>
-
-      <div class="flex items-center gap-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-        <span class="flex-1 h-px bg-line"></span> or <span class="flex-1 h-px bg-line"></span>
-      </div>
-
-      {# ----- Option B: generate from Markdown documents + images ----- #}
-      <div class="bg-surface border border-line rounded-xl p-5 space-y-4">
-        <h3 class="font-medium text-ink flex items-center gap-2">
-          <i data-lucide="file-code-2" class="w-4 h-4"></i> Generate from Markdown
-        </h3>
-        <p class="text-xs text-ink-muted">
-          Write Markdown documents (with images) and generate a <code>.docx</code> using the official template.
-        </p>
-
-        {# Documents #}
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h4 class="text-sm font-medium text-ink">Documents <span class="text-ink-muted font-normal">({{ documents|length }})</span></h4>
-            {% if can_edit %}
-              <a href="{% url 'pocs:document_create' phase.pk %}"
-                 class="inline-flex items-center gap-2 border border-line hover:bg-canvas text-ink font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
-                <i data-lucide="plus" class="w-4 h-4"></i> Add markdown document
-              </a>
-            {% endif %}
-          </div>
-          <div class="space-y-3">
-            {% for document in documents %}
-              {% include "pocs/partials/document_row.html" %}
-            {% empty %}
-              <div class="bg-canvas border border-line rounded-xl p-6 text-center text-sm text-ink-muted">
-                {% if is_functional_analysis %}
-                  No Functional Analysis steps defined yet.{% if user.is_admin %} <a href="{% url 'pocs:fa_step_list' %}" class="text-brand-dark hover:underline">Define them</a>.{% endif %}
-                {% else %}
-                  No documents yet.{% if can_edit %} Use “Add markdown document” to create one.{% endif %}
-                {% endif %}
-              </div>
-            {% endfor %}
-          </div>
         </div>
+      {% endif %}
 
-        {# Images #}
-        {% include "pocs/partials/phase_images.html" %}
-
-        {# Generate #}
-        <div class="pt-2 border-t border-line">
-          {% if is_reportable %}
-            <form method="post" action="{% url 'reports:phase_documents' phase.pk %}">
-              {% csrf_token %}
-              <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
-                <i data-lucide="file-output" class="w-4 h-4"></i> Generate report from Markdown
+      {# ----- Attach report modal ----- #}
+      <div x-show="attachOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div @click.outside="attachOpen = false" class="bg-surface rounded-xl border border-line shadow-lg p-6 max-w-lg w-full space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="font-medium text-ink flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i> Attach a report</h3>
+            <button type="button" @click="attachOpen = false" class="text-ink-muted hover:text-ink"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+          <p class="text-xs text-ink-muted">Stored exactly as uploaded (no extraction) and listed in the POC’s Reports tab.</p>
+          <form method="post" action="{% url 'reports:phase_upload' phase.pk %}" enctype="multipart/form-data" class="space-y-3">
+            {% csrf_token %}
+            {% include "components/filedrop.html" with field=upload_form.report_file hint=".docx · .pdf · .doc · .odt · .xlsx · .pptx · .md · .txt · .zip" %}
+            <div class="flex items-center justify-end gap-3">
+              <button type="button" @click="attachOpen = false" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</button>
+              <button type="submit" class="btn btn-primary">
+                <i data-lucide="paperclip" class="w-4 h-4"></i> Attach report
               </button>
-              <p class="text-xs text-ink-muted mt-2">
-                Uses {% if phase.report_template %}this phase’s template{% else %}the global default template{% endif %}.
-              </p>
-            </form>
-          {% else %}
-            <p class="text-sm text-ink-muted">
-              No report template available — attach one to this phase{% if can_edit %} (edit the phase){% endif %}
-              or ask an admin to set a global default template.
-            </p>
-          {% endif %}
+            </div>
+          </form>
         </div>
       </div>
     </section>

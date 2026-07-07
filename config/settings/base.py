@@ -70,6 +70,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Capture the current user for audit-log signals (must follow auth).
     "apps.core.middleware.CurrentUserMiddleware",
+    # Prevent the browser's back/forward cache from showing stale pages after
+    # data changes elsewhere (must follow auth to see request.user).
+    "apps.core.middleware.NoBackCacheMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Requirements &amp; Use Cases</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ title }}</span>
+{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'vendor/easymde.min.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6" x-data="{ previewOpen: false, previewHtml: '',
+       openPreview(url) {
+         this.previewHtml = '';
+         this.previewOpen = true;
+         fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
+       } }">
+  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" class="space-y-4">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {% for field in form %}
+          {% if field.name == "req_gravity_new" or field.name == "req_operation_new" or field.name == "req_functional_new" or field.name == "req_category_new" %}
+            {# Rendered inline with its paired dropdown below — skip here. #}
+          {% elif field.name == "use_cases" %}
+            {# Requirement → Use Cases: checkboxes (not a listbox) so it's obvious what's actually linked, with an eye preview. #}
+            <div class="sm:col-span-2">
+              <label class="block text-sm font-medium text-ink mb-1">{{ field.label }}</label>
+              {% if field.field.queryset.exists %}
+                <div class="max-h-56 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                  {% for cb in field %}
+                    <div class="flex items-center gap-2 text-sm py-0.5">
+                      {{ cb.tag }}
+                      <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                      <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
+                              @click="openPreview('{% url 'pocs:usecase_preview' cb.data.value %}')" title="View">
+                        <i data-lucide="eye" class="w-4 h-4"></i>
+                      </button>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-sm text-ink-muted">This POC has no use cases yet.</p>
+              {% endif %}
+              {% if field.help_text %}<p class="text-xs text-ink-muted mt-1">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+            </div>
+          {% elif field.name == "requirements" %}
+            {# Use Case → Requirements: checkboxes with an eye preview. #}
+            <div class="sm:col-span-2">
+              <label class="block text-sm font-medium text-ink mb-1">{{ field.label }}</label>
+              {% if field.field.queryset.exists %}
+                <div class="max-h-56 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                  {% for cb in field %}
+                    <div class="flex items-center gap-2 text-sm py-0.5">
+                      {{ cb.tag }}
+                      <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                      <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
+                              @click="openPreview('{% url 'pocs:requirement_preview' cb.data.value %}')" title="View">
+                        <i data-lucide="eye" class="w-4 h-4"></i>
+                      </button>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-sm text-ink-muted">This POC has no requirements yet.</p>
+              {% endif %}
+              {% if field.help_text %}<p class="text-xs text-ink-muted mt-1">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+            </div>
+          {% else %}
+            <div class="{% if field.field.widget.input_type == 'textarea' or field.name == 'description' or field.name == 'validation_criteria' or field.name == 'reference_documentations' %}sm:col-span-2{% endif %}"
+                 {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" %}x-data="{ v: '{{ field.value|default_if_none:''|escapejs }}' }"{% endif %}>
+              <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+                {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+                {% if "md-editor" in field.field.widget.attrs.class %} <span class="text-ink-muted font-normal">(Markdown)</span>{% endif %}
+                {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" %} <span class="text-ink-muted font-normal">(suggested — pick "+ Add new…" to add your own)</span>{% endif %}
+              </label>
+              {{ field }}
+              {% if field.name == "req_gravity" %}
+                <div x-show="v === '__new__'" x-cloak class="mt-2">
+                  {{ form.req_gravity_new }}
+                  {% for error in form.req_gravity_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+                </div>
+              {% elif field.name == "req_operation" %}
+                <div x-show="v === '__new__'" x-cloak class="mt-2">
+                  {{ form.req_operation_new }}
+                  {% for error in form.req_operation_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+                </div>
+              {% elif field.name == "req_functional" %}
+                <div x-show="v === '__new__'" x-cloak class="mt-2">
+                  {{ form.req_functional_new }}
+                  {% for error in form.req_functional_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+                </div>
+              {% elif field.name == "req_category" %}
+                <div x-show="v === '__new__'" x-cloak class="mt-2">
+                  {{ form.req_category_new }}
+                  {% for error in form.req_category_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+                </div>
+              {% endif %}
+              {% if field.help_text %}<p class="text-xs text-ink-muted mt-1">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          Save {{ kind_label }}
+        </button>
+        <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  {# Preview popup — fetches a read-only fragment for the linked item. #}
+  <div x-show="previewOpen" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+       @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
+    <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+      <div class="flex justify-end mb-2">
+        <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div x-html="previewHtml"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'vendor/easymde.min.js' %}"></script>
+  <script>
+    // Mount EasyMDE on every Markdown textarea (.md-editor).
+    if (window.EasyMDE) {
+      document.querySelectorAll('textarea.md-editor').forEach(function (el) {
+        var mde = new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '120px',
+          toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
+        // CodeMirror never writes back to the original (now-hidden) textarea on
+        // its own — keep it live on every keystroke instead of only at submit,
+        // since a required field's native validation runs before 'submit' fires.
+        mde.codemirror.on('change', function () { mde.codemirror.save(); });
+      });
+    }
+  </script>
+{% endblock %}

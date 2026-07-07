@@ -15,6 +15,17 @@
       </p>
     </div>
     <div class="flex items-center gap-2 shrink-0">
+      {% if versions %}
+        <form method="post" action="{% url 'pocs:blueprint_undo' %}"
+              onsubmit="return confirm('Revert the most recent blueprint change?');">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+                  title="Undo the last blueprint change">
+            <i data-lucide="undo-2" class="w-4 h-4"></i> Undo last change
+          </button>
+        </form>
+      {% endif %}
       {% if roots %}
         <form method="post" action="{% url 'pocs:phase_template_apply_all' %}"
               onsubmit="return confirm('Apply this blueprint to ALL POCs? Inherited phases will be updated (name, report template, editable flag) and any missing phases added. Existing tasks/tests are not changed.');">
@@ -41,5 +52,63 @@
       </p>
     {% endfor %}
   </div>
+
+  {# Apply to a subset of POCs (spec Fase 8) #}
+  {% if roots and all_pocs %}
+    <div class="bg-surface border border-line rounded-xl p-4" x-data="{ open: false }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between">
+        <span class="font-medium text-ink flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4"></i> Apply to selected POCs</span>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-ink-muted" :class="open && 'rotate-180'"></i>
+      </button>
+      <div x-show="open" x-cloak class="mt-3">
+        <form method="post" action="{% url 'pocs:phase_template_apply_selected' %}"
+              onsubmit="return confirm('Apply the blueprint to the selected POCs?');">
+          {% csrf_token %}
+          <div class="max-h-64 overflow-y-auto border border-line rounded-lg p-2 space-y-1">
+            {% for p in all_pocs %}
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="poc_ids" value="{{ p.id }}"
+                       class="h-4 w-4 rounded border-line text-brand focus:ring-brand/40">
+                <span class="text-ink">{{ p.name }}</span>
+                <span class="text-xs text-ink-muted">({{ p.get_status_display }})</span>
+              </label>
+            {% endfor %}
+          </div>
+          <button type="submit" class="mt-3 inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Apply to selected
+          </button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {# Version history (spec Fase 8) #}
+  {% if versions %}
+    <div class="bg-surface border border-line rounded-xl p-4" x-data="{ open: false }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between">
+        <span class="font-medium text-ink flex items-center gap-2"><i data-lucide="history" class="w-4 h-4"></i> Version history</span>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-ink-muted" :class="open && 'rotate-180'"></i>
+      </button>
+      <div x-show="open" x-cloak class="mt-3 divide-y divide-line">
+        {% for v in versions %}
+          <div class="flex items-center gap-3 py-2 text-sm">
+            <div class="min-w-0 flex-1">
+              <p class="text-ink">{{ v.created_at|date:"Y-m-d H:i" }}</p>
+              <p class="text-xs text-ink-muted truncate">
+                {{ v.note|default:"snapshot" }}{% if v.created_by %} · {{ v.created_by.username }}{% endif %}
+              </p>
+            </div>
+            <form method="post" action="{% url 'pocs:blueprint_restore' v.pk %}"
+                  onsubmit="return confirm('Restore the blueprint to this version? The current blueprint will be replaced (a snapshot is saved first).');">
+              {% csrf_token %}
+              <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-canvas">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Restore
+              </button>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -20,8 +20,11 @@ from apps.pocs.models import (
     PhaseDocument,
     PhaseKind,
     POCMembership,
+    Requirement,
     Task,
     Test,
+    TestValidation,
+    UseCase,
 )
 from apps.pocs.services import delete_poc
 from apps.pocs.state_machine import can_transition_task, task_allowed_statuses
@@ -80,7 +83,7 @@ class StatusUpdateViewTests(TestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.status, "pending")  # unchanged
 
-    def test_completing_stamps_and_phase_completes(self):
+    def test_completing_stamps_and_phase_awaits_then_completes_on_approval(self):
         self.client.force_login(self.member)
         self.client.post(
             reverse("pocs:task_status", args=[self.task.id]), {"status": "in_progress"}
@@ -92,8 +95,17 @@ class StatusUpdateViewTests(TestCase):
         self.assertEqual(self.task.status, "completed")
         self.assertIsNotNone(self.task.completed_at)
         self.assertEqual(self.task.completed_by, self.member)
+        # Spec Fase 5: all work done, but the phase is NOT complete until the TL
+        # approves — it stays in_progress (awaiting approval) meanwhile.
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, "in_progress")
+        self.assertTrue(self.phase.awaiting_approval)
+        # Admin (validator) approves → phase completes and locks.
+        self.client.force_login(self.admin)
+        self.client.post(reverse("pocs:phase_approve", args=[self.phase.id]))
         self.phase.refresh_from_db()
         self.assertEqual(self.phase.status, "completed")
+        self.assertTrue(self.phase.is_locked)
 
 
 class ProgressDerivationTests(TestCase):
@@ -216,12 +228,136 @@ class FunctionalAnalysisTests(TestCase):
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Functional Analysis")
-        self.assertContains(resp, "Login flow")   # the step seeded as a section
-        self.assertContains(resp, "Documents")
+        self.assertContains(resp, "Generate report")   # FA phases generate directly, no "Create report"
         # A PhaseDocument was created for the step (visiting the page seeds it).
         doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.step)
         self.assertEqual(doc.title, "Login flow")
         self.assertTrue(doc.is_fa_section)
+
+
+class FunctionalAnalysisSectionKindTests(TestCase):
+    """Use Cases/Requirements FA sections: admin-defined, auto-filled, locked."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "ek_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.lead = User.objects.create_user(
+            "ek_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="EK POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="Functional Analysis", order=1,
+            kind=PhaseKind.FUNCTIONAL_ANALYSIS,
+        )
+        self.req = Requirement.objects.create(
+            poc=self.poc, sub_system="SCADA", req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", created_by=self.admin,
+        )
+        self.uc = UseCase.objects.create(poc=self.poc, title="Operator login", created_by=self.admin)
+        self.uc.requirements.add(self.req)
+        self.uc_step = FunctionalAnalysisStep.objects.create(
+            title="Use Cases", order=1, section_kind="use_cases"
+        )
+        self.req_step = FunctionalAnalysisStep.objects.create(
+            title="Requirements", order=2, section_kind="requirements"
+        )
+        self.other_step = FunctionalAnalysisStep.objects.create(
+            title="Overview", order=3, section_kind="other"
+        )
+
+    def test_only_one_step_per_locked_kind_allowed(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:fa_step_create"), {
+            "title": "Duplicate", "description": "", "section_kind": "use_cases",
+        })
+        self.assertEqual(resp.status_code, 200)  # re-rendered with error
+        self.assertContains(resp, "only one is allowed")
+        self.assertFalse(FunctionalAnalysisStep.objects.filter(title="Duplicate").exists())
+
+    def test_locked_sections_seeded_and_synced_with_live_data(self):
+        self.client.force_login(self.lead)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Functional Analysis structure")
+        self.assertContains(resp, "New section")
+
+        uc_doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.uc_step)
+        req_doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.req_step)
+        self.assertTrue(uc_doc.is_locked_section)
+        self.assertIn(self.uc.title, uc_doc.content)
+        self.assertIn(self.req.code, req_doc.content)
+
+        # A new Use Case appears next time the phase is viewed (no manual edit needed).
+        uc2 = UseCase.objects.create(poc=self.poc, title="Second flow", created_by=self.admin)
+        self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        uc_doc.refresh_from_db()
+        self.assertIn(uc2.title, uc_doc.content)
+
+    def test_locked_section_preview_is_readonly(self):
+        self.client.force_login(self.lead)
+        self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))  # seed
+        uc_doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.uc_step)
+
+        resp = self.client.get(reverse("pocs:fa_section_preview", args=[uc_doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.uc.title)
+
+        # Direct edit attempts don't change the locked content (field is disabled).
+        resp = self.client.post(reverse("pocs:document_edit", args=[uc_doc.pk]), {
+            "title": "Use Cases", "content": "HACKED",
+        })
+        self.assertEqual(resp.status_code, 302)
+        uc_doc.refresh_from_db()
+        self.assertNotIn("HACKED", uc_doc.content)
+
+    def test_new_section_can_be_inserted_at_a_chosen_position(self):
+        self.client.force_login(self.lead)
+        self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))  # seed
+        uc_doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.uc_step)
+
+        resp = self.client.post(reverse("pocs:document_create", args=[self.phase.pk]), {
+            "title": "Appendix", "content": "extra", "insert_after": uc_doc.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        ordered = list(self.phase.documents.order_by("order", "id").values_list("title", flat=True))
+        self.assertEqual(ordered.index("Appendix"), ordered.index("Use Cases") + 1)
+
+    def test_deleting_a_step_removes_its_seeded_section_everywhere(self):
+        """Regression: a deleted step must not leave an orphaned "ghost" section
+        that duplicates the section seeded for a later, differently-configured
+        step of the same name."""
+        self.client.force_login(self.lead)
+        self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))  # seed
+        uc_doc_id = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.uc_step).pk
+
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:fa_step_delete", args=[self.uc_step.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+        # The seeded section is gone too — not orphaned into a stray free document.
+        self.assertFalse(PhaseDocument.objects.filter(pk=uc_doc_id).exists())
+        self.assertFalse(self.phase.documents.filter(title="Use Cases").exists())
+
+    def test_other_section_also_has_a_preview(self):
+        self.client.force_login(self.lead)
+        self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))  # seed
+        other_doc = PhaseDocument.objects.get(phase=self.phase, source_fa_step=self.other_step)
+        other_doc.content = "Some free text"
+        other_doc.save()
+
+        resp = self.client.get(reverse("pocs:fa_section_preview", args=[other_doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Some free text")
+        self.assertNotContains(resp, "Auto-filled — not editable here")
+
+    def test_fa_phase_report_option_generates_directly(self):
+        self.client.force_login(self.lead)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertContains(resp, "Generate report")
+        self.assertNotContains(resp, "Create report")
 
 
 class RecordResultInheritsExpectedTests(TestCase):
@@ -242,7 +378,9 @@ class RecordResultInheritsExpectedTests(TestCase):
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
         self.assertContains(resp, "Expected result — validate against this")
         self.assertContains(resp, "The light turns green")
-        self.assertContains(resp, "Additional notes")
+        # Record panel now has separate execution-status / result selects + notes.
+        self.assertContains(resp, "Execution status")
+        self.assertContains(resp, 'name="result"')
 
 
 class TasksViewTests(TestCase):
@@ -580,12 +718,12 @@ class PhaseKindUIRenderTests(TestCase):
     def test_documentation_phase_detail_renders(self):
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.doc_phase.pk]))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Documents")
-        self.assertContains(resp, "Add markdown document")
-        self.assertContains(resp, "Images")
-        # Both report options are present and clearly divided.
-        self.assertContains(resp, "Upload your report")
-        self.assertContains(resp, "Generate from Markdown")
+        # Attach (upload) alongside the sections list and its direct "Generate
+        # report" action (Documentation phases behave like Functional Analysis:
+        # sections are managed on the main page, not a separate "create" step).
+        self.assertContains(resp, "Attach report")
+        self.assertContains(resp, "Generate report")
+        self.assertContains(resp, "New section")
 
     def test_report_settings_page_renders(self):
         resp = self.client.get(reverse("reports:settings"))
@@ -640,13 +778,14 @@ class PhaseReportUploadTests(TestCase):
         self.assertFalse(GeneratedReport.objects.filter(phase=self.phase).exists())
 
     def test_test_phase_shows_tests_and_both_report_options(self):
-        # A Test leaf phase now also exposes the unified Markdown + upload area.
+        # A Test leaf phase exposes tests plus both report options (upload and
+        # direct generation from the tests — no "Create report" editor step).
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Add test")
-        self.assertContains(resp, "Upload your report")
-        self.assertContains(resp, "Generate from Markdown")
-        self.assertContains(resp, "Add markdown document")
+        self.assertContains(resp, "Attach report")
+        self.assertContains(resp, "Generate report")
+        self.assertNotContains(resp, "Create report")
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -839,3 +978,973 @@ class TemplateDownloadFallbackTests(TestCase):
         Phase.objects.create(poc=self.poc, name="Child", parent=parent, order=1)
         resp = self.client.get(reverse("pocs:phase_detail", args=[parent.pk]))
         self.assertContains(resp, "Download template")
+
+
+class Fase3TestOutcomeTests(TestCase):
+    """Fase 3a/3b: two-field outcome, mandatory notes, propose-then-validate."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "h_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.lead = User.objects.create_user(
+            "h_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.member = User.objects.create_user(
+            "h_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="H POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.test = Test.objects.create(
+            phase=self.phase, title="T", assigned_to=self.member,
+            expected_result="ok",
+        )
+
+    def _execute(self, **data):
+        self.client.force_login(self.member)
+        return self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]), data
+        )
+
+    def test_progress_change_applies_immediately(self):
+        self._execute(execution_status="in_progress", result="")
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.execution_status, "in_progress")
+        self.assertFalse(self.test.validations.exists())
+
+    def test_result_is_held_as_proposal_not_applied(self):
+        self._execute(execution_status="test_completed", result="passed")
+        self.test.refresh_from_db()
+        # Test unchanged; a pending validation was created instead.
+        self.assertEqual(self.test.execution_status, "not_tested")
+        self.assertEqual(self.test.result, "")
+        v = self.test.validations.get()
+        self.assertEqual(v.status, "pending")
+        self.assertEqual(v.result, "passed")
+
+    def test_not_passed_requires_notes(self):
+        self._execute(execution_status="test_completed", result="not_passed", actual_result="")
+        self.assertFalse(self.test.validations.exists())  # rejected by validation
+
+    def test_skipped_requires_notes(self):
+        self._execute(execution_status="skipped", actual_result="")
+        self.assertFalse(self.test.validations.exists())
+
+    def test_lead_approves_and_outcome_applies(self):
+        self._execute(execution_status="test_completed", result="passed")
+        v = self.test.validations.get()
+        self.client.force_login(self.lead)
+        self.client.post(
+            reverse("pocs:validation_decide", args=[v.pk]),
+            {"decision": "approve", "comment": ""},
+        )
+        self.test.refresh_from_db()
+        v.refresh_from_db()
+        self.assertEqual(v.status, "approved")
+        self.assertEqual(self.test.result, "passed")
+        self.assertEqual(self.test.execution_status, "test_completed")
+
+    def test_lead_rejects_leaves_test_unchanged(self):
+        self._execute(execution_status="test_completed", result="passed")
+        v = self.test.validations.get()
+        self.client.force_login(self.lead)
+        self.client.post(
+            reverse("pocs:validation_decide", args=[v.pk]),
+            {"decision": "reject", "comment": "not enough evidence"},
+        )
+        self.test.refresh_from_db()
+        v.refresh_from_db()
+        self.assertEqual(v.status, "rejected")
+        self.assertEqual(self.test.result, "")
+
+    def test_admin_terminal_change_applies_directly(self):
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {"execution_status": "test_completed", "result": "passed"},
+        )
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.result, "passed")
+        self.assertFalse(self.test.validations.exists())
+
+    def test_poc_lead_keeps_authority_over_phase_sub_leader(self):
+        # A phase sub-leader is assigned, but the POC lead still can validate.
+        other = User.objects.create_user(
+            "h_tl", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        POCMembership.objects.create(poc=self.poc, user=other, role_in_poc="member")
+        self.phase.phase_leader = other
+        self.phase.save()
+        self._execute(execution_status="skipped", actual_result="n/a")
+        v = self.test.validations.get()
+        self.client.force_login(self.lead)  # POC lead, not the phase leader
+        resp = self.client.post(
+            reverse("pocs:validation_decide", args=[v.pk]),
+            {"decision": "approve", "comment": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+        v.refresh_from_db()
+        self.assertEqual(v.status, "approved")
+
+    def test_phase_sub_leader_can_also_validate(self):
+        other = User.objects.create_user(
+            "h_tl2", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        POCMembership.objects.create(poc=self.poc, user=other, role_in_poc="member")
+        self.phase.phase_leader = other
+        self.phase.save()
+        self._execute(execution_status="skipped", actual_result="n/a")
+        v = self.test.validations.get()
+        self.client.force_login(other)
+        resp = self.client.post(
+            reverse("pocs:validation_decide", args=[v.pk]),
+            {"decision": "approve", "comment": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+
+
+class Fase3SpecsAndLinkTests(TestCase):
+    """Fase 3c/3d: specs page, requirement/use-case create, test↔requirement."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "i_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "i_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="I POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.test = Test.objects.create(phase=self.phase, title="T", assigned_to=self.member)
+
+    def test_specs_tab_visible_to_member(self):
+        # The registry now lives as a tab on the POC detail page.
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Requirements &amp; Use Cases")
+
+    def test_specs_url_redirects_to_tab(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:specs", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("tab=specs", resp.url)
+
+    def test_member_cannot_create_requirement(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:requirement_create", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_creates_requirement_with_auto_code(self):
+        self.poc.l2_wbs = "6000020869"
+        self.poc.save()
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("pocs:requirement_create", args=[self.poc.pk]),
+            {
+                "req_gravity": "imposes_mvp",
+                "req_operation": "cybersecurity",
+                "req_functional": "performance",
+                "req_category": "normal_operation",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        req = Requirement.objects.get(poc=self.poc)
+        self.assertEqual(req.created_by, self.admin)
+        # Code is auto-generated (no user input): POC-{wbs}-{CAT}-{OP}-{NNN}.
+        self.assertEqual(req.code, "POC-6000020869-NO-CS-001")
+
+    def test_link_test_to_requirement(self):
+        req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", created_by=self.admin,
+        )
+        self.client.force_login(self.member)
+        self.client.post(
+            reverse("pocs:test_link_requirements", args=[self.test.pk]),
+            {"requirements": [req.pk]},
+        )
+        self.assertIn(req, self.test.requirements.all())
+
+    def test_usecase_auto_code_and_title_unique(self):
+        # First use case: code auto-generated.
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse("pocs:usecase_create", args=[self.poc.pk]),
+            {"title": "Login", "priority": "medium", "status": "draft"},
+        )
+        uc = UseCase.objects.get(poc=self.poc, title="Login")
+        self.assertTrue(uc.code.startswith("POC-"))
+        self.assertIn("-UC", uc.code)
+        # Duplicate title in the same POC is rejected (re-rendered form).
+        resp = self.client.post(
+            reverse("pocs:usecase_create", args=[self.poc.pk]),
+            {"title": "Login", "priority": "medium", "status": "draft"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(UseCase.objects.filter(poc=self.poc, title="Login").count(), 1)
+
+
+class Fase4Tests(TestCase):
+    """Fase 4b (not-passed needs a requirement) + 4a Tests overview page."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "j_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "j_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="J POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.test = Test.objects.create(phase=self.phase, title="T", assigned_to=self.member)
+        self.req = Requirement.objects.create(
+            code="FO-J-SS-CS-001", poc=self.poc, req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", created_by=self.admin,
+        )
+
+    def test_not_passed_without_requirement_is_blocked(self):
+        self.client.force_login(self.member)
+        self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {"execution_status": "test_completed", "result": "not_passed",
+             "actual_result": "broken"},
+        )
+        # No proposal created; test unchanged.
+        self.assertFalse(self.test.validations.exists())
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.result, "")
+
+    def test_not_passed_with_requirement_creates_proposal(self):
+        # Requirements are linked on the test itself (creation/edit), not
+        # re-picked at execution time.
+        self.test.requirements.set([self.req])
+        self.client.force_login(self.member)
+        self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {"execution_status": "test_completed", "result": "not_passed",
+             "actual_result": "broken"},
+        )
+        v = self.test.validations.get()
+        self.assertEqual(v.result, "not_passed")
+        self.assertIn(self.req, self.test.requirements.all())
+
+    def test_tests_overview_renders(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tests_overview") + "?f=pending")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "T")
+
+
+class Fase4DerivedApprovalTests(TestCase):
+    """User rule: requirement validated when all its tests pass/skip; a use case
+    is approved when all its requirements are validated."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "k_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="K POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.uc = UseCase.objects.create(poc=self.poc, title="UC", created_by=self.admin)
+        self.uc.requirements.add(self.req)
+
+    def test_derivation(self):
+        # No tests → not validated / not approved.
+        self.assertFalse(self.req.is_validated)
+        self.assertFalse(self.uc.is_approved)
+        t1 = Test.objects.create(phase=self.phase, title="t1")
+        t2 = Test.objects.create(phase=self.phase, title="t2")
+        t1.requirements.add(self.req)
+        t2.requirements.add(self.req)
+        # One passed, one still pending → not validated.
+        t1.execution_status = "test_completed"; t1.result = "passed"; t1.save()
+        self.assertFalse(self.req.is_validated)
+        # Second skipped → all settled/ok → validated → use case approved.
+        t2.execution_status = "skipped"; t2.actual_result = "n/a"; t2.save()
+        self.assertTrue(self.req.is_validated)
+        self.assertTrue(self.uc.is_approved)
+        # A not-passed test breaks validation.
+        t2.execution_status = "test_completed"; t2.result = "not_passed"; t2.save()
+        self.assertFalse(self.req.is_validated)
+        self.assertFalse(self.uc.is_approved)
+
+    def test_requirement_links_use_case_from_requirement_form(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("pocs:requirement_create", args=[self.poc.pk]),
+            {
+                "req_gravity": "imposes_mvp", "req_operation": "navigation",
+                "req_functional": "performance", "req_category": "maintenance_mode",
+                "use_cases": [self.uc.pk],
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        new_req = Requirement.objects.exclude(pk=self.req.pk).get(poc=self.poc)
+        self.assertIn(self.uc, new_req.use_cases.all())
+
+
+class Fase5PhaseApprovalTests(TestCase):
+    """Fase 5: TL approval gates phase completion + locks it for editing."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "m_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.lead = User.objects.create_user(
+            "m_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.tl = User.objects.create_user(
+            "m_tl", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.member = User.objects.create_user(
+            "m_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="M POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        POCMembership.objects.create(poc=self.poc, user=self.tl, role_in_poc="member")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1, phase_leader=self.tl)
+        self.task = Task.objects.create(phase=self.phase, title="t", assigned_to=self.member)
+
+    def test_cannot_approve_with_unfinished_work(self):
+        self.client.force_login(self.tl)
+        self.client.post(reverse("pocs:phase_approve", args=[self.phase.id]))
+        self.phase.refresh_from_db()
+        self.assertFalse(self.phase.is_approved)
+
+    def test_phase_leader_approves_and_locks(self):
+        self.task.status = "completed"; self.task.save()
+        self.phase.recalculate_status()
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, "in_progress")  # awaiting approval
+        self.client.force_login(self.tl)
+        self.client.post(reverse("pocs:phase_approve", args=[self.phase.id]))
+        self.phase.refresh_from_db()
+        self.assertTrue(self.phase.is_approved)
+        self.assertEqual(self.phase.status, "completed")
+
+    def test_non_validator_cannot_approve(self):
+        self.task.status = "completed"; self.task.save()
+        self.phase.recalculate_status()
+        self.client.force_login(self.member)
+        resp = self.client.post(reverse("pocs:phase_approve", args=[self.phase.id]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_locked_phase_blocks_task_edits(self):
+        self.task.status = "completed"; self.task.save()
+        self.phase.recalculate_status()
+        self.phase.approved_at = timezone.now(); self.phase.approved_by = self.tl
+        self.phase.save()
+        # Assigned member can no longer change the task while locked.
+        self.client.force_login(self.member)
+        self.client.post(
+            reverse("pocs:task_status", args=[self.task.id]), {"status": "in_progress"}
+        )
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "completed")  # unchanged (locked)
+
+    def test_poc_lead_can_unlock(self):
+        self.phase.approved_at = timezone.now(); self.phase.approved_by = self.tl
+        self.phase.save()
+        self.client.force_login(self.lead)  # POC lead keeps authority
+        self.client.post(reverse("pocs:phase_unlock", args=[self.phase.id]))
+        self.phase.refresh_from_db()
+        self.assertFalse(self.phase.is_approved)
+
+
+class Fase6ClosureTests(TestCase):
+    """Fase 6: official closure locks the POC + generates a sealed final report."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "n_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.lead = User.objects.create_user(
+            "n_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.member = User.objects.create_user(
+            "n_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="N POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.test = Test.objects.create(phase=self.phase, title="T", assigned_to=self.member)
+
+    def test_member_cannot_close(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:close", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_lead_closes_and_final_report_generated(self):
+        self.client.force_login(self.lead)
+        resp = self.client.post(
+            reverse("pocs:close", args=[self.poc.pk]),
+            {"closure_date": "2026-07-02", "closure_conclusion": "All good.", "confirm": "on"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.poc.refresh_from_db()
+        self.assertTrue(self.poc.is_closed)
+        self.assertEqual(self.poc.closed_by, self.lead)
+        # A sealed final report was generated for the POC.
+        fr = self.poc.generated_reports.filter(kind="final").first()
+        self.assertIsNotNone(fr)
+        self.assertEqual(fr.status, "ready")
+
+    def test_closed_poc_blocks_editing(self):
+        self.poc.closed_at = timezone.now(); self.poc.closed_by = self.lead
+        self.poc.closure_date = "2026-07-02"; self.poc.save()
+        # Member can't execute the test anymore.
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {"execution_status": "in_progress"},
+        )
+        self.assertEqual(resp.status_code, 403)
+        # Lead can't edit the phase.
+        self.client.force_login(self.lead)
+        resp = self.client.get(reverse("pocs:phase_edit", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_only_admin_can_reopen(self):
+        self.poc.closed_at = timezone.now(); self.poc.closed_by = self.lead
+        self.poc.closure_date = "2026-07-02"; self.poc.save()
+        self.client.force_login(self.lead)
+        resp = self.client.post(reverse("pocs:reopen", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 403)
+        self.client.force_login(self.admin)
+        self.client.post(reverse("pocs:reopen", args=[self.poc.pk]))
+        self.poc.refresh_from_db()
+        self.assertFalse(self.poc.is_closed)
+
+    def test_late_report_is_signed(self):
+        from apps.reports.models import GeneratedReport
+        self.poc.closed_at = timezone.now(); self.poc.closed_by = self.lead
+        self.poc.closure_date = "2026-07-02"; self.poc.save()
+        self.client.force_login(self.member)
+        upload = SimpleUploadedFile("late.txt", b"late doc", content_type="text/plain")
+        self.client.post(
+            reverse("reports:phase_upload", args=[self.phase.pk]), {"report_file": upload}
+        )
+        r = GeneratedReport.objects.filter(poc=self.poc, kind="uploaded").first()
+        self.assertIsNotNone(r)
+        self.assertTrue(r.after_closure)
+
+    def test_final_report_markdown_flags_pending_phases(self):
+        from apps.reports.generation import build_final_report_markdown
+        md = build_final_report_markdown(self.poc, "Conclusion text")
+        self.assertIn("Final Report", md)
+        self.assertIn("Conclusion text", md)
+        # The phase has an unfinished test → flagged pending.
+        self.assertIn("pending", md.lower())
+
+
+class Fase7TaskOrderingTimelineTests(TestCase):
+    """Fase 7: due-date ordering (completed last) + task timeline classes."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "o_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="O POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+
+    def test_order_tasks_due_date_completed_last(self):
+        from apps.pocs.views import order_tasks
+        today = timezone.localdate()
+        late = Task.objects.create(phase=self.phase, title="late", due_date=today + timedelta(days=5))
+        soon = Task.objects.create(phase=self.phase, title="soon", due_date=today + timedelta(days=1))
+        nodate = Task.objects.create(phase=self.phase, title="nodate")
+        done = Task.objects.create(phase=self.phase, title="done", due_date=today, status="completed")
+        ordered = list(order_tasks(self.phase.tasks.all()))
+        # soon (earliest due) → late → nodate (null last) → done (completed last)
+        self.assertEqual(ordered, [soon, late, nodate, done])
+
+    def test_timeline_classifies_tasks(self):
+        from apps.pocs.views import build_task_timeline
+        today = timezone.localdate()
+        overdue = Task.objects.create(phase=self.phase, title="od", due_date=today - timedelta(days=2))
+        upcoming = Task.objects.create(phase=self.phase, title="up", due_date=today + timedelta(days=3))
+        ahead = Task.objects.create(phase=self.phase, title="ah", due_date=today + timedelta(days=1), status="completed")
+        # completed 'ahead' has completed_at now (<= due) → ahead
+        tl = build_task_timeline([overdue, upcoming, ahead], today)
+        cls = {i["task"].title: i["cls"] for i in tl["items"]}
+        self.assertEqual(cls["od"], "overdue")
+        self.assertEqual(cls["up"], "upcoming")
+        self.assertEqual(cls["ah"], "ahead")
+        self.assertTrue(tl["has_dates"])
+
+    def test_timeline_late_completion(self):
+        from apps.pocs.views import build_task_timeline
+        today = timezone.localdate()
+        t = Task.objects.create(phase=self.phase, title="l", due_date=today - timedelta(days=1), status="completed")
+        # completed_at is now (> due date yesterday) → late
+        tl = build_task_timeline([t], today)
+        self.assertEqual(tl["items"][0]["cls"], "late")
+
+
+class Fase8BlueprintTests(TestCase):
+    """Fase 8: blueprint version history (undo/restore) + apply to a subset."""
+
+    def setUp(self):
+        from apps.pocs.models import PhaseTemplate
+        self.admin = User.objects.create_user(
+            "q_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.n1 = PhaseTemplate.objects.create(name="Root", order=1)
+
+    def test_snapshot_and_restore_recreates_deleted_node(self):
+        from apps.pocs.models import PhaseTemplate
+        from apps.pocs.services import snapshot_blueprint, restore_blueprint
+        nid = self.n1.id
+        v = snapshot_blueprint(self.admin, "before delete")
+        self.n1.delete()  # Django sets self.n1.pk = None after delete
+        self.assertEqual(PhaseTemplate.objects.count(), 0)
+        restore_blueprint(v)
+        # Node restored WITH its original id (so POC links survive).
+        self.assertTrue(PhaseTemplate.objects.filter(id=nid, name="Root").exists())
+
+    def test_undo_view_reverts_last_change(self):
+        from apps.pocs.models import PhaseTemplate, BlueprintVersion
+        self.client.force_login(self.admin)
+        # Create a node via the view (snapshots pre-state).
+        self.client.post(reverse("pocs:phase_template_create"), {"name": "New", "kind": "test"})
+        self.assertTrue(PhaseTemplate.objects.filter(name="New").exists())
+        self.assertTrue(BlueprintVersion.objects.exists())
+        # Undo → the "New" node disappears (restored to pre-create snapshot).
+        self.client.post(reverse("pocs:blueprint_undo"))
+        self.assertFalse(PhaseTemplate.objects.filter(name="New").exists())
+
+    def test_apply_to_selected_pocs_only(self):
+        from apps.pocs.models import Phase
+        a = POC.objects.create(name="A", created_by=self.admin, status="active")
+        b = POC.objects.create(name="B", created_by=self.admin, status="active")
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse("pocs:phase_template_apply_selected"), {"poc_ids": [a.id]}
+        )
+        self.assertTrue(Phase.objects.filter(poc=a, source_template=self.n1).exists())
+        self.assertFalse(Phase.objects.filter(poc=b, source_template=self.n1).exists())
+
+
+class Fase10Tests(TestCase):
+    """Fase 10: status board (10a) + requirement Excel import (10c)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "r_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "r_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="R POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="System Testing", order=1)
+
+    def test_overview_does_not_show_removed_status_board(self):
+        t = Test.objects.create(phase=self.phase, title="t1")
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]))
+        self.assertNotContains(resp, "Test status by system")
+
+    def _xlsx(self, rows):
+        import io, openpyxl
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(["sub_system", "req_gravity", "req_operation", "req_functional", "req_category", "remarks"])
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        buf.name = "reqs.xlsx"
+        return buf
+
+    def test_import_preview_and_confirm(self):
+        self.client.force_login(self.admin)
+        f = self._xlsx([
+            ["SCADA", "Imposes (MVP)", "Cybersecurity", "Performance", "Normal Operation", "ok"],
+            ["HMI", "Custom Gravity", "navigation", "performance", "normal_operation", "new custom value"],
+            ["PLC", "", "navigation", "performance", "normal_operation", "missing gravity"],
+        ])
+        # Stage 1: upload → preview (2 valid — a never-seen-before gravity is
+        # accepted as a new value —, 1 error for the missing required field).
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"file": f})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "2 valid")
+        self.assertContains(resp, "Gravity is required")
+        # Stage 2: confirm → only the valid rows are created.
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"confirm": "1"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.poc.requirements.count(), 2)
+        req = self.poc.requirements.get(sub_system="SCADA")
+        self.assertEqual(req.req_operation, "cybersecurity")  # label resolved
+        self.assertTrue(req.code.startswith("POC-"))  # auto code
+        custom_req = self.poc.requirements.get(sub_system="HMI")
+        self.assertEqual(custom_req.req_gravity, "Custom Gravity")  # new value accepted as-is
+        # ...and registered so it becomes a suggestion for this POC going forward.
+        from apps.pocs.models import RequirementFieldOption
+
+        self.assertTrue(
+            RequirementFieldOption.objects.filter(
+                poc=self.poc, field="req_gravity", value="Custom Gravity"
+            ).exists()
+        )
+
+    def test_import_links_use_cases_and_defaults_to_none(self):
+        uc = UseCase.objects.create(poc=self.poc, title="Login", created_by=self.admin)
+        import io, openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([
+            "sub_system", "req_gravity", "req_operation", "req_functional",
+            "req_category", "remarks", "use_cases",
+        ])
+        ws.append(["SCADA", "imposes_mvp", "navigation", "performance", "normal_operation", "linked", uc.code])
+        ws.append(["HMI", "imposes_mvp", "navigation", "performance", "normal_operation", "no link", ""])
+        ws.append(["PLC", "imposes_mvp", "navigation", "performance", "normal_operation", "bad code", "NOPE-001"])
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0); buf.name = "reqs.xlsx"
+
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"file": buf})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "2 valid")
+        self.assertContains(resp, "Unknown use case code")
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"confirm": "1"})
+        self.assertEqual(resp.status_code, 302)
+        linked_req = self.poc.requirements.get(sub_system="SCADA")
+        self.assertIn(uc, linked_req.use_cases.all())
+        # Blank / omitted use_cases → no use case linked (previous, default behaviour).
+        unlinked_req = self.poc.requirements.get(sub_system="HMI")
+        self.assertFalse(unlinked_req.use_cases.exists())
+
+    def test_import_rejects_duplicate_validation_criteria(self):
+        # An existing requirement already carries this validation criteria.
+        Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            validation_criteria="Response time under 200ms", created_by=self.admin,
+        )
+        import io, openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([
+            "sub_system", "req_gravity", "req_operation", "req_functional",
+            "req_category", "validation_criteria",
+        ])
+        # Row 1: duplicates the existing requirement above.
+        ws.append(["SCADA", "imposes_mvp", "navigation", "performance", "normal_operation", "Response time under 200ms"])
+        # Row 2: unique — valid.
+        ws.append(["HMI", "imposes_mvp", "navigation", "performance", "normal_operation", "Screen loads under 1s"])
+        # Row 3: duplicates row 2 within the same file.
+        ws.append(["PLC", "imposes_mvp", "navigation", "performance", "normal_operation", "Screen loads under 1s"])
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0); buf.name = "reqs.xlsx"
+
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"file": buf})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "1 valid")
+        self.assertContains(resp, "Duplicate requirement")
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"confirm": "1"})
+        self.assertEqual(resp.status_code, 302)
+        # Only the unique row was imported — the pre-existing requirement is untouched
+        # and no duplicate of it (nor the in-file repeat) was created.
+        self.assertEqual(
+            self.poc.requirements.filter(validation_criteria="Response time under 200ms").count(), 1
+        )
+        self.assertEqual(
+            self.poc.requirements.filter(validation_criteria="Screen loads under 1s").count(), 1
+        )
+
+    def test_member_cannot_import(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:requirement_import", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_guidelines_shown_on_specs_tab(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]))
+        self.assertContains(resp, "Guidelines")
+        self.assertContains(resp, "Imposes (MVP)")
+
+
+class UseCaseImportAndDashboardTests(TestCase):
+    """Use case Excel import + dashboard shows all POCs (no pagination)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "s_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "s_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="S POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.req = Requirement.objects.create(
+            poc=self.poc, sub_system="SCADA", req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", created_by=self.admin,
+        )
+
+    def _xlsx(self, rows):
+        import io, openpyxl
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(["title", "priority", "status", "requirements", "remarks"])
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0); buf.name = "ucs.xlsx"
+        return buf
+
+    def test_usecase_import_preview_and_confirm(self):
+        self.client.force_login(self.admin)
+        f = self._xlsx([
+            ["Login", "High", "Active", self.req.code, "ok"],
+            ["", "medium", "draft", "", "missing title"],
+            ["BadReq", "medium", "draft", "NOPE-001", "unknown req"],
+        ])
+        resp = self.client.post(reverse("pocs:usecase_import", args=[self.poc.pk]), {"file": f})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "1 valid")
+        self.assertContains(resp, "Title is required")
+        self.assertContains(resp, "Unknown requirement code")
+        resp = self.client.post(reverse("pocs:usecase_import", args=[self.poc.pk]), {"confirm": "1"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.poc.use_cases.count(), 1)
+        uc = self.poc.use_cases.get()
+        self.assertEqual(uc.title, "Login")
+        self.assertEqual(uc.priority, "high")   # label resolved
+        self.assertIn(self.req, uc.requirements.all())
+        self.assertTrue(uc.code.startswith("POC-"))
+
+    def test_member_cannot_import_usecases(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:usecase_import", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_dashboard_shows_all_pocs_no_pagination(self):
+        for i in range(15):
+            POC.objects.create(name=f"P{i}", created_by=self.admin, status="active")
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("core:dashboard"))
+        self.assertEqual(resp.status_code, 200)
+        # All 16 POCs (S POC + 15) present; no pagination context.
+        self.assertNotIn("page_obj", resp.context)
+        self.assertContains(resp, "P14")
+        self.assertContains(resp, "P0")
+
+
+from django.test import override_settings
+import tempfile
+
+from apps.pocs.models import EvidenceFile, POCImage
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class Fase11EvidenceAndStatusTests(TestCase):
+    """Multiple evidence files, and the status badge during pending validation."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "f11_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "f11_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="F11 POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="Unit Testing", order=1)
+        self.test = Test.objects.create(phase=self.phase, title="T", assigned_to=self.member)
+
+    def test_multiple_evidence_files_held_pending_then_reparented(self):
+        self.client.force_login(self.member)
+        img = SimpleUploadedFile("pic.png", _PNG_1x1, content_type="image/png")
+        doc = SimpleUploadedFile("sheet.xlsx", b"fake-xlsx-bytes")
+        resp = self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {
+                "execution_status": "test_completed",
+                "result": "passed",
+                "actual_result": "looks fine",
+                "evidence_files": [img, doc],
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        validation = self.test.validations.get()
+        self.assertEqual(validation.evidence_files.count(), 2)
+        # Test itself untouched while pending.
+        self.assertEqual(self.test.evidence_files.count(), 0)
+        # Badge shows the PROPOSED outcome, not "not tested".
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.display_execution_status, "test_completed")
+        self.assertEqual(self.test.display_result, "passed")
+        self.assertEqual(self.test.execution_status, "not_tested")
+
+        # Admin approves → evidence re-parents onto the Test, none left on the validation.
+        self.client.force_login(self.admin)
+        self.client.post(reverse("pocs:validation_decide", args=[validation.pk]), {"decision": "approve"})
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.evidence_files.count(), 2)
+        validation.refresh_from_db()
+        self.assertEqual(validation.evidence_files.count(), 0)
+
+    def test_rejected_validation_deletes_its_evidence(self):
+        self.client.force_login(self.member)
+        img = SimpleUploadedFile("pic.png", _PNG_1x1, content_type="image/png")
+        self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {
+                "execution_status": "test_completed",
+                "result": "passed",
+                "actual_result": "looks fine",
+                "evidence_files": [img],
+            },
+        )
+        validation = self.test.validations.get()
+        self.assertEqual(validation.evidence_files.count(), 1)
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse("pocs:validation_decide", args=[validation.pk]),
+            {"decision": "reject", "comment": "no good"},
+        )
+        self.assertEqual(EvidenceFile.objects.count(), 0)
+
+    def test_bad_evidence_extension_rejected(self):
+        self.client.force_login(self.member)
+        bad = SimpleUploadedFile("virus.exe", b"x")
+        resp = self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {"execution_status": "in_progress", "evidence_files": [bad]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(EvidenceFile.objects.count(), 0)
+
+    def test_admin_direct_apply_keeps_all_evidence_files(self):
+        # Admin submissions apply immediately (no pending validation) — every
+        # uploaded file must still be attached, not just the first.
+        self.client.force_login(self.admin)
+        f1 = SimpleUploadedFile("a.png", _PNG_1x1, content_type="image/png")
+        f2 = SimpleUploadedFile("b.png", _PNG_1x1, content_type="image/png")
+        resp = self.client.post(
+            reverse("pocs:test_execute", args=[self.test.pk]),
+            {
+                "execution_status": "test_completed",
+                "result": "passed",
+                "actual_result": "looks fine",
+                "evidence_files": [f1, f2],
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.test.refresh_from_db()
+        self.assertEqual(self.test.evidence_files.count(), 2)
+
+
+class Fase11TestTimelineTests(TestCase):
+    """Testing roadmap: rows per Test phase, tests plotted chronologically."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "f11t_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="F11T POC", created_by=self.admin, status="active")
+        self.ut = Phase.objects.create(poc=self.poc, name="Unitary Test", order=1, kind=PhaseKind.TEST)
+        self.st = Phase.objects.create(poc=self.poc, name="System Test", order=2, kind=PhaseKind.TEST)
+
+    def test_no_tests_returns_none(self):
+        self.assertIsNone(self.poc.test_timeline())
+
+    def test_row_status_and_marker_positions(self):
+        Test.objects.create(
+            phase=self.ut, title="ok", execution_status="test_completed", result="passed",
+            executed_at=timezone.now(),
+        )
+        Test.objects.create(phase=self.st, title="pending")
+        timeline = self.poc.test_timeline()
+        self.assertIsNotNone(timeline)
+        rows_by_phase = {r["phase"].name: r for r in timeline["rows"]}
+        self.assertEqual(rows_by_phase["Unitary Test"]["status"], "as_expected")
+        self.assertEqual(rows_by_phase["System Test"]["status"], "not_started")
+        # A pending test still gets a plottable position (no crash / KeyError).
+        pending_marker = rows_by_phase["System Test"]["markers"][0]
+        self.assertIsInstance(pending_marker["pos"], int)
+        self.assertFalse(timeline["all_complete"])
+
+    def test_all_complete_when_every_row_passed(self):
+        Test.objects.create(
+            phase=self.ut, title="ok", execution_status="test_completed", result="passed",
+            executed_at=timezone.now(),
+        )
+        Test.objects.create(
+            phase=self.st, title="ok2", execution_status="test_completed", result="passed",
+            executed_at=timezone.now(),
+        )
+        timeline = self.poc.test_timeline()
+        self.assertTrue(timeline["all_complete"])
+
+    def test_overview_renders_timeline(self):
+        Test.objects.create(phase=self.ut, title="ok")
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]))
+        self.assertContains(resp, "Testing roadmap")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class Fase11FinalReportStructureTests(TestCase):
+    """Final report = Functional Analysis + Testing and Validation + Conclusions only."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "f11r_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="F11R POC", created_by=self.admin, status="active")
+        self.fa_phase = Phase.objects.create(
+            poc=self.poc, name="Functional Analysis", order=1, kind=PhaseKind.FUNCTIONAL_ANALYSIS
+        )
+        PhaseDocument.objects.create(phase=self.fa_phase, title="Overview", content="FA content here.")
+        self.test_phase = Phase.objects.create(
+            poc=self.poc, name="Unit Testing", order=2, kind=PhaseKind.TEST
+        )
+        Test.objects.create(
+            phase=self.test_phase, title="Login works",
+            execution_status="test_completed", result="passed",
+        )
+        self.doc_phase = Phase.objects.create(
+            poc=self.poc, name="Docs", order=3, kind=PhaseKind.DOCUMENTATION
+        )
+        PhaseDocument.objects.create(phase=self.doc_phase, title="ReadMe", content="Should NOT appear.")
+
+    def test_final_report_markdown_structure(self):
+        from apps.reports.generation import build_final_report_markdown
+
+        md = build_final_report_markdown(self.poc, conclusion="Great pilot.")
+        # Chapter order.
+        fa_idx = md.index("# Functional Analysis")
+        tv_idx = md.index("# Testing and Validation")
+        concl_idx = md.index("# Conclusions")
+        self.assertTrue(fa_idx < tv_idx < concl_idx)
+        # Content landed under the right chapter.
+        self.assertIn("Overview", md[fa_idx:tv_idx])
+        self.assertIn("FA content here.", md[fa_idx:tv_idx])
+        self.assertIn("Login works", md[tv_idx:concl_idx])
+        self.assertIn("Great pilot.", md[concl_idx:])
+        # Documentation-kind phase content is excluded entirely.
+        self.assertNotIn("Should NOT appear.", md)
+        self.assertNotIn("ReadMe", md)
+
+    def test_final_report_generates_as_docx(self):
+        from apps.reports.generation import generate_final_report
+        from apps.reports.models import GeneratedReport
+
+        report = generate_final_report(self.poc, self.admin, conclusion="Done.")
+        self.assertEqual(report.status, GeneratedReport.Status.READY, report.error_message)
+        self.assertTrue(report.output_file)

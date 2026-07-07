@@ -1,8 +1,8 @@
 {% load core_extras %}
 {% comment %}
 Single test row (#test-<id>). Re-rendered by HTMX after inline execution saves.
-Context: test (with .can_execute), can_lead, test_verdict_choices, exec_form (only
-set when a save failed, e.g. bad evidence file type).
+Context: test (with .can_execute, .can_validate), can_lead, test_execution_choices,
+test_result_choices, poc_requirements, exec_form (only set when a save failed).
 {% endcomment %}
 <div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
      x-data="{ showDef: false, recordOpen: {% if exec_form %}true{% else %}false{% endif %} }">
@@ -10,7 +10,10 @@ set when a save failed, e.g. bad evidence file type).
   {# Header #}
   <div class="flex items-start gap-3">
     <div class="min-w-0 flex-1">
-      <p class="font-medium text-ink">{{ test.title }}</p>
+      <p class="font-medium text-ink">
+        {% if test.test_code %}<span class="text-xs font-mono text-ink-muted mr-1">{{ test.test_code }}</span>{% endif %}
+        {{ test.title }}
+      </p>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-ink-muted">
         <span class="inline-flex items-center gap-1">
           <i data-lucide="user" class="w-3.5 h-3.5"></i>
@@ -25,15 +28,34 @@ set when a save failed, e.g. bad evidence file type).
       </div>
     </div>
 
-    {# Verdict badge — Passed=green, Failed=red, Blocked=orange, Skipped=gray, Pending=blue #}
-    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
-      {% if test.verdict == 'passed' %}bg-brand/10 text-brand-dark
-      {% elif test.verdict == 'failed' %}bg-danger/10 text-danger
-      {% elif test.verdict == 'blocked' %}bg-warning/10 text-warning
-      {% elif test.verdict == 'skipped' %}bg-line text-ink-muted
-      {% else %}bg-info/10 text-info{% endif %}">
-      {{ test.get_verdict_display }}
-    </span>
+    {% comment %}
+    Status badges — execution status + result. While a validation is
+    pending, show the PROPOSED outcome (via display_execution_status /
+    display_result) instead of the stale persisted one, so the test
+    doesn't misleadingly look "not tested".
+    {% endcomment %}
+    <div class="flex flex-col items-end gap-1 shrink-0">
+      <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+        {% if test.display_execution_status == 'test_completed' %}bg-info/10 text-info
+        {% elif test.display_execution_status == 'in_progress' %}bg-warning/10 text-warning
+        {% elif test.display_execution_status == 'skipped' %}bg-line text-ink-muted
+        {% else %}bg-canvas text-ink-muted{% endif %}">
+        {{ test.display_execution_status_label }}
+      </span>
+      {% if test.display_result %}
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
+          {% if test.display_result == 'passed' %}bg-brand/10 text-brand-dark
+          {% elif test.display_result == 'not_passed' %}bg-danger/10 text-danger
+          {% else %}bg-warning/10 text-warning{% endif %}">
+          {{ test.display_result_label }}
+        </span>
+      {% endif %}
+      {% if test.pending_validation %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning whitespace-nowrap">
+          <i data-lucide="clock" class="w-3 h-3"></i> Waiting for approval
+        </span>
+      {% endif %}
+    </div>
 
     {% if can_lead %}
       <div class="flex items-center gap-1 shrink-0">
@@ -57,11 +79,25 @@ set when a save failed, e.g. bad evidence file type).
     {% if test.expected_result %}<div><p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Expected result</p><div class="prose prose-sm max-w-none text-ink">{{ test.expected_result|markdownify }}</div></div>{% endif %}
   </div>
 
+  {# Linked requirements (spec 3d) — read-only chips; edited via the test's edit form #}
+  <div class="mt-3 pt-3 border-t border-line">
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Linked requirements</p>
+    <div class="mt-1 flex flex-wrap gap-1.5">
+      {% for req in test.requirements.all %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink" title="{{ req.sub_system }}">
+          <i data-lucide="link" class="w-3 h-3"></i> {{ req.code }}
+        </span>
+      {% empty %}
+        <span class="text-sm text-ink-muted">No requirements linked.</span>
+      {% endfor %}
+    </div>
+  </div>
+
   {# Result + evidence #}
   <div class="mt-3 pt-3 border-t border-line">
     <div class="flex items-center justify-between">
       <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Notes</p>
-      {% if test.can_execute %}
+      {% if test.can_execute and not test.pending_validation %}
         <button @click="recordOpen = !recordOpen" class="text-xs font-medium text-brand-dark hover:underline">
           <span x-show="!recordOpen">Record result</span>
           <span x-show="recordOpen" x-cloak>Cancel</span>
@@ -70,20 +106,26 @@ set when a save failed, e.g. bad evidence file type).
     </div>
 
     <div x-show="!recordOpen">
-      {% if test.actual_result %}
-        <div class="prose prose-sm max-w-none text-ink mt-1">{{ test.actual_result|markdownify }}</div>
+      {% if test.pending_validation %}
+        <p class="text-sm text-warning mt-1 inline-flex items-center gap-1">
+          <i data-lucide="clock" class="w-4 h-4"></i>
+          An outcome is awaiting a phase lead’s validation — further edits are locked until it is decided.
+        </p>
+      {% endif %}
+      {% if test.display_actual_result %}
+        <div class="prose prose-sm max-w-none text-ink mt-1">{{ test.display_actual_result|markdownify }}</div>
       {% else %}
         <p class="text-sm text-ink-muted mt-1">No notes yet.</p>
       {% endif %}
-      {% if test.evidence_file or test.evidence_url %}
+      {% if test.display_evidence_files or test.display_evidence_url %}
         <div class="flex flex-wrap items-center gap-3 mt-2 text-xs">
-          {% if test.evidence_file %}
-            <a href="{{ test.evidence_file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
-              <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> Evidence file
+          {% for ev in test.display_evidence_files %}
+            <a href="{{ ev.file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
+              <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> {{ ev.file.name|slice:"-40:" }}
             </a>
-          {% endif %}
-          {% if test.evidence_url %}
-            <a href="{{ test.evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
+          {% endfor %}
+          {% if test.display_evidence_url %}
+            <a href="{{ test.display_evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
               <i data-lucide="link" class="w-3.5 h-3.5"></i> Evidence link
             </a>
           {% endif %}
@@ -92,7 +134,7 @@ set when a save failed, e.g. bad evidence file type).
     </div>
 
     {# Execution form (HTMX, multipart for the file upload) #}
-    {% if test.can_execute %}
+    {% if test.can_execute and not test.pending_validation %}
       <form x-show="recordOpen" x-cloak class="mt-2 space-y-3"
             hx-post="{% url 'pocs:test_execute' test.id %}"
             hx-target="#test-{{ test.id }}" hx-swap="outerHTML"
@@ -106,33 +148,44 @@ set when a save failed, e.g. bad evidence file type).
             <p class="text-sm text-ink-muted">No expected result defined for this test.</p>
           {% endif %}
         </div>
-        <div>
-          <label class="block text-xs font-medium text-ink mb-1">Additional notes <span class="text-ink-muted font-normal">(Markdown — observations only, not a rewrite of the expected result)</span></label>
-          <textarea name="actual_result" rows="4" placeholder="Notes / observations about this run…"
-                    class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ test.actual_result }}</textarea>
-        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-ink mb-1">Verdict</label>
-            <select name="verdict" class="w-full rounded-lg border border-line px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
-              {% for value, label in test_verdict_choices %}
-                <option value="{{ value }}" {% if test.verdict == value %}selected{% endif %}>{{ label }}</option>
+            <label class="block text-xs font-medium text-ink mb-1">Execution status</label>
+            <select name="execution_status" class="w-full rounded-lg border border-line px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+              {% for value, label in test_execution_choices %}
+                <option value="{{ value }}" {% if test.execution_status == value %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-ink mb-1">Evidence URL</label>
-            <input type="url" name="evidence_url" value="{{ test.evidence_url|default:'' }}" placeholder="https://…"
-                   class="w-full rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+            <label class="block text-xs font-medium text-ink mb-1">Result <span class="text-ink-muted font-normal">(when completed)</span></label>
+            <select name="result" class="w-full rounded-lg border border-line px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+              <option value="">— No result —</option>
+              {% for value, label in test_result_choices %}
+                <option value="{{ value }}" {% if test.result == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
         <div>
-          <label class="block text-xs font-medium text-ink mb-1">Evidence file <span class="text-ink-muted font-normal">(image, PDF, txt or log)</span></label>
-          <input type="file" name="evidence_file" class="text-sm text-ink-muted">
-          {% if exec_form %}{% for e in exec_form.evidence_file.errors %}<p class="text-xs text-danger mt-1">{{ e }}</p>{% endfor %}{% endif %}
+          <label class="block text-xs font-medium text-ink mb-1">Notes <span class="text-ink-muted font-normal">(required for Not Passed / Passed with comments / Skipped)</span></label>
+          <textarea name="actual_result" rows="4" placeholder="Notes / observations about this run…"
+                    class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ test.actual_result }}</textarea>
+          {% if exec_form %}{% for e in exec_form.actual_result.errors %}<p class="text-xs text-danger mt-1">{{ e }}</p>{% endfor %}{% for e in exec_form.result.errors %}<p class="text-xs text-danger mt-1">{{ e }}</p>{% endfor %}{% endif %}
         </div>
+        {% if exec_form %}{% for e in exec_form.non_field_errors %}<p class="text-xs text-danger">{{ e }}</p>{% endfor %}{% endif %}
+        <div>
+          <label class="block text-xs font-medium text-ink mb-1">Evidence URL</label>
+          <input type="url" name="evidence_url" value="{{ test.evidence_url|default:'' }}" placeholder="https://…"
+                 class="w-full rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink mb-1">Evidence files <span class="text-ink-muted font-normal">(image, PDF, txt, log, xlsx or docx — several allowed)</span></label>
+          <input type="file" name="evidence_files" multiple class="text-sm text-ink-muted">
+        </div>
+        <p class="text-xs text-ink-muted">A final result (Passed / Not Passed / Passed with comments) or a Skipped status is submitted for a phase lead to validate before it takes effect.</p>
         <button type="submit" class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
-          Save result
+          Save
         </button>
       </form>
     {% endif %}

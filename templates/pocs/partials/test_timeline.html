@@ -1,0 +1,61 @@
+{% comment %}
+Testing roadmap: one row per Test-kind leaf phase; its tests plotted
+chronologically on a shared axis. Context: test_timeline dict with
+axis_start, axis_end, today_pos, rows [{phase,status,markers:[{test,pos,status}]}],
+all_complete.
+{% endcomment %}
+<div class="bg-surface border border-line rounded-xl p-4 space-y-4">
+  <div class="flex items-center justify-between">
+    <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="milestone" class="w-4 h-4"></i> Testing roadmap</h2>
+    <div class="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+      <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-brand"></span>Passed</span>
+      <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-danger"></span>Not passed</span>
+      <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-warning"></span>In progress</span>
+      <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-line"></span>Not started</span>
+    </div>
+  </div>
+
+  {% if test_timeline.all_complete %}
+    <p class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-dark bg-brand/10 rounded-lg px-3 py-1.5">
+      <i data-lucide="check-circle-2" class="w-4 h-4"></i> Testing complete — every phase has passed.
+    </p>
+  {% endif %}
+
+  <div class="flex items-center justify-between text-xs text-ink-muted">
+    <span>{{ test_timeline.axis_start|date:"Y-m-d" }}</span>
+    <span>{{ test_timeline.axis_end|date:"Y-m-d" }}</span>
+  </div>
+
+  <div class="space-y-3">
+    {% for row in test_timeline.rows %}
+      <div class="flex items-stretch gap-3">
+        <div class="w-40 shrink-0 flex items-center rounded-lg px-3 text-sm font-semibold truncate
+          {% if row.status == 'as_expected' %}bg-brand text-white
+          {% elif row.status == 'not_expected' %}bg-danger text-white
+          {% elif row.status == 'in_progress' %}bg-canvas text-ink border-2 border-warning
+          {% else %}bg-canvas text-ink-muted{% endif %}">
+          <a href="{% url 'pocs:phase_detail' row.phase.pk %}" class="truncate hover:underline">{{ row.phase.name }}</a>
+        </div>
+        <div class="relative flex-1 h-10 rounded-lg bg-canvas border border-line">
+          {% if test_timeline.today_pos is not None %}
+            <div class="absolute top-0 bottom-0 w-px bg-ink/40" style="left: {{ test_timeline.today_pos }}%">
+              <span class="absolute -top-4 -translate-x-1/2 text-[10px] text-ink-muted">Today</span>
+            </div>
+          {% endif %}
+          {% for m in row.markers %}
+            <a href="{% url 'pocs:phase_detail' row.phase.pk %}#test-{{ m.test.id }}"
+               title="{{ m.test.title }}"
+               class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 px-1.5 py-1 rounded border text-[10px] font-mono leading-tight text-center hover:z-10 hover:shadow
+                 {% if m.status == 'as_expected' %}bg-brand/10 border-brand text-brand-dark
+                 {% elif m.status == 'not_expected' %}bg-danger/10 border-danger text-danger
+                 {% elif m.status == 'in_progress' %}bg-warning/10 border-warning text-warning
+                 {% else %}bg-surface border-line text-ink-muted{% endif %}"
+               style="left: {{ m.pos }}%">
+              {{ m.test.test_code|default:m.test.title }}
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>

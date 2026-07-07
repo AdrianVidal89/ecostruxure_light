@@ -16,11 +16,97 @@ urlpatterns = [
         name="list",
     ),
     path("tasks/", views.TasksView.as_view(), name="tasks"),
+    path("tests/", views.TestsView.as_view(), name="tests_overview"),
+    path("validations/", views.ValidationListView.as_view(), name="validations"),
+    path(
+        "validations/<int:validation_pk>/",
+        views.validation_detail,
+        name="validation_detail",
+    ),
+    path(
+        "validations/<int:validation_pk>/decide/",
+        views.validation_decide,
+        name="validation_decide",
+    ),
     path("import/", views.POCImportView.as_view(), name="import"),
     path("create/", views.POCCreateView.as_view(), name="create"),
     path("<int:pk>/", views.POCDetailView.as_view(), name="detail"),
     path("<int:pk>/edit/", views.POCUpdateView.as_view(), name="edit"),
+    # --- Requirements & Use Cases (spec Fase 3c) ---
+    path("<int:pk>/specs/", views.poc_specs_redirect, name="specs"),
+    path(
+        "<int:pk>/requirements/create/",
+        views.RequirementCreateView.as_view(),
+        name="requirement_create",
+    ),
+    path(
+        "<int:pk>/requirements/import/",
+        views.RequirementImportView.as_view(),
+        name="requirement_import",
+    ),
+    path(
+        "<int:pk>/requirements/import/template/",
+        views.requirement_import_template,
+        name="requirement_import_template",
+    ),
+    path(
+        "requirements/<int:pk>/edit/",
+        views.RequirementUpdateView.as_view(),
+        name="requirement_edit",
+    ),
+    path(
+        "requirements/<int:pk>/delete/",
+        views.RequirementDeleteView.as_view(),
+        name="requirement_delete",
+    ),
+    path(
+        "requirements/<int:pk>/preview/",
+        views.requirement_preview,
+        name="requirement_preview",
+    ),
+    path(
+        "<int:pk>/use-cases/create/",
+        views.UseCaseCreateView.as_view(),
+        name="usecase_create",
+    ),
+    path(
+        "<int:pk>/use-cases/import/",
+        views.UseCaseImportView.as_view(),
+        name="usecase_import",
+    ),
+    path(
+        "<int:pk>/use-cases/import/template/",
+        views.usecase_import_template,
+        name="usecase_import_template",
+    ),
+    path(
+        "use-cases/<int:pk>/",
+        views.UseCaseDetailView.as_view(),
+        name="usecase_detail",
+    ),
+    path(
+        "use-cases/<int:pk>/preview/",
+        views.usecase_preview,
+        name="usecase_preview",
+    ),
+    path(
+        "use-cases/<int:pk>/edit/",
+        views.UseCaseUpdateView.as_view(),
+        name="usecase_edit",
+    ),
+    path(
+        "use-cases/<int:pk>/delete/",
+        views.UseCaseDeleteView.as_view(),
+        name="usecase_delete",
+    ),
     path("<int:pk>/archive/", views.POCArchiveView.as_view(), name="archive"),
+    path("<int:pk>/close/", views.POCCloseView.as_view(), name="close"),
+    path(
+        "<int:pk>/images/upload/",
+        views.POCImageUploadView.as_view(),
+        name="poc_image_upload",
+    ),
+    path("<int:pk>/reopen/", views.poc_reopen, name="reopen"),
     path("<int:pk>/delete/", views.POCDeleteView.as_view(), name="delete"),
     # --- Member assignment (admin-only, HTMX) ---
     path("<int:pk>/members/search/", views.member_search, name="member_search"),
@@ -38,6 +124,9 @@ urlpatterns = [
     # --- Phase blueprint builder (admin only, global) ---
     path("phase-templates/", views.PhaseTemplateListView.as_view(), name="phase_template_list"),
     path("phase-templates/apply-all/", views.phase_template_apply_all, name="phase_template_apply_all"),
+    path("phase-templates/apply-selected/", views.phase_template_apply_selected, name="phase_template_apply_selected"),
+    path("phase-templates/undo/", views.blueprint_undo, name="blueprint_undo"),
+    path("phase-templates/restore/<int:version_pk>/", views.blueprint_restore, name="blueprint_restore"),
     path("phase-templates/create/", views.PhaseTemplateCreateView.as_view(), name="phase_template_create"),
     path("phase-templates/<int:parent_pk>/child/", views.PhaseTemplateCreateView.as_view(), name="phase_template_child"),
     path("phase-templates/<int:pk>/edit/", views.PhaseTemplateUpdateView.as_view(), name="phase_template_edit"),
@@ -57,6 +146,8 @@ urlpatterns = [
     path("<int:pk>/phases/create/", views.PhaseCreateView.as_view(), name="phase_create"),
     path("<int:pk>/phases/reorder/", views.phase_reorder, name="phase_reorder"),
     path("phases/<int:phase_pk>/set-status/", views.phase_set_status, name="phase_set_status"),
+    path("phases/<int:phase_pk>/approve/", views.phase_approve, name="phase_approve"),
+    path("phases/<int:phase_pk>/unlock/", views.phase_unlock, name="phase_unlock"),
     path(
         "phases/<int:phase_pk>/subphase/create/",
         views.SubPhaseCreateView.as_view(),
@@ -71,6 +162,16 @@ urlpatterns = [
         "phases/<int:phase_pk>/delete/",
         views.PhaseDeleteView.as_view(),
         name="phase_delete",
+    ),
+    path(
+        "phases/<int:phase_pk>/mark-na/",
+        views.PhaseMarkNAView.as_view(),
+        name="phase_mark_na",
+    ),
+    path(
+        "phases/<int:phase_pk>/unmark-na/",
+        views.phase_unmark_na,
+        name="phase_unmark_na",
     ),
     path(
         "phases/<int:phase_pk>/",
@@ -109,6 +210,11 @@ urlpatterns = [
         name="test_delete",
     ),
     path("tests/<int:test_pk>/execute/", views.test_execute, name="test_execute"),
+    path(
+        "tests/<int:test_pk>/requirements/",
+        views.test_link_requirements,
+        name="test_link_requirements",
+    ),
     # --- Phase documents (Documentation / Functional Analysis) ---
     path(
         "phases/<int:phase_pk>/documents/create/",
@@ -124,6 +230,11 @@ urlpatterns = [
         "documents/<int:document_pk>/delete/",
         views.PhaseDocumentDeleteView.as_view(),
         name="document_delete",
+    ),
+    path(
+        "documents/<int:document_pk>/preview/",
+        views.fa_section_preview,
+        name="fa_section_preview",
     ),
     # --- Phase images ---
     path(

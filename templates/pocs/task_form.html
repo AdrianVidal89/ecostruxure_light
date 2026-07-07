@@ -3,7 +3,7 @@
 
 {% block title %}{{ title }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
@@ -78,8 +78,12 @@
   <script>
     const descEl = document.getElementById('{{ form.description.id_for_label }}');
     if (descEl && window.EasyMDE) {
-      new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
+      const mde = new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
         toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
+      // CodeMirror never writes back to the original (now-hidden) textarea on
+      // its own — keep it live on every keystroke instead of only at submit,
+      // since a required field's native validation runs before 'submit' fires.
+      mde.codemirror.on('change', function () { mde.codemirror.save(); });
     }
   </script>
 {% endblock %}

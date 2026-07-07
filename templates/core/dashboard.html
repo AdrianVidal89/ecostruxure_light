@@ -122,7 +122,7 @@
     {% endif %}
   </form>
 
-  {# POC cards #}
+  {# POC cards — all shown at once (continuous scroll, no pagination) #}
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for poc in pocs %}
       {% include "pocs/partials/poc_card.html" %}
@@ -139,20 +139,8 @@
     {% endfor %}
   </div>
 
-  {% if is_paginated %}
-    <div class="flex items-center justify-between text-sm text-ink-muted">
-      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-      <div class="flex gap-2">
-        {% if page_obj.has_previous %}
-          <a href="?page={{ page_obj.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}"
-             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Previous</a>
-        {% endif %}
-        {% if page_obj.has_next %}
-          <a href="?page={{ page_obj.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}"
-             class="px-3 py-1.5 rounded-lg border border-line hover:bg-surface">Next</a>
-        {% endif %}
-      </div>
-    </div>
+  {% if poc_total %}
+    <p class="text-xs text-ink-muted text-center">{{ poc_total }} POC{{ poc_total|pluralize }}</p>
   {% endif %}
 
 </div>

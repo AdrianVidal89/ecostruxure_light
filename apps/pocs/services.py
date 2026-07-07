@@ -19,14 +19,21 @@ from django.db.models import Q
 from .models import (
     POC,
     AuditLog,
+    BasePhaseDocument,
+    BaseTask,
+    BaseTest,
+    BlueprintVersion,
+    EvidenceFile,
     FunctionalAnalysisStep,
     Phase,
     PhaseDocument,
     PhaseImage,
     PhaseKind,
     PhaseTemplate,
+    Requirement,
     Task,
     Test,
+    UseCase,
 )
 
 
@@ -81,29 +88,109 @@ def _instantiate_phase(node, poc, parent_phase):
     return phase
 
 
+def _requirements_section_markdown(poc):
+    """Markdown listing of ``poc``'s Requirements, for a locked FA section.
+
+    Each requirement is a level-2 heading (the section itself is level 1, so
+    numbering stays contiguous — 4.1., 4.2., ... — instead of jumping to a
+    level 3). Its "Use cases:" line links to the matching Use Case heading
+    (see the Use Cases section) rather than repeating that section's content.
+    """
+    reqs = list(poc.requirements.all())
+    if not reqs:
+        return "_No requirements defined yet._"
+    lines = []
+    for req in reqs:
+        lines.append(f"## {req.code}" + (f" — {req.sub_system}" if req.sub_system else ""))
+        lines.append("")
+        lines.append(f"**Gravity:** {req.get_req_gravity_display()}")
+        lines.append(f"**Operation:** {req.get_req_operation_display()}")
+        lines.append(f"**Functional:** {req.get_req_functional_display()}")
+        lines.append(f"**Category:** {req.get_req_category_display()}")
+        if req.life_cycle_phase:
+            lines.append(f"**Life cycle phase:** {req.life_cycle_phase}")
+        lines.append("")
+        if req.validation_criteria:
+            lines.append("**Validation criteria:**")
+            lines.append("")
+            lines.append(req.validation_criteria)
+            lines.append("")
+        use_cases = list(req.use_cases.all())
+        if use_cases:
+            links = ", ".join(f"[{uc.code}](#{uc.code})" for uc in use_cases)
+            lines.append(f"**Use cases:** {links}")
+            lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _usecases_section_markdown(poc):
+    """Markdown listing of ``poc``'s Use Cases, for a locked FA section.
+
+    Each use case is a level-2 heading (see :func:`_requirements_section_markdown`
+    for why). Its Requirements are not repeated here — the Functional
+    Requirements chapter is the source of truth and links back to this use case.
+    """
+    ucs = list(poc.use_cases.all())
+    if not ucs:
+        return "_No use cases defined yet._"
+    lines = []
+    for uc in ucs:
+        lines.append(f"## {uc.code} — {uc.title}")
+        lines.append("")
+        if uc.actor:
+            lines.append(f"**Actor:** {uc.actor}")
+        lines.append(f"**Priority:** {uc.get_priority_display()}")
+        lines.append(f"**Status:** {uc.get_status_display()}")
+        lines.append("")
+        if uc.description:
+            lines.append("**Description:**")
+            lines.append("")
+            lines.append(uc.description)
+            lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def locked_section_markdown(poc, section_kind):
+    """Live Markdown for a locked (Use Cases/Requirements) FA section."""
+    if section_kind == FunctionalAnalysisStep.SectionKind.REQUIREMENTS:
+        return _requirements_section_markdown(poc)
+    if section_kind == FunctionalAnalysisStep.SectionKind.USE_CASES:
+        return _usecases_section_markdown(poc)
+    return ""
+
+
 def ensure_fa_documents(phase):
-    """Seed a PhaseDocument per Functional Analysis step (idempotent).
+    """Seed a PhaseDocument per Functional Analysis step (idempotent), and keep
+    locked (Use Cases/Requirements) sections' content in sync.
 
     Each section is matched to its step via ``source_fa_step``; missing ones are
-    created (title from the step). Existing sections are never touched, so any
-    content the user wrote is preserved even if steps are added later.
+    created (title from the step). Free ("Other") sections are never touched, so
+    any content the user wrote is preserved even if steps are added later; locked
+    sections have their ``content`` refreshed from the POC's live data on every
+    call, since the POC lead can't edit them directly.
     """
     if phase.kind != PhaseKind.FUNCTIONAL_ANALYSIS:
         return
-    existing = set(
-        phase.documents.filter(source_fa_step__isnull=False).values_list(
-            "source_fa_step_id", flat=True
-        )
-    )
+    existing = {
+        doc.source_fa_step_id: doc
+        for doc in phase.documents.filter(source_fa_step__isnull=False)
+    }
     for step in FunctionalAnalysisStep.objects.all():
-        if step.id in existing:
+        doc = existing.get(step.id)
+        if doc is None:
+            PhaseDocument.objects.create(
+                phase=phase,
+                source_fa_step=step,
+                title=step.title,
+                order=step.order,
+                content=locked_section_markdown(phase.poc, step.section_kind),
+            )
             continue
-        PhaseDocument.objects.create(
-            phase=phase,
-            source_fa_step=step,
-            title=step.title,
-            order=step.order,
-        )
+        if step.section_kind != FunctionalAnalysisStep.SectionKind.OTHER:
+            fresh = locked_section_markdown(phase.poc, step.section_kind)
+            if doc.content != fresh:
+                doc.content = fresh
+                doc.save(update_fields=["content", "updated_at"])
 
 
 def _copy_node(node, poc, parent):
@@ -140,19 +227,21 @@ def apply_phase_templates(poc):
             _copy_node(node, poc, parent=None)
 
 
-def sync_blueprint_to_pocs():
-    """Apply the current blueprint to every POC. Returns counts.
+def sync_blueprint_to_pocs(pocs=None):
+    """Apply the current blueprint to POCs. Returns counts.
 
-    For each POC: inherited phases (matched by ``source_template``) have their
-    attributes refreshed from the blueprint; blueprint nodes missing from the
-    POC are created (with base tasks/tests). Existing Tasks/Tests are untouched
-    and no phases are deleted.
+    ``pocs`` limits the sync to a specific iterable/queryset of POCs (spec Fase
+    8); when omitted it applies to every POC. For each POC: inherited phases
+    (matched by ``source_template``) have their attributes refreshed from the
+    blueprint; blueprint nodes missing from the POC are created (with base
+    tasks/tests). Existing Tasks/Tests are untouched and no phases are deleted.
     """
     nodes = _preorder_templates()
     stats = {"pocs": 0, "created": 0, "updated": 0}
+    target = POC.objects.all() if pocs is None else pocs
 
     with transaction.atomic():
-        for poc in POC.objects.all():
+        for poc in target:
             stats["pocs"] += 1
             existing = {
                 p.source_template_id: p
@@ -181,6 +270,96 @@ def sync_blueprint_to_pocs():
 
 
 # ---------------------------------------------------------------------------
+# Blueprint version history (spec Fase 8 — undo / restore)
+# ---------------------------------------------------------------------------
+def _serialize_blueprint():
+    """Serialise the whole blueprint (templates + base items) to plain data."""
+    templates = [
+        {
+            "id": t.id,
+            "parent_id": t.parent_id,
+            "name": t.name,
+            "description": t.description,
+            "order": t.order,
+            "lead_editable": t.lead_editable,
+            "kind": t.kind,
+            "report_template": t.report_template.name if t.report_template else "",
+        }
+        for t in PhaseTemplate.objects.all().order_by("id")
+    ]
+    base_tasks = [
+        {"phase_template_id": b.phase_template_id, "title": b.title,
+         "description": b.description, "order": b.order}
+        for b in BaseTask.objects.all()
+    ]
+    base_tests = [
+        {"phase_template_id": b.phase_template_id, "title": b.title,
+         "description": b.description, "acceptance_criteria": b.acceptance_criteria,
+         "expected_result": b.expected_result, "order": b.order}
+        for b in BaseTest.objects.all()
+    ]
+    base_documents = [
+        {"phase_template_id": b.phase_template_id, "title": b.title,
+         "content": b.content, "order": b.order}
+        for b in BasePhaseDocument.objects.all()
+    ]
+    return {
+        "templates": templates,
+        "base_tasks": base_tasks,
+        "base_tests": base_tests,
+        "base_documents": base_documents,
+    }
+
+
+def snapshot_blueprint(user=None, note=""):
+    """Save a BlueprintVersion snapshot of the current blueprint (before a change)."""
+    return BlueprintVersion.objects.create(
+        data=_serialize_blueprint(), note=note[:255], created_by=user
+    )
+
+
+def restore_blueprint(version):
+    """Restore the blueprint to a saved snapshot.
+
+    Templates are upserted BY ID (so surviving nodes keep their id and existing
+    POC phase links stay intact); templates not in the snapshot are removed; base
+    tasks/tests/documents are rebuilt from the snapshot.
+    """
+    data = version.data
+    keep_ids = {t["id"] for t in data.get("templates", [])}
+    with transaction.atomic():
+        PhaseTemplate.objects.exclude(id__in=keep_ids).delete()
+        # Pass 1: upsert nodes without parent (avoids FK ordering issues).
+        for t in data.get("templates", []):
+            PhaseTemplate.objects.update_or_create(
+                id=t["id"],
+                defaults={
+                    "parent_id": None,
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "order": t.get("order", 0),
+                    "lead_editable": t.get("lead_editable", False),
+                    "kind": t.get("kind", PhaseKind.TEST),
+                    "report_template": t.get("report_template") or "",
+                },
+            )
+        # Pass 2: wire parents.
+        for t in data.get("templates", []):
+            if t.get("parent_id"):
+                PhaseTemplate.objects.filter(id=t["id"]).update(parent_id=t["parent_id"])
+        # Rebuild base items from scratch (nothing links back to them).
+        BaseTask.objects.all().delete()
+        BaseTest.objects.all().delete()
+        BasePhaseDocument.objects.all().delete()
+        for b in data.get("base_tasks", []):
+            BaseTask.objects.create(**b)
+        for b in data.get("base_tests", []):
+            BaseTest.objects.create(**b)
+        for b in data.get("base_documents", []):
+            BasePhaseDocument.objects.create(**b)
+
+
+# ---------------------------------------------------------------------------
 # Hard delete
 # ---------------------------------------------------------------------------
 def delete_poc(poc):
@@ -202,9 +381,9 @@ def delete_poc(poc):
         for phase in poc.phases.all():
             if phase.report_template:
                 phase.report_template.delete(save=False)
-        for test in Test.objects.filter(phase__poc=poc):
-            if test.evidence_file:
-                test.evidence_file.delete(save=False)
+        for ev in EvidenceFile.objects.filter(test__phase__poc=poc):
+            if ev.file:
+                ev.file.delete(save=False)
         for img in PhaseImage.objects.filter(phase__poc=poc):
             if img.image:
                 img.image.delete(save=False)

@@ -27,10 +27,10 @@ TRACKED_FIELDS = {
     Task: ["title", "status", "assigned_to", "notes", "due_date"],
     Test: [
         "title",
-        "verdict",
+        "execution_status",
+        "result",
         "assigned_to",
         "actual_result",
-        "evidence_file",
         "evidence_url",
     ],
 }
@@ -64,10 +64,8 @@ def _action_for(sender, changed):
         if "notes" in keys:
             return "notes_updated"
     else:  # Test
-        if "verdict" in keys:
-            return "verdict_changed"
-        if "evidence_file" in keys and changed["evidence_file"]["after"]:
-            return "file_uploaded"
+        if "execution_status" in keys or "result" in keys:
+            return "status_changed"
         if "actual_result" in keys:
             return "result_added"
         if "assigned_to" in keys:

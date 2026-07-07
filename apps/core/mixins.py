@@ -37,8 +37,39 @@ def user_can_edit_phase(user, phase):
     full control over everything inside their POC. (Executing assigned
     tasks/tests is governed separately — assignees can always do that.) The
     per-phase ``lead_editable`` flag is no longer consulted here.
+
+    An approved (locked) phase can't be edited by anyone until a validator
+    unlocks it (spec Fase 5). A closed POC is fully locked (spec Fase 6).
     """
+    if getattr(phase.poc, "closed_at", None):
+        return False
+    if getattr(phase, "approved_at", None):
+        return False
     return user_can_lead_poc(user, phase.poc)
+
+
+def user_can_delete_phase(user, phase):
+    """True if ``user`` may permanently delete ``phase`` from the POC.
+
+    Admins may delete any phase. A POC lead may only delete phases they created
+    themselves in the POC (no blueprint provenance) — phases inherited from the
+    admin-defined blueprint must be marked Not Applicable instead, so a lead's
+    POC never structurally drifts from the blueprint the admin maintains.
+    """
+    if not user_can_edit_phase(user, phase):
+        return False
+    if user.is_admin:
+        return True
+    return phase.can_be_deleted
+
+
+def user_can_mark_na(user, phase):
+    """True if ``user`` may mark ``phase`` Not Applicable (with a reason).
+
+    Only meaningful for blueprint-sourced phases the lead can't delete; a
+    phase the lead created directly should just be deleted instead.
+    """
+    return user_can_edit_phase(user, phase) and phase.can_be_marked_na
 
 
 def user_is_poc_member(user, poc):
@@ -56,8 +87,14 @@ def user_can_execute_task(user, task):
     """True if ``user`` may update execution fields (status/notes) of ``task``.
 
     Granted to POC leads/admins and to the team member the task is assigned to.
+    Blocked while the task's phase is approved/locked (Fase 5) or the POC is
+    closed (Fase 6).
     """
     if not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(task.phase.poc, "closed_at", None):
+        return False
+    if getattr(task.phase, "approved_at", None):
         return False
     if user_can_lead_poc(user, task.phase.poc):
         return True
@@ -65,12 +102,44 @@ def user_can_execute_task(user, task):
 
 
 def user_can_execute_test(user, test):
-    """True if ``user`` may record results for ``test`` (lead/admin or assignee)."""
+    """True if ``user`` may record results for ``test`` (lead/admin or assignee).
+
+    Blocked while the test's phase is approved/locked (Fase 5) or the POC is
+    closed (Fase 6).
+    """
     if not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(test.phase.poc, "closed_at", None):
+        return False
+    if getattr(test.phase, "approved_at", None):
         return False
     if user_can_lead_poc(user, test.phase.poc):
         return True
     return test.assigned_to_id == user.id
+
+
+def user_can_validate_phase(user, phase):
+    """True if ``user`` may validate test outcomes in ``phase`` (spec 3b).
+
+    Validators are: global admins, the phase's leader (``phase_leader``), AND the
+    POC's leads. A POC lead always keeps authority over the whole POC even when a
+    sub-leader is assigned to a phase — the UI just notes that the phase has its
+    own lead.
+    """
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(phase.poc, "closed_at", None):
+        return False  # a closed POC is locked (Fase 6)
+    if user.is_admin:
+        return True
+    if phase.phase_leader_id == user.id:
+        return True
+    return user_can_lead_poc(user, phase.poc)
+
+
+def user_can_validate_test(user, test):
+    """True if ``user`` may approve/reject ``test``'s pending outcome."""
+    return user_can_validate_phase(user, test.phase)
 
 
 class AdminRequiredMixin(UserPassesTestMixin):
@@ -155,4 +224,6 @@ class POCLeadRequiredMixin(LoginRequiredMixin):
         self.poc = self.get_poc()
         if not user_can_lead_poc(request.user, self.poc):
             raise PermissionDenied("You must be a lead of this POC.")
+        if self.poc.is_closed:
+            raise PermissionDenied("This POC is closed and locked for editing.")
         return super().dispatch(request, *args, **kwargs)

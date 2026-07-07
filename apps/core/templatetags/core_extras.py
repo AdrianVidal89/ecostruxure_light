@@ -23,10 +23,20 @@ _MARKDOWN_EXTRAS = [
 
 @register.filter(name="get_item")
 def get_item(mapping, key):
-    """Dict lookup by a variable key in templates: ``{{ d|get_item:key }}``."""
+    """Dict lookup by a variable key in templates: ``{{ d|get_item:key }}``.
+
+    Tries ``key`` as given, then as a string, then as an int — template
+    callers don't always agree on whether a PK is an int or the string a
+    rendered form field gives back (e.g. ``BoundWidget.data.value``).
+    """
     try:
-        return mapping.get(key)
-    except AttributeError:
+        if key in mapping:
+            return mapping[key]
+        skey = str(key)
+        if skey in mapping:
+            return mapping[skey]
+        return mapping.get(int(key))
+    except (AttributeError, TypeError, ValueError):
         return None
 
 

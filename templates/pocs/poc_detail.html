@@ -23,10 +23,27 @@
     </div>
     {% if can_lead %}
       <div class="flex items-center gap-2 shrink-0">
-        <a href="{% url 'pocs:edit' poc.pk %}"
-           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
-          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
-        </a>
+        {% if not is_closed %}
+          <a href="{% url 'pocs:edit' poc.pk %}"
+             class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+          </a>
+        {% endif %}
+        {% if can_close %}
+          <a href="{% url 'pocs:close' poc.pk %}"
+             class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-danger/40 text-danger text-sm font-medium hover:bg-danger/5">
+            <i data-lucide="lock" class="w-4 h-4"></i> Close POC
+          </a>
+        {% endif %}
+        {% if is_closed and is_admin %}
+          <form method="post" action="{% url 'pocs:reopen' poc.pk %}"
+                onsubmit="return confirm('Reopen this POC? Editing will be unlocked.');">
+            {% csrf_token %}
+            <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+              <i data-lucide="lock-open" class="w-4 h-4"></i> Reopen
+            </button>
+          </form>
+        {% endif %}
         {% if is_admin %}
         <form method="post" action="{% url 'pocs:archive' poc.pk %}"
               onsubmit="return confirm('{% if poc.status == 'archived' %}Restore{% else %}Archive{% endif %} this POC?');">
@@ -79,6 +96,18 @@
     {% endif %}
   </div>
 
+  {% if is_closed %}
+    <div class="flex flex-wrap items-center gap-3 rounded-xl border border-ink/20 bg-ink/5 px-4 py-3">
+      <i data-lucide="lock" class="w-5 h-5 text-ink shrink-0"></i>
+      <p class="text-sm text-ink flex-1">
+        <strong>Officially closed</strong>
+        {% if poc.closure_date %}on {{ poc.closure_date }}{% endif %}
+        {% if poc.closed_by %}by {{ poc.closed_by.get_full_name|default:poc.closed_by.username }}{% endif %}.
+        This POC is locked — no changes are possible{% if is_admin %} unless you reopen it{% endif %}.
+      </p>
+    </div>
+  {% endif %}
+
   {# Tabs #}
   <div class="border-b border-line flex gap-1 overflow-x-auto">
     {% for key, label in tabs %}
@@ -92,6 +121,20 @@
 
   {# ---------- Overview ---------- #}
   <section x-show="tab === 'overview'" x-cloak class="space-y-6">
+
+    {# Quick-view dashboard (spec Fase 10a): architecture image + status board #}
+    {% if poc.architecture_image %}
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <h2 class="font-medium text-ink mb-3 flex items-center gap-2"><i data-lucide="network" class="w-4 h-4"></i> Architecture</h2>
+        <img src="{{ poc.architecture_image.url }}" alt="Architecture" class="max-h-96 w-auto mx-auto rounded-lg border border-line">
+      </div>
+    {% endif %}
+
+    {% if test_timeline %}
+      {% include "pocs/partials/test_timeline.html" %}
+    {% endif %}
+
+
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <div class="bg-surface border border-line rounded-xl p-4">
         <p class="text-xs text-ink-muted">Progress</p>
@@ -140,6 +183,204 @@
     {% endif %}
   </section>
 
+  {# ---------- Requirements & Use Cases ---------- #}
+  <section x-show="tab === 'specs'" x-cloak class="space-y-8"
+           x-data="{ previewOpen: false, previewHtml: '',
+             openPreview(url) {
+               this.previewHtml = '';
+               this.previewOpen = true;
+               fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
+             } }">
+
+    {# Contextual guideline / help (spec Fase 10b) #}
+    <div class="bg-info/5 border border-info/30 rounded-xl p-4" x-data="{ open: false }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between">
+        <span class="font-medium text-ink flex items-center gap-2"><i data-lucide="help-circle" class="w-4 h-4 text-info"></i> Guidelines — how these concepts fit together</span>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-ink-muted" :class="open && 'rotate-180'"></i>
+      </button>
+      <div x-show="open" x-cloak class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-ink">
+        <div>
+          <p class="font-medium text-ink">Need / Imposes (MVP)</p>
+          <p class="text-ink-muted">A capability the POC <strong>must</strong> deliver to be viable — the minimum viable product. Non-negotiable.</p>
+        </div>
+        <div>
+          <p class="font-medium text-ink">Use Case</p>
+          <p class="text-ink-muted">A concrete scenario an actor (e.g. Operator) wants to achieve. Use cases group the requirements that make them possible.</p>
+        </div>
+        <div>
+          <p class="font-medium text-ink">Requirement</p>
+          <p class="text-ink-muted">A specific, verifiable condition the solution must meet. Requirements are attached to use cases and validated by tests.</p>
+          <ul class="text-ink-muted mt-1 space-y-0.5">
+            <li>· <strong>Imposes (MVP)</strong> — mandatory for the MVP.</li>
+            <li>· <strong>Optionally</strong> — valuable but not required.</li>
+            <li>· <strong>Preferred but not required</strong> — nice to have.</li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-medium text-ink">Support / Help</p>
+          <p class="text-ink-muted">When in doubt about scope or classification, contact the POC lead or an admin. A requirement is “validated” once all its linked tests pass or are skipped; a use case is “approved” once all its requirements are validated.</p>
+        </div>
+      </div>
+    </div>
+
+    {# Use Cases #}
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-ink">Use Cases</h2>
+        {% if can_manage %}
+          <div class="flex items-center gap-2">
+            <a href="{% url 'pocs:usecase_import' poc.pk %}"
+               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+              <i data-lucide="upload" class="w-4 h-4"></i> Import
+            </a>
+            <a href="{% url 'pocs:usecase_create' poc.pk %}"
+               class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add use case
+            </a>
+          </div>
+        {% endif %}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {% for uc in use_cases %}
+          <div class="bg-surface border border-line rounded-xl p-4" x-data="{ showAllReqs: false }">
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <p class="font-medium text-ink"><span class="text-xs font-mono text-ink-muted mr-1">{{ uc.code }}</span>{{ uc.title }}</p>
+                <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                  <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ uc.get_priority_display }}</span>
+                  <span class="px-2 py-0.5 rounded-full {% if uc.status == 'active' %}bg-brand/10 text-brand-dark{% elif uc.status == 'deprecated' %}bg-line text-ink-muted{% else %}bg-info/10 text-info{% endif %}">{{ uc.get_status_display }}</span>
+                  {% if uc.is_approved %}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+                  {% endif %}
+                  {% if uc.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ uc.actor }}</span>{% endif %}
+                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <a href="{% url 'pocs:usecase_detail' uc.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></a>
+                {% if can_manage %}
+                  <a href="{% url 'pocs:usecase_edit' uc.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+                  <form method="post" action="{% url 'pocs:usecase_delete' uc.pk %}" onsubmit="return confirm('Delete use case “{{ uc.code|escapejs }}”?');" class="contents">
+                    {% csrf_token %}
+                    <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+            {% if uc.description %}<div class="prose prose-sm max-w-none text-ink-muted mt-2 line-clamp-3">{{ uc.description|markdownify }}</div>{% endif %}
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              {% for req in uc.requirements.all %}
+                <button type="button" x-show="{{ forloop.counter }} <= 6 || showAllReqs"
+                        @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+                        title="View requirement">
+                  <i data-lucide="link" class="w-3 h-3"></i>{{ req.code }}
+                </button>
+              {% empty %}
+                <span class="text-xs text-ink-muted">No linked requirements</span>
+              {% endfor %}
+              {% if uc.requirements.count > 6 %}
+                <button type="button" @click="showAllReqs = !showAllReqs" class="text-xs font-medium text-brand-dark hover:underline">
+                  <span x-show="!showAllReqs">+{{ uc.requirements.count|add:"-6" }} more</span>
+                  <span x-show="showAllReqs" x-cloak>Show fewer</span>
+                </button>
+              {% endif %}
+            </div>
+          </div>
+        {% empty %}
+          <div class="md:col-span-2 bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
+            No use cases yet.{% if can_manage %} Use “Add use case” to create one.{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Requirements #}
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-ink">Requirements</h2>
+        {% if can_manage %}
+          <div class="flex items-center gap-2">
+            <a href="{% url 'pocs:requirement_import' poc.pk %}"
+               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+              <i data-lucide="upload" class="w-4 h-4"></i> Import
+            </a>
+            <a href="{% url 'pocs:requirement_create' poc.pk %}"
+               class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add requirement
+            </a>
+          </div>
+        {% endif %}
+      </div>
+      {% if requirements %}
+        <div class="bg-surface border border-line rounded-xl overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-ink-muted uppercase tracking-wide border-b border-line">
+                <th class="px-4 py-3">Code</th>
+                <th class="px-4 py-3">Sub-system</th>
+                <th class="px-4 py-3">Gravity</th>
+                <th class="px-4 py-3">Operation</th>
+                <th class="px-4 py-3">Category</th>
+                <th class="px-4 py-3">Validated</th>
+                <th class="px-4 py-3">Use cases</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              {% for req in requirements %}
+                <tr class="hover:bg-canvas/50">
+                  <td class="px-4 py-3 font-mono text-xs text-ink">{{ req.code }}</td>
+                  <td class="px-4 py-3 text-ink">{{ req.sub_system|default:"—" }}</td>
+                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_gravity_display }}</td>
+                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_operation_display }}</td>
+                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_category_display }}</td>
+                  <td class="px-4 py-3">
+                    {% if req.is_validated %}
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3 h-3"></i> Validated</span>
+                    {% else %}
+                      <span class="px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted">Pending</span>
+                    {% endif %}
+                  </td>
+                  <td class="px-4 py-3 text-ink-muted">{{ req.use_cases.count }}</td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center justify-end gap-1">
+                      <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                      {% if can_manage %}
+                        <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+                        <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">
+                          {% csrf_token %}
+                          <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
+          No requirements yet.{% if can_manage %} Use “Add requirement” to create one. Bulk import from Excel arrives in a later phase.{% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    {# Preview popup — fetches a read-only fragment for the clicked requirement/use case. #}
+    <div x-show="previewOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+         @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
+      <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+        <div class="flex justify-end mb-2">
+          <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div x-html="previewHtml"></div>
+      </div>
+    </div>
+  </section>
+
   {# ---------- Phases (inherited hierarchy tree) ---------- #}
   <section x-show="tab === 'phases'" x-cloak class="space-y-4">
     <div class="flex items-center justify-between gap-3">
@@ -163,13 +404,13 @@
       {% endif %}
     </div>
 
-    <div class="bg-surface border border-line rounded-xl p-3">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {% for node in phase_roots %}
-        {% include "pocs/partials/phase_node.html" with node=node %}
+        {% include "pocs/partials/phase_card.html" with node=node %}
       {% empty %}
-        <p class="p-8 text-center text-sm text-ink-muted">
+        <div class="lg:col-span-2 card p-8 text-center text-sm text-ink-muted">
           No phases yet.{% if is_admin %} Define the global blueprint, or add a phase here.{% elif can_lead %} Add a phase here.{% endif %}
-        </p>
+        </div>
       {% endfor %}
     </div>
   </section>
@@ -205,7 +446,7 @@
         {% for log in audit_logs %}
           <div class="flex items-start gap-3 p-4">
             <div class="w-9 h-9 rounded-full bg-canvas text-ink-muted flex items-center justify-center shrink-0">
-              <i data-lucide="{% if 'deleted' in log.action %}trash-2{% elif log.action == 'report_uploaded' %}upload{% elif log.action == 'report_generated' %}file-output{% elif log.action == 'created' or log.action == 'document_created' or log.action == 'image_uploaded' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
+              <i data-lucide="{% if log.action == 'validation_rejected' %}x-circle{% elif 'deleted' in log.action %}trash-2{% elif log.action == 'validation_requested' %}clock{% elif log.action == 'validation_approved' or log.action == 'phase_approved' %}check-circle{% elif log.action == 'phase_unlocked' %}lock-open{% elif log.action == 'report_uploaded' %}upload{% elif log.action == 'report_generated' %}file-output{% elif log.action == 'created' or log.action == 'document_created' or log.action == 'image_uploaded' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
             </div>
             <div class="min-w-0 flex-1">
               <p class="text-sm text-ink">
@@ -242,49 +483,38 @@
   {# ---------- Reports ---------- #}
   <section x-show="tab === 'reports'" x-cloak class="space-y-6">
 
-    {# Phase reports: only phases (any level) that have a template attached #}
-    <div>
-      <h2 class="font-medium text-ink mb-1">Phase reports</h2>
-      <p class="text-sm text-ink-muted mb-3">
-        Generate a Word report from a phase’s tests (aggregating its sub-phases). Only
-        phases with a <code>.docx</code> template assigned in the blueprint appear here.
-      </p>
-      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
-        {% for phase in reportable_phases %}
-          <div class="flex items-center gap-3 p-4">
-            <div class="min-w-0 flex-1">
-              <p class="font-medium text-ink truncate">{{ phase.name }}</p>
-              <p class="text-xs text-ink-muted">Level {{ phase.level }}</p>
-            </div>
-            <form method="post" action="{% url 'reports:phase_generate' phase.pk %}">
-              {% csrf_token %}
-              <button type="submit"
-                      class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
-                <i data-lucide="file-output" class="w-4 h-4"></i> Generate
-              </button>
-            </form>
-          </div>
-        {% empty %}
-          <p class="p-10 text-center text-sm text-ink-muted">No phases with a report template.</p>
-        {% endfor %}
-      </div>
-    </div>
-
-    {# Generated reports for this POC #}
-    <div>
-      <h2 class="font-medium text-ink mb-3">Generated reports</h2>
-      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
+    {# Generated reports for this POC — collapsible, collapsed by default (Fase 9) #}
+    <div x-data="{ open: false }">
+      <button type="button" @click="open = !open" class="w-full flex items-center justify-between mb-3">
+        <h2 class="font-medium text-ink flex items-center gap-2">
+          <i data-lucide="folder-open" class="w-4 h-4"></i> Reports
+          <span class="text-xs text-ink-muted font-normal">({{ generated_reports|length }})</span>
+        </h2>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-ink-muted" :class="open && 'rotate-180'"></i>
+      </button>
+      <div x-show="open" x-cloak class="bg-surface border border-line rounded-xl divide-y divide-line">
         {% for report in generated_reports %}
           <div class="flex items-center gap-3 p-4">
-            <div class="w-9 h-9 rounded-lg bg-canvas text-ink-muted flex items-center justify-center shrink-0">
-              <i data-lucide="file-text" class="w-4 h-4"></i>
+            <div class="w-9 h-9 rounded-lg {% if report.kind == 'final' %}bg-brand/10 text-brand-dark{% elif report.kind == 'uploaded' %}bg-warning/10 text-warning{% else %}bg-info/10 text-info{% endif %} flex items-center justify-center shrink-0">
+              <i data-lucide="{% if report.kind == 'final' %}award{% elif report.kind == 'uploaded' %}upload{% else %}file-output{% endif %}" class="w-4 h-4"></i>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium text-ink truncate">{{ report.title }}</p>
+              <p class="text-sm font-medium text-ink truncate">
+                {{ report.title }}
+                {% if report.kind == 'final' %}<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-brand/10 text-brand-dark align-middle">FINAL</span>
+                {% elif report.kind == 'uploaded' %}<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning align-middle">UPLOADED</span>
+                {% else %}<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-info/10 text-info align-middle">SYSTEM</span>{% endif %}
+              </p>
               <p class="text-xs text-ink-muted">
-                {{ report.get_kind_display }} · {{ report.requested_at|date:"Y-m-d H:i" }}
+                {% if report.kind == 'uploaded' %}Uploaded manually{% else %}Generated by the system{% endif %}
+                · {{ report.requested_at|date:"Y-m-d H:i" }}
                 {% if report.requested_by %} · {{ report.requested_by.username }}{% endif %}
               </p>
+              {% if report.after_closure %}
+                <p class="text-xs text-warning inline-flex items-center gap-1 mt-0.5">
+                  <i data-lucide="pen-line" class="w-3 h-3"></i> Digital signature: generated after official closure
+                </p>
+              {% endif %}
             </div>
             {% include "reports/partials/report_status.html" with report=report can_delete=report.can_delete %}
           </div>

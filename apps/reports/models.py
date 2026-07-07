@@ -92,6 +92,7 @@ class GeneratedReport(models.Model):
         PHASE = "phase", "Phase report"
         CUSTOM = "custom", "Custom report"
         UPLOADED = "uploaded", "Uploaded report"
+        FINAL = "final", "Final report"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -142,6 +143,10 @@ class GeneratedReport(models.Model):
         USER, on_delete=models.SET_NULL, null=True, related_name="generated_reports"
     )
     requested_at = models.DateTimeField(auto_now_add=True)
+
+    # Digital signature for a "late" document (spec Fase 6b): set when the report
+    # is created after the owning POC's official closure.
+    after_closure = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-requested_at"]

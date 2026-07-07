@@ -4,7 +4,7 @@
 {% block breadcrumb %}
   <a href="{% url 'pocs:list' %}" class="hover:text-ink">POCs</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[12rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[12rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <span class="text-ink font-medium">{{ title }}</span>
 {% endblock %}
@@ -48,6 +48,15 @@
         {{ form.description }}
         {% for error in form.description.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
       </div>
+
+      {% if form.phase_leader %}
+        <div>
+          <label for="{{ form.phase_leader.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Phase leader (TL)</label>
+          {{ form.phase_leader }}
+          <p class="text-xs text-ink-muted mt-1">Validates test outcomes for this phase. If unset, the POC’s leads validate.</p>
+          {% for error in form.phase_leader.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
 
       {% if form.report_template %}
         <div>

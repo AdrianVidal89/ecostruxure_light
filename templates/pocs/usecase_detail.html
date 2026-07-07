@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}{{ usecase.code }} · {{ usecase.title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Requirements &amp; Use Cases</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ usecase.code }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <p class="text-xs font-mono text-ink-muted">{{ usecase.code }}</p>
+      <h1 class="text-2xl font-semibold text-ink break-words">{{ usecase.title }}</h1>
+      <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ usecase.get_priority_display }}</span>
+        <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
+        {% if usecase.is_approved %}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+        {% endif %}
+        {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Back">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+      </a>
+      {% if can_manage %}
+        <a href="{% url 'pocs:usecase_edit' usecase.pk %}" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Edit">
+          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+        </a>
+        <form method="post" action="{% url 'pocs:usecase_delete' usecase.pk %}" onsubmit="return confirm('Delete use case “{{ usecase.code|escapejs }}”?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5" title="Delete">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-6">
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+      {% if usecase.description %}
+        <div class="prose prose-sm max-w-none text-ink">{{ usecase.description|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No description.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked requirements</p>
+      {% if usecase.requirements.exists %}
+        <div class="flex flex-wrap gap-1.5">
+          {% for req in usecase.requirements.all %}
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink" title="{{ req.get_req_gravity_display }}">
+              <i data-lucide="link" class="w-3 h-3"></i>{{ req.code }}{% if req.sub_system %} · {{ req.sub_system }}{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No linked requirements.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Remarks</p>
+      {% if usecase.remarks %}
+        <div class="prose prose-sm max-w-none text-ink">{{ usecase.remarks|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No remarks.</p>
+      {% endif %}
+    </div>
+
+    <div class="border-t border-line pt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-muted">
+      <span>Created by {{ usecase.created_by }} · {{ usecase.created_date|date:"d M Y, H:i" }}</span>
+      {% if usecase.modified_by %}<span>Last modified by {{ usecase.modified_by }} · {{ usecase.modified_date|date:"d M Y, H:i" }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

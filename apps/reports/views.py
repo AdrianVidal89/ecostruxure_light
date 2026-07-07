@@ -153,22 +153,25 @@ def _is_poc_member(user, poc):
 
 @require_POST
 def phase_report_generate(request, phase_pk):
-    """Generate a phase report from its tests (POC members + admin)."""
+    """Generate a phase report from its tests (POC members + admin).
+
+    No pre-check on ``phase.is_reportable`` — that only reflects the phase's
+    *own* template, but generation also falls back to the global default
+    (see ``resolve_phase_template_path``); let it raise there instead, same
+    as the documents-based generator (``phase_documents_report``).
+    """
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     phase = get_object_or_404(Phase, pk=phase_pk)
     if not _is_poc_member(request.user, phase.poc):
         raise PermissionDenied
-    if not phase.is_reportable:
-        messages.error(request, "This phase has no report template attached.")
-        return redirect(f"{reverse('pocs:detail', args=[phase.poc.pk])}?tab=reports")
 
     report = generate_phase_report(phase, request.user)
     if report.status == GeneratedReport.Status.ERROR:
         messages.error(request, f"Report generation failed: {report.error_message}")
     else:
         messages.success(request, f"Report for “{phase.name}” generated.")
-    return redirect(f"{reverse('pocs:detail', args=[phase.poc.pk])}?tab=reports")
+    return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +273,9 @@ def phase_report_upload(request, phase_pk):
         requested_by=request.user,
         status=GeneratedReport.Status.READY,
     )
+    from .generation import mark_after_closure
+
+    mark_after_closure(report, phase.poc)
     report.output_file.save(f.name, f, save=True)
     record_audit(report, "report_uploaded", request.user,
                  {"file": {"before": None, "after": f.name}})
@@ -290,8 +296,13 @@ def phase_documents_report(request, phase_pk):
     if not _is_poc_member(request.user, phase.poc):
         raise PermissionDenied
 
+    from apps.pocs.services import ensure_fa_documents
+
     from .generation import generate_phase_report_from_documents
 
+    # Locked (Use Cases/Requirements) FA sections must reflect the POC's latest
+    # data even if nobody opened the phase page since the last change.
+    ensure_fa_documents(phase)
     report = generate_phase_report_from_documents(phase, request.user)
     if report.status == GeneratedReport.Status.ERROR:
         messages.error(request, f"Report generation failed: {report.error_message}")

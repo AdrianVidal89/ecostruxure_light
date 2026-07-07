@@ -32,6 +32,14 @@
     <span class="text-xs text-ink-muted ml-auto">{{ total }} task{{ total|pluralize }}</span>
   </div>
 
+  {# Timeline across all tasks in view — always shown on top (spec Fase 7) #}
+  {% if total %}
+    <div>
+      <h2 class="font-medium text-ink mb-2 flex items-center gap-2"><i data-lucide="gantt-chart" class="w-4 h-4"></i> Timeline</h2>
+      {% include "pocs/partials/task_timeline.html" with show_context=True %}
+    </div>
+  {% endif %}
+
   {% for group in groups %}
     <div>
       <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark mb-2">

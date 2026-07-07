@@ -7,6 +7,8 @@ Two modes:
     template (see template.py); adds PASS/FAIL cell colouring on top.
 """
 
+import itertools
+import re
 from io import BytesIO
 
 from docx import Document
@@ -20,6 +22,16 @@ from .template import prepare_from_template
 
 # Cap embedded images so a large upload doesn't overflow the page width.
 _MAX_IMAGE_WIDTH = Inches(6)
+
+# A heading whose text starts with a code like "POC-119-UC001" or
+# "POC-119-MM-AV-013" gets a bookmark on that token, so other sections (e.g. a
+# Requirement's "Use cases:" line) can link straight to it.
+_CODE_RE = re.compile(r"^([A-Za-z0-9]+(?:-[A-Za-z0-9]+){2,})")
+
+
+def _anchor_name(code: str) -> str:
+    """A Word-bookmark-safe name derived from a Requirement/UseCase code."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", code)
 
 
 def build_docx(blocks: list[dict], metadata: dict | None = None,
@@ -40,11 +52,12 @@ def build_docx(blocks: list[dict], metadata: dict | None = None,
             _add_cover(doc, metadata)
 
     table_style = _resolve_table_style(doc, use_template)
+    bookmark_ids = itertools.count(1)
 
     for block in blocks:
         kind = block["type"]
         if kind == "heading":
-            _add_heading(doc, block, use_template)
+            _add_heading(doc, block, use_template, bookmark_ids)
         elif kind == "paragraph":
             _add_paragraph(doc, block)
         elif kind == "table":
@@ -92,13 +105,27 @@ def _add_cover(doc, meta: dict):
     doc.add_page_break()
 
 
-def _add_heading(doc, block: dict, use_template: bool):
-    level = min(int(block["level"]), 3)
+def _add_heading(doc, block: dict, use_template: bool, bookmark_ids):
+    level = min(int(block["level"]), 4)
     p = doc.add_heading(block["text"], level=level)
     if not use_template and p.runs:
         run = p.runs[0]
         run.font.color.rgb = styles.COLOR_ACCENT
-        run.font.size = styles.SIZE_BY_LEVEL[level]
+        run.font.size = styles.SIZE_BY_LEVEL.get(level, styles.SIZE_BY_LEVEL[3])
+    match = _CODE_RE.match(block["text"])
+    if match:
+        _add_bookmark(p, _anchor_name(match.group(1)), bookmark_ids)
+
+
+def _add_bookmark(paragraph, name, bookmark_ids):
+    bid = str(next(bookmark_ids))
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), bid)
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), bid)
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
 
 
 def _add_paragraph(doc, block: dict):
@@ -141,14 +168,49 @@ def _add_list(doc, block: dict):
 
 def _render_runs(paragraph, runs: list[dict]):
     for rd in runs:
+        link = rd.get("link")
+        if link and link.startswith("#"):
+            _add_internal_hyperlink(
+                paragraph, rd.get("text", ""), _anchor_name(link[1:]), rd.get("bold", False)
+            )
+            continue
         run = paragraph.add_run(rd.get("text", ""))
         run.bold = rd.get("bold", False)
         run.italic = rd.get("italic", False)
+        if run.bold:
+            run.font.color.rgb = styles.COLOR_ACCENT
         if rd.get("code"):
             run.font.name = "Consolas"
-        if rd.get("link"):
+        if link:
             run.font.underline = True
             run.font.color.rgb = styles.COLOR_ACCENT
+
+
+def _add_internal_hyperlink(paragraph, text, anchor, bold=False):
+    """A clickable in-document link (Word bookmark reference), e.g. a
+    Requirement's "Use cases:" entry jumping to that Use Case's heading."""
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), anchor)
+
+    run_el = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "{:02X}{:02X}{:02X}".format(*styles.COLOR_ACCENT))
+    rpr.append(color)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rpr.append(underline)
+    if bold:
+        rpr.append(OxmlElement("w:b"))
+    run_el.append(rpr)
+
+    text_el = OxmlElement("w:t")
+    text_el.text = text
+    text_el.set(qn("xml:space"), "preserve")
+    run_el.append(text_el)
+
+    hyperlink.append(run_el)
+    paragraph._p.append(hyperlink)
 
 
 def _add_table(doc, block: dict, table_style: str, use_template: bool):
@@ -175,7 +237,11 @@ def _add_table(doc, block: dict, table_style: str, use_template: bool):
             upper = text.strip().upper()
             if upper.startswith("PASS") or upper in ("OK", "✓"):
                 _set_cell_bg(cell, styles.COLOR_PASS_BG)
-            elif upper.startswith("FAIL") or upper in ("KO", "NOK", "✗"):
+            elif (
+                upper.startswith("FAIL")
+                or upper.startswith("NOT PASSED")
+                or upper in ("KO", "NOK", "✗")
+            ):
                 _set_cell_bg(cell, styles.COLOR_FAIL_BG)
 
 

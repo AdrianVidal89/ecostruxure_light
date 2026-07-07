@@ -51,6 +51,98 @@
     .transition-soft { transition: all .18s ease; }
     /* Drag-and-drop file zone highlight. */
     .filedrop.filedrop-active { border-color: var(--color-primary); background: rgba(61,205,88,.06); }
+
+    /* =====================================================================
+       Design system — "intensified brand green" accent (Tron-lite).
+       The institutional Schneider green stays for solid fills; the same green
+       is intensified with a subtle glow ONLY on active / hover / progress /
+       focus states, so the UI feels modern without a second colour or losing
+       its clean, light identity. Used with restraint.
+    ===================================================================== */
+    :root { --neon: 61,205,88; }               /* brand green, as RGB triplet */
+
+    /* Cards — one consistent container everywhere. */
+    .card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: .875rem;
+      transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+    }
+    .card-hover { cursor: pointer; }
+    .card-hover:hover {
+      border-color: rgba(var(--neon), .55);
+      box-shadow: 0 1px 2px rgba(0,0,0,.04),
+                  0 0 0 1px rgba(var(--neon), .22),
+                  0 8px 24px rgba(var(--neon), .10);
+      transform: translateY(-2px);
+    }
+
+    /* Buttons — shared shape; primary glows on hover. */
+    .btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      border-radius: .625rem; font-weight: 600; font-size: .875rem;
+      padding: .5rem .9rem; transition: all .18s ease; white-space: nowrap;
+    }
+    .btn-primary { background: var(--color-primary); color: #fff; }
+    .btn-primary:hover {
+      background: var(--color-primary-dark);
+      box-shadow: 0 0 0 1px rgba(var(--neon), .40), 0 0 16px rgba(var(--neon), .30);
+    }
+    .btn-secondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); }
+    .btn-secondary:hover { border-color: rgba(var(--neon), .5); box-shadow: 0 0 12px rgba(var(--neon), .15); }
+    .btn-ghost { color: var(--color-text-muted); }
+    .btn-ghost:hover { color: var(--color-text); background: var(--color-bg); }
+
+    /* Status dots — one legend across phases/sub-phases. */
+    .dot { width: .625rem; height: .625rem; border-radius: 9999px; display: inline-block; flex: none; }
+    .dot-pending   { background: var(--color-border); }
+    .dot-progress  { background: var(--color-warning); box-shadow: 0 0 7px rgba(249,115,22,.55); }
+    .dot-completed { background: var(--color-primary); box-shadow: 0 0 7px rgba(var(--neon), .65); }
+    .dot-blocked   { background: var(--color-danger); box-shadow: 0 0 7px rgba(239,68,68,.5); }
+
+    /* Progress bar — the fill carries the neon glow. */
+    .progress-track { background: var(--color-border); border-radius: 9999px; overflow: hidden; }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--color-primary), #5fe07a);
+      box-shadow: 0 0 10px rgba(var(--neon), .5);
+      transition: width .35s ease;
+    }
+
+    /* A soft neon glow utility for active/selected surfaces. */
+    .neon-glow { box-shadow: 0 0 0 1px rgba(var(--neon), .35), 0 0 14px rgba(var(--neon), .16); }
+
+    /* =====================================================================
+       Markdown typography. Tailwind's Preflight resets headings/lists to
+       inherit, and the CDN build ships no typography plugin — so EasyMDE's
+       live preview and any markdownify output (.prose) render flat.
+       Restore a readable hierarchy for both.
+    ===================================================================== */
+    .editor-preview, .editor-preview-side, .prose { line-height: 1.6; color: var(--color-text); }
+    .editor-preview h1, .editor-preview-side h1, .prose h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.25; margin: .67em 0 .4em; }
+    .editor-preview h2, .editor-preview-side h2, .prose h2 { font-size: 1.4rem;  font-weight: 700; line-height: 1.3;  margin: .6em 0 .35em; }
+    .editor-preview h3, .editor-preview-side h3, .prose h3 { font-size: 1.2rem;  font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview h4, .editor-preview-side h4, .prose h4 { font-size: 1.05rem; font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview h5, .editor-preview-side h5, .prose h5,
+    .editor-preview h6, .editor-preview-side h6, .prose h6 { font-size: 1rem; font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview p, .editor-preview-side p, .prose p { margin: .5em 0; }
+    .editor-preview ul, .editor-preview-side ul, .prose ul { list-style: disc;    padding-left: 1.5em; margin: .5em 0; }
+    .editor-preview ol, .editor-preview-side ol, .prose ol { list-style: decimal; padding-left: 1.5em; margin: .5em 0; }
+    .editor-preview li, .editor-preview-side li, .prose li { margin: .2em 0; }
+    .editor-preview a, .editor-preview-side a, .prose a { color: var(--color-primary-dark); text-decoration: underline; }
+    .editor-preview blockquote, .editor-preview-side blockquote, .prose blockquote {
+      border-left: 3px solid var(--color-border); padding-left: 1em; color: var(--color-text-muted); margin: .5em 0; }
+    .editor-preview code, .editor-preview-side code, .prose code {
+      background: var(--color-bg); padding: .1em .35em; border-radius: .25rem; font-size: .9em; }
+    .editor-preview pre, .editor-preview-side pre, .prose pre {
+      background: var(--color-bg); padding: .75em; border-radius: .5rem; overflow-x: auto; margin: .5em 0; }
+    .editor-preview pre code, .prose pre code { background: none; padding: 0; }
+    .editor-preview table, .editor-preview-side table, .prose table { border-collapse: collapse; margin: .5em 0; }
+    .editor-preview th, .editor-preview td,
+    .editor-preview-side th, .editor-preview-side td,
+    .prose th, .prose td { border: 1px solid var(--color-border); padding: .35em .6em; }
+    .editor-preview hr, .prose hr { border: 0; border-top: 1px solid var(--color-border); margin: 1em 0; }
+    .editor-preview img, .editor-preview-side img, .prose img { max-width: 100%; height: auto; }
   </style>
 
   {# --- JS libraries (served locally — corporate network blocks CDNs) --- #}
@@ -103,10 +195,14 @@
           {% if item.available %}
             {% url item.url_name as item_url %}
             <a href="{{ item_url }}"
-               class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-soft
-                      {% if request.path == item_url %}bg-brand/10 text-brand-dark{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
+               class="group relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-soft
+                      {% if request.path == item_url %}bg-brand/10 text-brand-dark neon-glow{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
+              {% if request.path == item_url %}<span class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-brand"></span>{% endif %}
               <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
-              <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
+              <span x-show="sidebarOpen" class="truncate flex-1">{{ item.label }}</span>
+              {% if item.badge %}
+                <span x-show="sidebarOpen" class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-warning text-white text-xs font-semibold">{{ item.badge }}</span>
+              {% endif %}
             </a>
           {% else %}
             <span class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
@@ -188,16 +284,21 @@
         </div>
       </header>
 
-      {# Messages #}
+      {# Messages — auto-dismiss after 10s, or close manually. #}
       {% if messages %}
         <div class="px-6 pt-4 space-y-2">
           {% for message in messages %}
-            <div class="px-4 py-3 rounded-lg text-sm border
+            <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 10000)"
+                 x-transition.opacity.duration.300ms
+                 class="flex items-start gap-3 px-4 py-3 rounded-lg text-sm border
                         {% if message.tags == 'error' %}bg-danger/10 border-danger/30 text-danger
                         {% elif message.tags == 'warning' %}bg-warning/10 border-warning/30 text-warning
                         {% elif message.tags == 'success' %}bg-brand/10 border-brand/30 text-brand-dark
                         {% else %}bg-info/10 border-info/30 text-info{% endif %}">
-              {{ message }}
+              <span class="flex-1">{{ message }}</span>
+              <button type="button" @click="show = false" class="shrink-0 opacity-70 hover:opacity-100">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
             </div>
           {% endfor %}
         </div>
@@ -205,6 +306,18 @@
 
       {# Page content #}
       <main class="flex-1 overflow-y-auto p-6">
+        {% if validation_count and request.resolver_match.url_name != 'validations' %}
+          <div x-data="{ show: true }" x-show="show"
+               class="max-w-6xl mx-auto mb-4 flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3">
+            <i data-lucide="shield-alert" class="w-5 h-5 text-warning shrink-0"></i>
+            <p class="text-sm text-ink flex-1">
+              You have <strong>{{ validation_count }}</strong> test outcome{{ validation_count|pluralize }} awaiting your validation.
+            </p>
+            <a href="{% url 'pocs:validations' %}"
+               class="text-sm font-medium text-warning hover:underline shrink-0">Review now</a>
+            <button @click="show = false" class="text-ink-muted hover:text-ink shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>

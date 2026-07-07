@@ -34,17 +34,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
     Shows admin stats widgets, the full filter bar (search, assigned member and
     status as main filters, plus a fine-grain row of business-field dropdowns and
-    an execution-date range) and the paginated grid of POC cards.
+    an execution-date range) and the full grid of POC cards (no pagination — all
+    matching POCs are shown in one continuous scroll).
     """
 
     template_name = "core/dashboard.html"
-    paginate_by = 12
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         # Imported here to avoid a core → pocs import at app-load time.
         from django.contrib.auth import get_user_model
-        from django.core.paginator import Paginator
         from django.db.models import Q
 
         from apps.pocs.models import POC
@@ -78,7 +77,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 val = G.get(field, "").strip()
                 fine_values[field] = val
                 if val:
-                    pocs = pocs.filter(**{field: val})
+                    # Some business fields (e.g. customer_segment) hold a
+                    # comma-separated list of values, so match on containment
+                    # to also catch POCs whose field bundles several values.
+                    pocs = pocs.filter(**{f"{field}__icontains": val})
 
             exec_from = G.get("exec_from", "").strip()
             exec_to = G.get("exec_to", "").strip()
@@ -97,11 +99,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "completed": pocs.filter(status=POC.Status.COMPLETED).count(),
             }
 
-        # Pagination.
-        page_obj = Paginator(pocs, self.paginate_by).get_page(G.get("page"))
-        ctx["pocs"] = page_obj
-        ctx["page_obj"] = page_obj
-        ctx["is_paginated"] = page_obj.has_other_pages()
+        # No pagination — every matching POC is shown in one continuous scroll.
+        ctx["pocs"] = pocs
+        ctx["poc_total"] = pocs.count()
 
         # Filter UI state.
         ctx["query"] = query
@@ -118,14 +118,23 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             ctx["member_filter"] = member_filter
 
             # Fine-grain dropdowns: distinct non-empty values across the scope.
+            # A stored value may bundle several values in one comma-separated
+            # string (e.g. customer_segment); split them so each atomic value
+            # appears once instead of repeating inside compound entries.
             def options(field):
-                return sorted(
-                    v
-                    for v in base.exclude(**{field: ""})
+                seen = set()
+                for raw in (
+                    base.exclude(**{field: ""})
                     .values_list(field, flat=True)
                     .distinct()
-                    if v
-                )
+                ):
+                    if not raw:
+                        continue
+                    for token in raw.split(","):
+                        token = token.strip()
+                        if token:
+                            seen.add(token)
+                return sorted(seen)
 
             ctx["fine_filters"] = [
                 {
@@ -144,10 +153,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             ctx["fine_filter_count"] = len(active)
             ctx["has_fine_filter"] = bool(active)
 
-        # Querystring (minus page) so pagination links keep the active filters.
-        params = G.copy()
-        params.pop("page", None)
-        ctx["querystring"] = params.urlencode()
         return ctx
 
 

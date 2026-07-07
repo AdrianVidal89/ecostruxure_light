@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static core_extras %}
 
 {% block title %}{{ title }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
@@ -16,8 +16,18 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto space-y-6">
-  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+<div class="max-w-2xl mx-auto space-y-6" x-data="{ previewOpen: false, previewHtml: '',
+       openPreview(url) {
+         this.previewHtml = '';
+         this.previewOpen = true;
+         fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
+       } }">
+  <h1 class="text-2xl font-semibold text-ink flex items-center gap-2">
+    {{ title }}
+    {% if form.instance.test_code %}
+      <span class="text-sm font-mono font-normal px-2 py-0.5 rounded-lg bg-canvas text-ink-muted" title="Auto-generated test code">{{ form.instance.test_code }}</span>
+    {% endif %}
+  </h1>
 
   <div class="bg-surface border border-line rounded-xl p-6">
     <form method="post" class="space-y-4">
@@ -58,6 +68,34 @@
         <p class="text-xs text-ink-muted">This test will be assigned to you so you can record its result.</p>
       {% endif %}
 
+      {# Requirements this test responds to (optional; spec 4/user) #}
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">Requirements <span class="text-ink-muted font-normal">(optional — which requirement(s) this test validates)</span></label>
+        {% if form.requirements.field.queryset.exists %}
+          <div class="max-h-48 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+            {% for cb in form.requirements %}
+              {% with owner=form.requirement_locks|get_item:cb.data.value %}
+                <div class="flex items-center gap-2 text-sm py-0.5 {% if owner %}opacity-50{% endif %}"
+                     {% if owner %}title="Already covered by {{ owner.test_code|default:owner.title }} — a requirement can only be linked to one test."{% endif %}>
+                  {{ cb.tag }}
+                  <label for="{{ cb.id_for_label }}" class="flex-1 {% if owner %}cursor-not-allowed{% else %}cursor-pointer{% endif %}">
+                    {{ cb.choice_label }}
+                    {% if owner %}<span class="text-xs italic">(covered by {{ owner.test_code|default:owner.title }})</span>{% endif %}
+                  </label>
+                  <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
+                          @click="openPreview('{% url 'pocs:requirement_preview' cb.data.value %}')" title="View">
+                    <i data-lucide="eye" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              {% endwith %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-ink-muted">This POC has no requirements yet. Create them in the POC’s “Requirements &amp; Use Cases” tab first.</p>
+        {% endif %}
+        {% for error in form.requirements.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
       <div class="flex items-center gap-3 pt-2">
         <button type="submit"
                 class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
@@ -66,6 +104,20 @@
         <a href="{% url 'pocs:phase_detail' phase.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
       </div>
     </form>
+  </div>
+
+  {# Preview popup — fetches a read-only fragment for the linked requirement. #}
+  <div x-show="previewOpen" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+       @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
+    <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+      <div class="flex justify-end mb-2">
+        <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div x-html="previewHtml"></div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -76,8 +128,12 @@
     // Mount EasyMDE on every Markdown textarea (.md-editor).
     if (window.EasyMDE) {
       document.querySelectorAll('textarea.md-editor').forEach(function (el) {
-        new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '120px',
+        var mde = new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '120px',
           toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
+        // CodeMirror never writes back to the original (now-hidden) textarea on
+        // its own — keep it live on every keystroke instead of only at submit,
+        // since a required field's native validation runs before 'submit' fires.
+        mde.codemirror.on('change', function () { mde.codemirror.save(); });
       });
     }
   </script>
