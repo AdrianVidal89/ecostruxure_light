@@ -1606,6 +1606,11 @@ class Requirement(models.Model):
         NORMAL_OPERATION = "normal_operation", "Normal Operation"
         MAINTENANCE_MODE = "maintenance_mode", "Maintenance Mode"
 
+    class LifeCyclePhase(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        REJECTED = "rejected", "Rejected"
+
     # Classification fields are POC-extensible (see RequirementFieldOption):
     # these TextChoices are offered as suggestions, not enforced as the only
     # valid values — a POC lead may add new ones, and the Excel importer
@@ -1615,6 +1620,7 @@ class Requirement(models.Model):
         "req_operation": Operation,
         "req_functional": Functional,
         "req_category": Category,
+        "life_cycle_phase": LifeCyclePhase,
     }
 
     code = models.CharField(
@@ -1717,6 +1723,9 @@ class Requirement(models.Model):
     def get_req_category_display(self):
         return self._display_for("req_category")
 
+    def get_life_cycle_phase_display(self):
+        return self._display_for("life_cycle_phase")
+
     @property
     def is_validated(self):
         """True once every linked test is settled and passed or skipped.
@@ -1777,6 +1786,7 @@ class RequirementFieldOption(models.Model):
         OPERATION = "req_operation", "Operation"
         FUNCTIONAL = "req_functional", "Functional"
         CATEGORY = "req_category", "Category"
+        LIFE_CYCLE_PHASE = "life_cycle_phase", "Lifecycle Status"
 
     poc = models.ForeignKey(
         POC, on_delete=models.CASCADE, related_name="requirement_field_options"

@@ -312,52 +312,125 @@
         {% endif %}
       </div>
       {% if requirements %}
-        <div class="bg-surface border border-line rounded-xl overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-xs text-ink-muted uppercase tracking-wide border-b border-line">
-                <th class="px-4 py-3">Code</th>
-                <th class="px-4 py-3">Sub-system</th>
-                <th class="px-4 py-3">Gravity</th>
-                <th class="px-4 py-3">Operation</th>
-                <th class="px-4 py-3">Category</th>
-                <th class="px-4 py-3">Validated</th>
-                <th class="px-4 py-3">Use cases</th>
-                <th class="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-line">
-              {% for req in requirements %}
-                <tr class="hover:bg-canvas/50">
-                  <td class="px-4 py-3 font-mono text-xs text-ink">{{ req.code }}</td>
-                  <td class="px-4 py-3 text-ink">{{ req.sub_system|default:"—" }}</td>
-                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_gravity_display }}</td>
-                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_operation_display }}</td>
-                  <td class="px-4 py-3 text-ink-muted">{{ req.get_req_category_display }}</td>
-                  <td class="px-4 py-3">
-                    {% if req.is_validated %}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3 h-3"></i> Validated</span>
-                    {% else %}
-                      <span class="px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted">Pending</span>
-                    {% endif %}
-                  </td>
-                  <td class="px-4 py-3 text-ink-muted">{{ req.use_cases.count }}</td>
-                  <td class="px-4 py-3">
-                    <div class="flex items-center justify-end gap-1">
-                      <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
-                      {% if can_manage %}
-                        <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
-                        <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">
-                          {% csrf_token %}
-                          <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                        </form>
-                      {% endif %}
-                    </div>
-                  </td>
-                </tr>
+        <div class="space-y-3"
+             x-data="{
+               filters: { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' },
+               rows: [],
+               init() {
+                 this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
+               },
+               matches(el) {
+                 const d = el.dataset;
+                 const f = this.filters;
+                 if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
+                 if (f.gravity && d.gravity !== f.gravity) return false;
+                 if (f.operation && d.operation !== f.operation) return false;
+                 if (f.functional && d.functional !== f.functional) return false;
+                 if (f.category && d.category !== f.category) return false;
+                 if (f.lifecycle && d.lifecycle !== f.lifecycle) return false;
+                 if (f.validated && d.validated !== f.validated) return false;
+                 return true;
+               },
+               get anyVisible() { return this.rows.some(el => this.matches(el)); },
+               clearFilters() { this.filters = { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' }; },
+             }">
+          <div class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
+            <input type="text" x-model="filters.q" placeholder="Search code or sub-system…"
+                   class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
+            <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Gravity: all</option>
+              {% for value, label in requirement_filter_fields.req_gravity %}
+                <option value="{{ value }}">{{ label }}</option>
               {% endfor %}
-            </tbody>
-          </table>
+            </select>
+            <select x-model="filters.operation" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Operation: all</option>
+              {% for value, label in requirement_filter_fields.req_operation %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <select x-model="filters.functional" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Functional: all</option>
+              {% for value, label in requirement_filter_fields.req_functional %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <select x-model="filters.category" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Category: all</option>
+              {% for value, label in requirement_filter_fields.req_category %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <select x-model="filters.lifecycle" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Lifecycle status: all</option>
+              {% for value, label in requirement_filter_fields.life_cycle_phase %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <select x-model="filters.validated" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+              <option value="">Validated: all</option>
+              <option value="yes">Validated</option>
+              <option value="no">Pending</option>
+            </select>
+            <button type="button" @click="clearFilters()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
+              Clear filters
+            </button>
+          </div>
+          <div class="bg-surface border border-line rounded-xl overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs text-ink-muted uppercase tracking-wide border-b border-line">
+                  <th class="px-4 py-3">Code</th>
+                  <th class="px-4 py-3">Sub-system</th>
+                  <th class="px-4 py-3">Gravity</th>
+                  <th class="px-4 py-3">Operation</th>
+                  <th class="px-4 py-3">Category</th>
+                  <th class="px-4 py-3">Validated</th>
+                  <th class="px-4 py-3">Use cases</th>
+                  <th class="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-line" x-ref="tbody">
+                {% for req in requirements %}
+                  <tr class="hover:bg-canvas/50" x-show="matches($el)"
+                      data-code="{{ req.code }}" data-subsystem="{{ req.sub_system }}"
+                      data-gravity="{{ req.req_gravity }}" data-operation="{{ req.req_operation }}"
+                      data-functional="{{ req.req_functional }}" data-category="{{ req.req_category }}"
+                      data-lifecycle="{{ req.life_cycle_phase }}"
+                      data-validated="{% if req.is_validated %}yes{% else %}no{% endif %}">
+                    <td class="px-4 py-3 font-mono text-xs text-ink">{{ req.code }}</td>
+                    <td class="px-4 py-3 text-ink">{{ req.sub_system|default:"—" }}</td>
+                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_gravity_display }}</td>
+                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_operation_display }}</td>
+                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_category_display }}</td>
+                    <td class="px-4 py-3">
+                      {% if req.is_validated %}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3 h-3"></i> Validated</span>
+                      {% else %}
+                        <span class="px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted">Pending</span>
+                      {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-ink-muted">{{ req.use_cases.count }}</td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center justify-end gap-1">
+                        <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                        {% if can_manage %}
+                          <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+                          <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">
+                            {% csrf_token %}
+                            <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div x-show="!anyVisible" x-cloak class="p-8 text-center text-sm text-ink-muted">
+              No requirements match the current filters.
+            </div>
+          </div>
         </div>
       {% else %}
         <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">

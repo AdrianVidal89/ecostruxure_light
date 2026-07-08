@@ -17,6 +17,7 @@ from .audit import record_audit
 from .models import Requirement, RequirementFieldOption, UseCase
 
 _CLASSIFICATION_FIELDS = ("req_gravity", "req_operation", "req_functional", "req_category")
+_OPTIONAL_CLASSIFICATION_FIELDS = ("life_cycle_phase",)
 
 
 def _reverse_map(choices):
@@ -32,12 +33,14 @@ _GRAVITY = _reverse_map(Requirement.Gravity.choices)
 _OPERATION = _reverse_map(Requirement.Operation.choices)
 _FUNCTIONAL = _reverse_map(Requirement.Functional.choices)
 _CATEGORY = _reverse_map(Requirement.Category.choices)
+_LIFE_CYCLE_PHASE = _reverse_map(Requirement.LifeCyclePhase.choices)
 
 _PREDEFINED_MAPS = {
     "req_gravity": _GRAVITY,
     "req_operation": _OPERATION,
     "req_functional": _FUNCTIONAL,
     "req_category": _CATEGORY,
+    "life_cycle_phase": _LIFE_CYCLE_PHASE,
 }
 
 
@@ -100,7 +103,9 @@ def parse_requirements_xlsx(file, poc=None):
             if hn in aliases:
                 col_field[idx] = field
 
-    custom_maps = {f: _custom_map(poc, f) for f in _CLASSIFICATION_FIELDS}
+    custom_maps = {
+        f: _custom_map(poc, f) for f in (*_CLASSIFICATION_FIELDS, *_OPTIONAL_CLASSIFICATION_FIELDS)
+    }
     uc_by_code = {uc.code: uc.id for uc in poc.use_cases.all()} if poc is not None else {}
 
     # A requirement has no natural business key, but two rows sharing the same
@@ -125,10 +130,11 @@ def parse_requirements_xlsx(file, poc=None):
 
         errors = []
 
-        def resolve(field, label):
+        def resolve(field, label, required=True):
             raw = data.get(field, "")
             if not raw:
-                errors.append(f"{label} is required")
+                if required:
+                    errors.append(f"{label} is required")
                 return ""
             key = raw.lower()
             if key in _PREDEFINED_MAPS[field]:
@@ -167,7 +173,7 @@ def parse_requirements_xlsx(file, poc=None):
             "req_functional": resolve("req_functional", "Functional"),
             "req_category": resolve("req_category", "Category"),
             "validation_criteria": validation_criteria,
-            "life_cycle_phase": data.get("life_cycle_phase", ""),
+            "life_cycle_phase": resolve("life_cycle_phase", "Lifecycle status", required=False),
             "reference_documentations": data.get("reference_documentations", ""),
             "remarks": data.get("remarks", ""),
             "use_case_ids": use_case_ids,
@@ -193,7 +199,7 @@ def import_requirements(poc, rows, user):
             req.use_cases.set(use_case_ids)
         record_audit(req, "requirement_created", user, {"code": {"before": None, "after": req.code}})
         created += 1
-        for field_name in _CLASSIFICATION_FIELDS:
+        for field_name in (*_CLASSIFICATION_FIELDS, *_OPTIONAL_CLASSIFICATION_FIELDS):
             value = data.get(field_name)
             if value and value not in dict(Requirement.predefined_choices(field_name)):
                 RequirementFieldOption.objects.get_or_create(
@@ -392,14 +398,14 @@ def build_requirements_template_xlsx(poc=None):
         Requirement.Functional.PERFORMANCE.label,
         Requirement.Category.NORMAL_OPERATION.label,
         "The system shall respond within 200ms",
-        "Design",
+        Requirement.LifeCyclePhase.DRAFT.label,
         "SPEC-001",
         "",
         "",
     ]
     legend = [
         (field_name, [label for _, label in Requirement.field_choices(poc, field_name)])
-        for field_name in _CLASSIFICATION_FIELDS
+        for field_name in (*_CLASSIFICATION_FIELDS, *_OPTIONAL_CLASSIFICATION_FIELDS)
     ]
     legend.append(
         ("use_cases", ["Comma-separated existing use case codes, e.g. POC-001-UC001, POC-001-UC002 — leave blank to link none"])

@@ -35,7 +35,7 @@
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {% for field in form %}
-          {% if field.name == "req_gravity_new" or field.name == "req_operation_new" or field.name == "req_functional_new" or field.name == "req_category_new" %}
+          {% if field.name == "req_gravity_new" or field.name == "req_operation_new" or field.name == "req_functional_new" or field.name == "req_category_new" or field.name == "life_cycle_phase_new" %}
             {# Rendered inline with its paired dropdown below — skip here. #}
           {% elif field.name == "use_cases" %}
             {# Requirement → Use Cases: checkboxes (not a listbox) so it's obvious what's actually linked, with an eye preview. #}
@@ -85,11 +85,11 @@
             </div>
           {% else %}
             <div class="{% if field.field.widget.input_type == 'textarea' or field.name == 'description' or field.name == 'validation_criteria' or field.name == 'reference_documentations' %}sm:col-span-2{% endif %}"
-                 {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" %}x-data="{ v: '{{ field.value|default_if_none:''|escapejs }}' }"{% endif %}>
+                 {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" or field.name == "life_cycle_phase" %}x-data="{ v: '{{ field.value|default_if_none:''|escapejs }}' }"{% endif %}>
               <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
                 {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
                 {% if "md-editor" in field.field.widget.attrs.class %} <span class="text-ink-muted font-normal">(Markdown)</span>{% endif %}
-                {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" %} <span class="text-ink-muted font-normal">(suggested — pick "+ Add new…" to add your own)</span>{% endif %}
+                {% if field.name == "req_gravity" or field.name == "req_operation" or field.name == "req_functional" or field.name == "req_category" or field.name == "life_cycle_phase" %} <span class="text-ink-muted font-normal">(suggested — pick "+ Add new…" to add your own)</span>{% endif %}
               </label>
               {{ field }}
               {% if field.name == "req_gravity" %}
@@ -111,6 +111,11 @@
                 <div x-show="v === '__new__'" x-cloak class="mt-2">
                   {{ form.req_category_new }}
                   {% for error in form.req_category_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+                </div>
+              {% elif field.name == "life_cycle_phase" %}
+                <div x-show="v === '__new__'" x-cloak class="mt-2">
+                  {{ form.life_cycle_phase_new }}
+                  {% for error in form.life_cycle_phase_new.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
                 </div>
               {% endif %}
               {% if field.help_text %}<p class="text-xs text-ink-muted mt-1">{{ field.help_text }}</p>{% endif %}

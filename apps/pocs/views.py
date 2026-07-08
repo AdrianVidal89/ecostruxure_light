@@ -495,6 +495,13 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["requirements"] = poc.requirements.prefetch_related("use_cases", "tests")
         ctx["use_cases"] = poc.use_cases.prefetch_related("requirements__tests")
         ctx["can_manage"] = can_lead
+        # Filter dropdown options for the Requirements table (client-side, spec 4a).
+        ctx["requirement_filter_fields"] = {
+            field_name: Requirement.field_choices(poc, field_name)
+            for field_name in (
+                "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
+            )
+        }
         ctx["tabs"] = [
             ("overview", "Overview"),
             ("specs", "Requirements & Use Cases"),
@@ -2354,6 +2361,14 @@ def phase_template_apply_all(request):
         f"Blueprint applied to {stats['pocs']} POC(s): "
         f"{stats['created']} phase(s) added, {stats['updated']} updated.",
     )
+    if stats["missing_templates"]:
+        names = ", ".join(sorted(stats["missing_templates"]))
+        messages.warning(
+            request,
+            f"Report template file(s) missing on disk for: {names}. Their "
+            "phases were synced without a template — re-upload the file(s) "
+            "on the blueprint.",
+        )
     return redirect("pocs:phase_template_list")
 
 

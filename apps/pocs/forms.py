@@ -694,7 +694,9 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     a suggestion for next time.
     """
 
-    CLASSIFICATION_FIELDS = ("req_gravity", "req_operation", "req_functional", "req_category")
+    CLASSIFICATION_FIELDS = (
+        "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
+    )
 
     use_cases = forms.ModelMultipleChoiceField(
         queryset=UseCase.objects.none(),
@@ -720,6 +722,10 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     req_category = forms.ChoiceField(
         choices=[], widget=forms.Select(attrs={"class": INPUT_CLASS, "@change": "v = $event.target.value"})
     )
+    life_cycle_phase = forms.ChoiceField(
+        choices=[], required=False, label="Lifecycle status",
+        widget=forms.Select(attrs={"class": INPUT_CLASS, "@change": "v = $event.target.value"}),
+    )
 
     req_gravity_new = forms.CharField(
         required=False, label="New gravity value",
@@ -735,6 +741,10 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     )
     req_category_new = forms.CharField(
         required=False, label="New category value",
+        widget=forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "Type the new value…"}),
+    )
+    life_cycle_phase_new = forms.CharField(
+        required=False, label="New lifecycle status value",
         widget=forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "Type the new value…"}),
     )
 
@@ -754,7 +764,6 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
         widgets = {
             "sub_system": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "validation_criteria": forms.Textarea(attrs={"rows": 3, "class": MD_EDITOR_CLASS}),
-            "life_cycle_phase": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "reference_documentations": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
             "remarks": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
         }
@@ -767,6 +776,8 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
             current = getattr(self.instance, field_name, "")
             if current and current not in dict(choices):
                 choices = [(current, current)] + choices
+            if not self.fields[field_name].required:
+                choices = [("", "—")] + choices
             self.fields[field_name].choices = choices + [(ADD_NEW_OPTION, "+ Add new…")]
         if poc is not None:
             self.fields["use_cases"].queryset = poc.use_cases.all()

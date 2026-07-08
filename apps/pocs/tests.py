@@ -1539,6 +1539,42 @@ class Fase8BlueprintTests(TestCase):
         self.assertFalse(Phase.objects.filter(poc=b, source_template=self.n1).exists())
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class Fase11MissingBlueprintTemplateTests(TestCase):
+    """A blueprint node whose report_template file is missing on disk (e.g.
+    media not carried over on deploy) must not crash 'Apply to all'."""
+
+    def setUp(self):
+        from apps.pocs.models import PhaseTemplate
+
+        self.admin = User.objects.create_user(
+            "mbt_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.node = PhaseTemplate.objects.create(name="FA", order=1, kind=PhaseKind.FUNCTIONAL_ANALYSIS)
+        self.node.report_template.save(
+            "tpl.docx", SimpleUploadedFile("tpl.docx", _minimal_docx_bytes()), save=True
+        )
+        # Simulate the file being absent from disk while the DB still points at it.
+        import os
+        os.remove(self.node.report_template.path)
+        self.poc = POC.objects.create(name="MBT POC", created_by=self.admin, status="active")
+
+    def test_apply_all_survives_missing_file(self):
+        from apps.pocs.services import sync_blueprint_to_pocs
+
+        stats = sync_blueprint_to_pocs()
+        self.assertEqual(stats["created"], 1)
+        self.assertIn("FA", stats["missing_templates"])
+        phase = self.poc.phases.get(source_template=self.node)
+        self.assertFalse(phase.report_template)
+
+    def test_apply_all_view_warns_instead_of_500(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:phase_template_apply_all"), follow=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "missing on disk")
+
+
 class Fase10Tests(TestCase):
     """Fase 10: status board (10a) + requirement Excel import (10c)."""
 

@@ -18,8 +18,8 @@
 
   {% if req.life_cycle_phase %}
     <div>
-      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Life cycle phase</p>
-      <p class="text-sm text-ink">{{ req.life_cycle_phase }}</p>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Lifecycle status</p>
+      <p class="text-sm text-ink">{{ req.get_life_cycle_phase_display }}</p>
     </div>
   {% endif %}
 

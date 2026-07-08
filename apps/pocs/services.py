@@ -11,10 +11,14 @@ Sync is intentionally non-destructive to execution data: it never edits or
 deletes existing Tasks/Tests, and never removes phases (so results are safe).
 """
 
+import logging
+
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Q
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     POC,
@@ -40,22 +44,39 @@ from .models import (
 # ---------------------------------------------------------------------------
 # Building blocks
 # ---------------------------------------------------------------------------
-def _copy_report_template(node, phase):
-    """Make ``phase.report_template`` match ``node``'s (copy, or clear)."""
+def _copy_report_template(node, phase, missing=None):
+    """Make ``phase.report_template`` match ``node``'s (copy, or clear).
+
+    Best-effort: if the blueprint node's file is missing from disk (e.g. media
+    wasn't carried over on a deploy, or was deleted out-of-band), skip the
+    copy and log it instead of raising — one broken attachment shouldn't sink
+    ``sync_blueprint_to_pocs`` for every POC in the same transaction. Callers
+    that care can pass a ``missing`` set to collect the affected node names.
+    """
     if phase.report_template:
         phase.report_template.delete(save=False)
         phase.report_template = None
     if node.report_template:
-        node.report_template.open("rb")
         try:
-            data = node.report_template.read()
-        finally:
-            node.report_template.close()
+            node.report_template.open("rb")
+            try:
+                data = node.report_template.read()
+            finally:
+                node.report_template.close()
+        except OSError:
+            logger.warning(
+                "Blueprint node %s (%s): report_template file missing on disk "
+                "(%s) — skipping copy for phase %s.",
+                node.id, node.name, node.report_template.name, phase.id,
+            )
+            if missing is not None:
+                missing.add(node.name)
+            return
         fname = node.report_template.name.rsplit("/", 1)[-1]
         phase.report_template.save(fname, ContentFile(data), save=False)
 
 
-def _instantiate_phase(node, poc, parent_phase):
+def _instantiate_phase(node, poc, parent_phase, missing=None):
     """Create a Phase from a blueprint node (with its base tasks/tests/docs)."""
     phase = Phase(
         poc=poc,
@@ -67,7 +88,7 @@ def _instantiate_phase(node, poc, parent_phase):
         lead_editable=node.lead_editable,
         kind=node.kind,
     )
-    _copy_report_template(node, phase)
+    _copy_report_template(node, phase, missing=missing)
     phase.save()
     for bt in node.base_tasks.all():
         Task.objects.create(phase=phase, title=bt.title, description=bt.description)
@@ -108,7 +129,7 @@ def _requirements_section_markdown(poc):
         lines.append(f"**Functional:** {req.get_req_functional_display()}")
         lines.append(f"**Category:** {req.get_req_category_display()}")
         if req.life_cycle_phase:
-            lines.append(f"**Life cycle phase:** {req.life_cycle_phase}")
+            lines.append(f"**Lifecycle status:** {req.get_life_cycle_phase_display()}")
         lines.append("")
         if req.validation_criteria:
             lines.append("**Validation criteria:**")
@@ -237,8 +258,9 @@ def sync_blueprint_to_pocs(pocs=None):
     tasks/tests). Existing Tasks/Tests are untouched and no phases are deleted.
     """
     nodes = _preorder_templates()
-    stats = {"pocs": 0, "created": 0, "updated": 0}
+    stats = {"pocs": 0, "created": 0, "updated": 0, "missing_templates": set()}
     target = POC.objects.all() if pocs is None else pocs
+    missing = stats["missing_templates"]
 
     with transaction.atomic():
         for poc in target:
@@ -251,7 +273,7 @@ def sync_blueprint_to_pocs(pocs=None):
                 parent_phase = existing.get(node.parent_id) if node.parent_id else None
                 phase = existing.get(node.id)
                 if phase is None:
-                    phase = _instantiate_phase(node, poc, parent_phase)
+                    phase = _instantiate_phase(node, poc, parent_phase, missing=missing)
                     existing[node.id] = phase
                     stats["created"] += 1
                 else:
@@ -261,7 +283,7 @@ def sync_blueprint_to_pocs(pocs=None):
                     phase.kind = node.kind
                     phase.order = node.order
                     phase.parent = parent_phase
-                    _copy_report_template(node, phase)
+                    _copy_report_template(node, phase, missing=missing)
                     phase.save()
                     # Top up FA sections (matchable by source_fa_step → no dupes).
                     ensure_fa_documents(phase)
