@@ -131,6 +131,11 @@ def _requirements_section_markdown(poc):
         if req.life_cycle_phase:
             lines.append(f"**Lifecycle status:** {req.get_life_cycle_phase_display()}")
         lines.append("")
+        if req.description:
+            lines.append("**Description:**")
+            lines.append("")
+            lines.append(req.description)
+            lines.append("")
         if req.validation_criteria:
             lines.append("**Validation criteria:**")
             lines.append("")

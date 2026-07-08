@@ -32,6 +32,17 @@ MD_EDITOR_CLASS = "md-editor"
 # POC-extensible classification fields (gravity/operation/functional/category).
 ADD_NEW_OPTION = "__new__"
 
+# Placeholder guidance shown on Requirement.description — per the SESAM
+# methodology, a requirement description follows a "The system shall <action>
+# <object/parameter> <condition or operating mode>" structure.
+REQUIREMENT_DESCRIPTION_PLACEHOLDER = (
+    'Follow the SESAM methodology structure: "The system shall <action> '
+    '<object/parameter> <condition or operating mode>".\n'
+    "e.g. The system shall display the real-time connector status "
+    "(offline / available / plugged / charging / error) of every charging "
+    "point in normal operation mode."
+)
+
 INPUT_CLASS = (
     "w-full rounded-lg border border-line px-3 py-2 text-sm text-ink "
     "focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
@@ -756,6 +767,7 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
             "req_operation",
             "req_functional",
             "req_category",
+            "description",
             "validation_criteria",
             "life_cycle_phase",
             "reference_documentations",
@@ -763,6 +775,10 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
         )
         widgets = {
             "sub_system": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "description": forms.Textarea(attrs={
+                "rows": 3, "class": INPUT_CLASS,
+                "placeholder": REQUIREMENT_DESCRIPTION_PLACEHOLDER,
+            }),
             "validation_criteria": forms.Textarea(attrs={"rows": 3, "class": MD_EDITOR_CLASS}),
             "reference_documentations": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),
             "remarks": forms.Textarea(attrs={"rows": 2, "class": MD_EDITOR_CLASS}),

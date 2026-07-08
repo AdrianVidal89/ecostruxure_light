@@ -314,6 +314,7 @@
       {% if requirements %}
         <div class="space-y-3"
              x-data="{
+               showFilters: false,
                filters: { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' },
                rows: [],
                init() {
@@ -332,9 +333,21 @@
                  return true;
                },
                get anyVisible() { return this.rows.some(el => this.matches(el)); },
+               get activeFilterCount() { return Object.values(this.filters).filter(v => v).length; },
                clearFilters() { this.filters = { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' }; },
              }">
-          <div class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
+          <div>
+            <button type="button" @click="showFilters = !showFilters"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-surface"
+                    :class="showFilters && 'bg-surface text-ink'">
+              <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Filters
+              <span x-show="activeFilterCount > 0" x-cloak
+                    class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
+                    x-text="activeFilterCount"></span>
+            </button>
+          </div>
+          <div x-show="showFilters" x-cloak x-transition
+               class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
             <input type="text" x-model="filters.q" placeholder="Search code or sub-system…"
                    class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
             <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">

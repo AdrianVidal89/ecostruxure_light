@@ -23,6 +23,13 @@
     </div>
   {% endif %}
 
+  {% if req.description %}
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+      <p class="text-sm text-ink whitespace-pre-wrap">{{ req.description }}</p>
+    </div>
+  {% endif %}
+
   <div>
     <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Validation criteria</p>
     {% if req.validation_criteria %}

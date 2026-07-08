@@ -1639,6 +1639,7 @@ class Requirement(models.Model):
     req_functional = models.CharField(max_length=100)
     req_category = models.CharField(max_length=100)
 
+    description = models.TextField(blank=True)
     validation_criteria = models.TextField(blank=True)
     life_cycle_phase = models.CharField(max_length=255, blank=True)
     reference_documentations = models.TextField(blank=True)
