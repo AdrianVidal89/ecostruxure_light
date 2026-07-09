@@ -499,6 +499,27 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
                 "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
             )
         }
+        # Column-sort ranks for the Requirements table: sorting these choice
+        # fields alphabetically wouldn't respect their natural progression
+        # (e.g. Draft -> Active -> Rejected), so rank by position instead.
+        ctx["requirement_rank_maps"] = {
+            field_name: {
+                value: idx for idx, (value, _label) in enumerate(ctx["requirement_filter_fields"][field_name])
+            }
+            for field_name in ("req_gravity", "req_operation", "req_category", "life_cycle_phase")
+        }
+        # (dataset key, header label) for each sortable column in the Requirements
+        # table — keys must match the `data-*` attributes set on each `<tr>`.
+        ctx["sortable_req_columns"] = [
+            ("code", "Code"),
+            ("subsystem", "Sub-system"),
+            ("gravityRank", "Gravity"),
+            ("operationRank", "Operation"),
+            ("categoryRank", "Category"),
+            ("lifecycleRank", "Lifecycle Status"),
+            ("validated", "Validated"),
+            ("usecases", "Use cases"),
+        ]
         # Filter dropdown options for the Use Cases grid (mirrors the above).
         ctx["usecase_filter_fields"] = {
             "status": UseCase.Status.choices,
