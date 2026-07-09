@@ -149,19 +149,16 @@ def _team_context(poc, request, q=""):
     memberships = poc.memberships.select_related("user").all()
     member_ids = list(memberships.values_list("user_id", flat=True))
 
-    search_results = []
     q = (q or "").strip()
+    addable = User.objects.filter(is_active=True).exclude(id__in=member_ids)
     if q:
-        search_results = list(
-            User.objects.filter(is_active=True)
-            .exclude(id__in=member_ids)
-            .filter(
-                Q(username__icontains=q)
-                | Q(first_name__icontains=q)
-                | Q(last_name__icontains=q)
-                | Q(email__icontains=q)
-            )[:10]
+        addable = addable.filter(
+            Q(username__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(email__icontains=q)
         )
+    search_results = list(addable.order_by("first_name", "last_name", "username")[:10])
 
     return {
         "poc": poc,

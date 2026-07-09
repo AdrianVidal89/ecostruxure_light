@@ -4,8 +4,8 @@ search (GET) and out-of-band (oob=True) after add/remove so it stays in sync.
 Context: search_results, q, poc, role_choices. Optional: oob.
 {% endcomment %}
 <div id="poc-search-results" {% if oob %}hx-swap-oob="true"{% endif %} class="p-2 space-y-1">
-  {% if q and not search_results %}
-    <p class="text-sm text-ink-muted px-1 py-1">No matching active users.</p>
+  {% if not search_results %}
+    <p class="text-sm text-ink-muted px-1 py-1">{% if q %}No matching active users.{% else %}No more active users to add.{% endif %}</p>
   {% endif %}
   {% for u in search_results %}
     <form hx-post="{% url 'pocs:member_add' poc.pk %}"
