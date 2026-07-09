@@ -50,6 +50,16 @@ urlpatterns = [
         name="requirement_import_template",
     ),
     path(
+        "<int:pk>/requirements/bulk-status/",
+        views.requirement_bulk_status,
+        name="requirement_bulk_status",
+    ),
+    path(
+        "<int:pk>/requirements/bulk-delete/",
+        views.requirement_bulk_delete,
+        name="requirement_bulk_delete",
+    ),
+    path(
         "requirements/<int:pk>/edit/",
         views.RequirementUpdateView.as_view(),
         name="requirement_edit",
@@ -78,6 +88,16 @@ urlpatterns = [
         "<int:pk>/use-cases/import/template/",
         views.usecase_import_template,
         name="usecase_import_template",
+    ),
+    path(
+        "<int:pk>/use-cases/bulk-status/",
+        views.usecase_bulk_status,
+        name="usecase_bulk_status",
+    ),
+    path(
+        "<int:pk>/use-cases/bulk-delete/",
+        views.usecase_bulk_delete,
+        name="usecase_bulk_delete",
     ),
     path(
         "use-cases/<int:pk>/",

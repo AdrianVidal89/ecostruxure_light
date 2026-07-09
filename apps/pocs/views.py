@@ -502,9 +502,14 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
                 "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
             )
         }
+        # Filter dropdown options for the Use Cases grid (mirrors the above).
+        ctx["usecase_filter_fields"] = {
+            "status": UseCase.Status.choices,
+            "priority": UseCase.Priority.choices,
+        }
         ctx["tabs"] = [
             ("overview", "Overview"),
-            ("specs", "Requirements & Use Cases"),
+            ("specs", "Use Cases & Requirements"),
             ("phases", "Phases"),
             ("team", "Team"),
             ("audit", "Audit Log"),
@@ -1792,6 +1797,95 @@ class UseCaseDeleteView(_SpecDeleteMixin, DeleteView):
         response = super().form_valid(form)
         messages.success(self.request, f"Use case “{code}” deleted.")
         return response
+
+
+# ---------------------------------------------------------------------------
+# Requirements / Use Cases — bulk actions on a filtered selection
+# ---------------------------------------------------------------------------
+def _specs_redirect(poc):
+    return f"{reverse('pocs:detail', args=[poc.pk])}?tab=specs"
+
+
+@poc_lead_required
+@require_POST
+def requirement_bulk_status(request, pk):
+    """Set the same lifecycle status on several requirements at once."""
+    poc = get_object_or_404(POC, pk=pk)
+    new_status = request.POST.get("status", "")
+    ids = [int(i) for i in request.POST.getlist("requirement_ids") if i.isdigit()]
+    valid_statuses = {v for v, _ in Requirement.field_choices(poc, "life_cycle_phase")}
+    applied = 0
+    if new_status in valid_statuses and ids:
+        for req in poc.requirements.filter(pk__in=ids):
+            if req.life_cycle_phase == new_status:
+                continue
+            old = req.life_cycle_phase
+            req.life_cycle_phase = new_status
+            req.modified_by = request.user
+            req.save(update_fields=["life_cycle_phase", "modified_by", "modified_date"])
+            record_audit(req, "requirement_updated", request.user,
+                         {"life_cycle_phase": {"before": old, "after": new_status}})
+            applied += 1
+    messages.success(request, f"Lifecycle status updated on {applied} requirement(s).")
+    return redirect(_specs_redirect(poc))
+
+
+@poc_lead_required
+@require_POST
+def requirement_bulk_delete(request, pk):
+    """Permanently delete several requirements at once."""
+    poc = get_object_or_404(POC, pk=pk)
+    ids = [int(i) for i in request.POST.getlist("requirement_ids") if i.isdigit()]
+    deleted = 0
+    for req in poc.requirements.filter(pk__in=ids):
+        code = req.code
+        record_audit(req, "requirement_deleted", request.user,
+                     {"code": {"before": code, "after": None}})
+        req.delete()
+        deleted += 1
+    messages.success(request, f"Deleted {deleted} requirement(s).")
+    return redirect(_specs_redirect(poc))
+
+
+@poc_lead_required
+@require_POST
+def usecase_bulk_status(request, pk):
+    """Set the same status on several use cases at once."""
+    poc = get_object_or_404(POC, pk=pk)
+    new_status = request.POST.get("status", "")
+    ids = [int(i) for i in request.POST.getlist("usecase_ids") if i.isdigit()]
+    valid_statuses = dict(UseCase.Status.choices)
+    applied = 0
+    if new_status in valid_statuses and ids:
+        for uc in poc.use_cases.filter(pk__in=ids):
+            if uc.status == new_status:
+                continue
+            old = uc.status
+            uc.status = new_status
+            uc.modified_by = request.user
+            uc.save(update_fields=["status", "modified_by", "modified_date"])
+            record_audit(uc, "usecase_updated", request.user,
+                         {"status": {"before": old, "after": new_status}})
+            applied += 1
+    messages.success(request, f"Status updated on {applied} use case(s).")
+    return redirect(_specs_redirect(poc))
+
+
+@poc_lead_required
+@require_POST
+def usecase_bulk_delete(request, pk):
+    """Permanently delete several use cases at once."""
+    poc = get_object_or_404(POC, pk=pk)
+    ids = [int(i) for i in request.POST.getlist("usecase_ids") if i.isdigit()]
+    deleted = 0
+    for uc in poc.use_cases.filter(pk__in=ids):
+        code = uc.code
+        record_audit(uc, "usecase_deleted", request.user,
+                     {"code": {"before": code, "after": None}})
+        uc.delete()
+        deleted += 1
+    messages.success(request, f"Deleted {deleted} use case(s).")
+    return redirect(_specs_redirect(poc))
 
 
 class RequirementImportView(POCLeadRequiredMixin, View):

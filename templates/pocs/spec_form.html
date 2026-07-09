@@ -5,7 +5,7 @@
 {% block breadcrumb %}
   <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Requirements &amp; Use Cases</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <span class="text-ink font-medium">{{ title }}</span>
 {% endblock %}
@@ -139,7 +139,7 @@
   <div x-show="previewOpen" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
        @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
-    <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+    <div class="bg-surface rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
       <div class="flex justify-end mb-2">
         <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
           <i data-lucide="x" class="w-4 h-4"></i>

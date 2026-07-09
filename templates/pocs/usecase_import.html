@@ -4,7 +4,7 @@
 {% block breadcrumb %}
   <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Requirements &amp; Use Cases</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <span class="text-ink font-medium">Import use cases</span>
 {% endblock %}

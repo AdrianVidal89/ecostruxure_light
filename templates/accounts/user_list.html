@@ -87,6 +87,39 @@
                       {% endif %}
                     </button>
                   </form>
+
+                  {# Permanent delete: modal + type the username to confirm. #}
+                  <div x-data="{ open: false, txt: '' }">
+                    <button type="button" @click="open = true" title="Delete permanently"
+                            class="inline-flex items-center gap-1 font-medium text-danger hover:text-danger">
+                      <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                    <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                      <div @click.outside="open = false" class="bg-surface rounded-xl border border-line shadow-lg p-6 max-w-md w-full">
+                        <div class="flex items-center gap-2 text-danger">
+                          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                          <h3 class="font-semibold">Delete this user?</h3>
+                        </div>
+                        <p class="text-sm text-ink-muted mt-3">
+                          This permanently removes “<span class="font-medium text-ink">{{ u.username }}</span>” and
+                          cannot be undone. Records they created may block this — deactivate instead if unsure.
+                        </p>
+                        <p class="text-sm text-ink mt-4 mb-1">Type the username to confirm:</p>
+                        <input x-model="txt" type="text" placeholder="{{ u.username }}"
+                               class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-danger/40">
+                        <form method="post" action="{% url 'accounts:user_delete' u.pk %}" class="flex items-center justify-end gap-3 mt-5">
+                          {% csrf_token %}
+                          <input type="hidden" name="confirm_name" :value="txt">
+                          <button type="button" @click="open = false" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</button>
+                          <button type="submit" :disabled="txt !== '{{ u.username|escapejs }}'"
+                                  :class="txt === '{{ u.username|escapejs }}' ? 'bg-danger text-white hover:opacity-90' : 'bg-line text-ink-muted cursor-not-allowed'"
+                                  class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-soft">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete permanently
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
                 {% endif %}
               </div>
             </td>

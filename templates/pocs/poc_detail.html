@@ -224,11 +224,43 @@
     </div>
 
     {# Use Cases #}
-    <div class="space-y-3">
-      <div class="flex items-center justify-between">
+    <div class="space-y-3"
+         x-data="{
+           showFilters: false,
+           filters: { q: '', status: '', priority: '', approved: '' },
+           rows: [],
+           selectedCount: 0,
+           init() { this.rows = Array.from(this.$refs.ucGrid.querySelectorAll('[data-uc-card]')); },
+           matches(el) {
+             const d = el.dataset;
+             const f = this.filters;
+             if (f.q && !d.title.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
+             if (f.status && d.status !== f.status) return false;
+             if (f.priority && d.priority !== f.priority) return false;
+             if (f.approved && d.approved !== f.approved) return false;
+             return true;
+           },
+           get anyVisible() { return this.rows.some(el => this.matches(el)); },
+           get activeFilterCount() { return Object.values(this.filters).filter(v => v).length; },
+           clearFilters() { this.filters = { q: '', status: '', priority: '', approved: '' }; },
+           refreshSelected() { this.selectedCount = this.$refs.ucGrid.querySelectorAll('.uc-checkbox:checked').length; },
+           toggleAllVisible(checked) {
+             this.rows.forEach(el => { if (this.matches(el)) el.querySelector('.uc-checkbox').checked = checked; });
+             this.refreshSelected();
+           },
+         }">
+      <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold text-ink">Use Cases</h2>
-        {% if can_manage %}
-          <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2">
+          <button type="button" @click="showFilters = !showFilters"
+                  class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-surface"
+                  :class="showFilters && 'bg-surface text-ink'">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Filters
+            <span x-show="activeFilterCount > 0" x-cloak
+                  class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
+                  x-text="activeFilterCount"></span>
+          </button>
+          {% if can_manage %}
             <a href="{% url 'pocs:usecase_import' poc.pk %}"
                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
               <i data-lucide="upload" class="w-4 h-4"></i> Import
@@ -237,13 +269,68 @@
                class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
               <i data-lucide="plus" class="w-4 h-4"></i> Add use case
             </a>
-          </div>
-        {% endif %}
+          {% endif %}
+        </div>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div x-show="showFilters" x-cloak x-transition
+           class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <input type="text" x-model="filters.q" placeholder="Search title or code…"
+               class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
+        <select x-model="filters.status" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+          <option value="">Status: all</option>
+          {% for value, label in usecase_filter_fields.status %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select x-model="filters.priority" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+          <option value="">Priority: all</option>
+          {% for value, label in usecase_filter_fields.priority %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select x-model="filters.approved" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+          <option value="">Approved: all</option>
+          <option value="yes">Approved</option>
+          <option value="no">Pending</option>
+        </select>
+        <button type="button" @click="clearFilters()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
+          Clear filters
+        </button>
+      </div>
+
+      {% if can_manage and use_cases %}
+        <form id="uc-bulk" method="post" class="flex items-center flex-wrap gap-2" x-show="selectedCount > 0" x-cloak>
+          {% csrf_token %}
+          <span class="text-sm text-ink-muted" x-text="selectedCount + ' selected'"></span>
+          <select name="status" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+            {% for value, label in usecase_filter_fields.status %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" formaction="{% url 'pocs:usecase_bulk_status' poc.pk %}"
+                  class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium hover:bg-canvas">
+            Apply status
+          </button>
+          <button type="submit" formaction="{% url 'pocs:usecase_bulk_delete' poc.pk %}"
+                  onclick="return confirm('Delete the selected use case(s)? This cannot be undone.');"
+                  class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5">
+            Delete selected
+          </button>
+        </form>
+      {% endif %}
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4" x-ref="ucGrid">
         {% for uc in use_cases %}
-          <div class="bg-surface border border-line rounded-xl p-4" x-data="{ showAllReqs: false }">
+          <div class="bg-surface border border-line rounded-xl p-4" x-data="{ showAllReqs: false }"
+               data-uc-card x-show="matches($el)"
+               data-code="{{ uc.code }}" data-title="{{ uc.title }}" data-status="{{ uc.status }}"
+               data-priority="{{ uc.priority }}" data-approved="{% if uc.is_approved %}yes{% else %}no{% endif %}">
             <div class="flex items-start gap-3">
+              {% if can_manage %}
+                <input type="checkbox" name="usecase_ids" value="{{ uc.pk }}" form="uc-bulk"
+                       class="uc-checkbox mt-1.5 rounded border-line" @change="refreshSelected()">
+              {% endif %}
               <div class="min-w-0 flex-1">
                 <p class="font-medium text-ink"><span class="text-xs font-mono text-ink-muted mr-1">{{ uc.code }}</span>{{ uc.title }}</p>
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
@@ -291,15 +378,26 @@
             No use cases yet.{% if can_manage %} Use “Add use case” to create one.{% endif %}
           </div>
         {% endfor %}
+        {% if use_cases %}
+          <div x-show="!anyVisible" x-cloak class="md:col-span-2 p-8 text-center text-sm text-ink-muted">
+            No use cases match the current filters.
+          </div>
+        {% endif %}
       </div>
     </div>
 
     {# Requirements #}
-    <div class="space-y-3">
-      <div class="flex items-center justify-between">
+    <div class="space-y-3" x-data="{ tableOpen: false }">
+      <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold text-ink">Requirements</h2>
-        {% if can_manage %}
-          <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2">
+          {% if requirements %}
+            <button type="button" @click="tableOpen = true"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+              <i data-lucide="table" class="w-4 h-4"></i> Open table ({{ requirements|length }})
+            </button>
+          {% endif %}
+          {% if can_manage %}
             <a href="{% url 'pocs:requirement_import' poc.pk %}"
                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
               <i data-lucide="upload" class="w-4 h-4"></i> Import
@@ -308,155 +406,210 @@
                class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
               <i data-lucide="plus" class="w-4 h-4"></i> Add requirement
             </a>
-          </div>
-        {% endif %}
-      </div>
-      {% if requirements %}
-        <div class="space-y-3"
-             x-data="{
-               showFilters: false,
-               filters: { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' },
-               rows: [],
-               init() {
-                 this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
-               },
-               matches(el) {
-                 const d = el.dataset;
-                 const f = this.filters;
-                 if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
-                 if (f.gravity && d.gravity !== f.gravity) return false;
-                 if (f.operation && d.operation !== f.operation) return false;
-                 if (f.functional && d.functional !== f.functional) return false;
-                 if (f.category && d.category !== f.category) return false;
-                 if (f.lifecycle && d.lifecycle !== f.lifecycle) return false;
-                 if (f.validated && d.validated !== f.validated) return false;
-                 return true;
-               },
-               get anyVisible() { return this.rows.some(el => this.matches(el)); },
-               get activeFilterCount() { return Object.values(this.filters).filter(v => v).length; },
-               clearFilters() { this.filters = { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' }; },
-             }">
-          <div>
-            <button type="button" @click="showFilters = !showFilters"
-                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-surface"
-                    :class="showFilters && 'bg-surface text-ink'">
-              <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Filters
-              <span x-show="activeFilterCount > 0" x-cloak
-                    class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
-                    x-text="activeFilterCount"></span>
-            </button>
-          </div>
-          <div x-show="showFilters" x-cloak x-transition
-               class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
-            <input type="text" x-model="filters.q" placeholder="Search code or sub-system…"
-                   class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
-            <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Gravity: all</option>
-              {% for value, label in requirement_filter_fields.req_gravity %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <select x-model="filters.operation" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Operation: all</option>
-              {% for value, label in requirement_filter_fields.req_operation %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <select x-model="filters.functional" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Functional: all</option>
-              {% for value, label in requirement_filter_fields.req_functional %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <select x-model="filters.category" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Category: all</option>
-              {% for value, label in requirement_filter_fields.req_category %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <select x-model="filters.lifecycle" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Lifecycle status: all</option>
-              {% for value, label in requirement_filter_fields.life_cycle_phase %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <select x-model="filters.validated" class="px-3 py-1.5 rounded-lg border border-line text-sm">
-              <option value="">Validated: all</option>
-              <option value="yes">Validated</option>
-              <option value="no">Pending</option>
-            </select>
-            <button type="button" @click="clearFilters()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
-              Clear filters
-            </button>
-          </div>
-          <div class="bg-surface border border-line rounded-xl overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="text-left text-xs text-ink-muted uppercase tracking-wide border-b border-line">
-                  <th class="px-4 py-3">Code</th>
-                  <th class="px-4 py-3">Sub-system</th>
-                  <th class="px-4 py-3">Gravity</th>
-                  <th class="px-4 py-3">Operation</th>
-                  <th class="px-4 py-3">Category</th>
-                  <th class="px-4 py-3">Validated</th>
-                  <th class="px-4 py-3">Use cases</th>
-                  <th class="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-line" x-ref="tbody">
-                {% for req in requirements %}
-                  <tr class="hover:bg-canvas/50" x-show="matches($el)"
-                      data-code="{{ req.code }}" data-subsystem="{{ req.sub_system }}"
-                      data-gravity="{{ req.req_gravity }}" data-operation="{{ req.req_operation }}"
-                      data-functional="{{ req.req_functional }}" data-category="{{ req.req_category }}"
-                      data-lifecycle="{{ req.life_cycle_phase }}"
-                      data-validated="{% if req.is_validated %}yes{% else %}no{% endif %}">
-                    <td class="px-4 py-3 font-mono text-xs text-ink">{{ req.code }}</td>
-                    <td class="px-4 py-3 text-ink">{{ req.sub_system|default:"—" }}</td>
-                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_gravity_display }}</td>
-                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_operation_display }}</td>
-                    <td class="px-4 py-3 text-ink-muted">{{ req.get_req_category_display }}</td>
-                    <td class="px-4 py-3">
-                      {% if req.is_validated %}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3 h-3"></i> Validated</span>
-                      {% else %}
-                        <span class="px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted">Pending</span>
-                      {% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-ink-muted">{{ req.use_cases.count }}</td>
-                    <td class="px-4 py-3">
-                      <div class="flex items-center justify-end gap-1">
-                        <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
-                        {% if can_manage %}
-                          <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
-                          <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">
-                            {% csrf_token %}
-                            <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                          </form>
-                        {% endif %}
-                      </div>
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-            <div x-show="!anyVisible" x-cloak class="p-8 text-center text-sm text-ink-muted">
-              No requirements match the current filters.
-            </div>
-          </div>
+          {% endif %}
         </div>
-      {% else %}
+      </div>
+
+      {% if not requirements %}
         <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
           No requirements yet.{% if can_manage %} Use “Add requirement” to create one. Bulk import from Excel arrives in a later phase.{% endif %}
         </div>
       {% endif %}
+
+      {# Full requirements table — its own modal so scrolling a long list never scrolls the page behind it. #}
+      <div x-show="tableOpen" x-cloak
+           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+           @keydown.escape.window="tableOpen = false">
+        <div class="bg-surface rounded-xl shadow-xl max-w-6xl w-full max-h-[92vh] flex flex-col" @click.outside="tableOpen = false">
+          <div class="flex items-center justify-between p-4 border-b border-line shrink-0">
+            <h3 class="font-semibold text-ink">Requirements — {{ poc.name }}</h3>
+            <button type="button" @click="tableOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div class="p-4 space-y-3 overflow-hidden flex flex-col"
+               x-data="{
+                 showFilters: false,
+                 filters: { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' },
+                 rows: [],
+                 selectedCount: 0,
+                 init() {
+                   this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
+                 },
+                 matches(el) {
+                   const d = el.dataset;
+                   const f = this.filters;
+                   if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
+                   if (f.gravity && d.gravity !== f.gravity) return false;
+                   if (f.operation && d.operation !== f.operation) return false;
+                   if (f.functional && d.functional !== f.functional) return false;
+                   if (f.category && d.category !== f.category) return false;
+                   if (f.lifecycle && d.lifecycle !== f.lifecycle) return false;
+                   if (f.validated && d.validated !== f.validated) return false;
+                   return true;
+                 },
+                 get anyVisible() { return this.rows.some(el => this.matches(el)); },
+                 get activeFilterCount() { return Object.values(this.filters).filter(v => v).length; },
+                 clearFilters() { this.filters = { q: '', gravity: '', operation: '', functional: '', category: '', lifecycle: '', validated: '' }; },
+                 refreshSelected() { this.selectedCount = this.$refs.tbody.querySelectorAll('.req-checkbox:checked').length; },
+                 toggleAllVisible(checked) {
+                   this.rows.forEach(el => { if (this.matches(el)) el.querySelector('.req-checkbox').checked = checked; });
+                   this.refreshSelected();
+                 },
+               }">
+            <div class="flex items-center flex-wrap gap-2 shrink-0">
+              <button type="button" @click="showFilters = !showFilters"
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-surface"
+                      :class="showFilters && 'bg-surface text-ink'">
+                <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Filters
+                <span x-show="activeFilterCount > 0" x-cloak
+                      class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
+                      x-text="activeFilterCount"></span>
+              </button>
+            </div>
+            <div x-show="showFilters" x-cloak x-transition
+                 class="bg-canvas border border-line rounded-xl p-3 flex flex-wrap items-center gap-2 shrink-0">
+              <input type="text" x-model="filters.q" placeholder="Search code or sub-system…"
+                     class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
+              <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Gravity: all</option>
+                {% for value, label in requirement_filter_fields.req_gravity %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <select x-model="filters.operation" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Operation: all</option>
+                {% for value, label in requirement_filter_fields.req_operation %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <select x-model="filters.functional" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Functional: all</option>
+                {% for value, label in requirement_filter_fields.req_functional %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <select x-model="filters.category" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Category: all</option>
+                {% for value, label in requirement_filter_fields.req_category %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <select x-model="filters.lifecycle" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Lifecycle status: all</option>
+                {% for value, label in requirement_filter_fields.life_cycle_phase %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <select x-model="filters.validated" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                <option value="">Validated: all</option>
+                <option value="yes">Validated</option>
+                <option value="no">Pending</option>
+              </select>
+              <button type="button" @click="clearFilters()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
+                Clear filters
+              </button>
+            </div>
+
+            {% if can_manage %}
+              <form id="req-bulk" method="post" class="flex items-center flex-wrap gap-2 shrink-0" x-show="selectedCount > 0" x-cloak>
+                {% csrf_token %}
+                <span class="text-sm text-ink-muted" x-text="selectedCount + ' selected'"></span>
+                <select name="status" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+                  {% for value, label in requirement_filter_fields.life_cycle_phase %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" formaction="{% url 'pocs:requirement_bulk_status' poc.pk %}"
+                        class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium hover:bg-canvas">
+                  Apply status
+                </button>
+                <button type="submit" formaction="{% url 'pocs:requirement_bulk_delete' poc.pk %}"
+                        onclick="return confirm('Delete the selected requirement(s)? This cannot be undone.');"
+                        class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5">
+                  Delete selected
+                </button>
+              </form>
+            {% endif %}
+
+            <div class="bg-surface border border-line rounded-xl overflow-y-auto flex-1">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="text-left text-xs text-ink-muted uppercase tracking-wide border-b border-line">
+                    {% if can_manage %}
+                      <th class="px-3 py-2 sticky top-0 bg-surface">
+                        <input type="checkbox" class="rounded border-line" @click="toggleAllVisible($event.target.checked)">
+                      </th>
+                    {% endif %}
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Code</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Sub-system</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Gravity</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Operation</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Category</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Lifecycle Status</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Validated</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface">Use cases</th>
+                    <th class="px-3 py-2 sticky top-0 bg-surface"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-line" x-ref="tbody">
+                  {% for req in requirements %}
+                    <tr class="hover:bg-canvas/50" x-show="matches($el)"
+                        data-code="{{ req.code }}" data-subsystem="{{ req.sub_system }}"
+                        data-gravity="{{ req.req_gravity }}" data-operation="{{ req.req_operation }}"
+                        data-functional="{{ req.req_functional }}" data-category="{{ req.req_category }}"
+                        data-lifecycle="{{ req.life_cycle_phase }}"
+                        data-validated="{% if req.is_validated %}yes{% else %}no{% endif %}">
+                      {% if can_manage %}
+                        <td class="px-3 py-2">
+                          <input type="checkbox" name="requirement_ids" value="{{ req.pk }}" form="req-bulk"
+                                 class="req-checkbox rounded border-line" @change="refreshSelected()">
+                        </td>
+                      {% endif %}
+                      <td class="px-3 py-2 font-mono text-xs text-ink">{{ req.code }}</td>
+                      <td class="px-3 py-2 text-ink">{{ req.sub_system|default:"—" }}</td>
+                      <td class="px-3 py-2 text-ink-muted">{{ req.get_req_gravity_display }}</td>
+                      <td class="px-3 py-2 text-ink-muted">{{ req.get_req_operation_display }}</td>
+                      <td class="px-3 py-2 text-ink-muted">{{ req.get_req_category_display }}</td>
+                      <td class="px-3 py-2 text-ink-muted">{{ req.get_life_cycle_phase_display|default:"—" }}</td>
+                      <td class="px-3 py-2">
+                        {% if req.is_validated %}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3 h-3"></i> Validated</span>
+                        {% else %}
+                          <span class="px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted">Pending</span>
+                        {% endif %}
+                      </td>
+                      <td class="px-3 py-2 text-ink-muted">{{ req.use_cases.count }}</td>
+                      <td class="px-3 py-2">
+                        <div class="flex items-center justify-end gap-1">
+                          <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                          {% if can_manage %}
+                            <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+                            <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">
+                              {% csrf_token %}
+                              <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </form>
+                          {% endif %}
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <div x-show="!anyVisible" x-cloak class="p-8 text-center text-sm text-ink-muted">
+                No requirements match the current filters.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     {# Preview popup — fetches a read-only fragment for the clicked requirement/use case. #}
     <div x-show="previewOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
          @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
-      <div class="bg-surface rounded-xl shadow-xl max-w-3xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
+      <div class="bg-surface rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
         <div class="flex justify-end mb-2">
           <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
             <i data-lucide="x" class="w-4 h-4"></i>
@@ -512,15 +665,18 @@
       <div class="bg-surface border border-line rounded-xl p-5">
         <h2 class="font-medium text-ink mb-1">Add members</h2>
         <p class="text-xs text-ink-muted mb-3">Search active users and assign a role in this POC.</p>
-        <div class="relative">
+        <div class="relative" x-data="{ open: false }" @click.outside="open = false">
           <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted"></i>
           <input type="search" id="member-search-input" name="q" placeholder="Search users…" autocomplete="off"
                  hx-get="{% url 'pocs:member_search' poc.pk %}"
                  hx-target="#poc-search-results" hx-swap="outerHTML"
-                 hx-trigger="keyup changed delay:300ms, search"
+                 hx-trigger="keyup changed delay:300ms, search, focus"
+                 @focus="open = true"
                  class="w-full rounded-lg border border-line pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+          <div x-show="open" x-cloak class="absolute z-20 mt-1 w-full bg-surface border border-line rounded-lg shadow-lg max-h-64 overflow-y-auto">
+            {% include "pocs/partials/search_results.html" %}
+          </div>
         </div>
-        {% include "pocs/partials/search_results.html" %}
       </div>
     {% endif %}
   </section>

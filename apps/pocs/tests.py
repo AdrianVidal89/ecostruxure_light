@@ -1125,7 +1125,7 @@ class Fase3SpecsAndLinkTests(TestCase):
         self.client.force_login(self.member)
         resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Requirements &amp; Use Cases")
+        self.assertContains(resp, "Use Cases &amp; Requirements")
 
     def test_specs_url_redirects_to_tab(self):
         self.client.force_login(self.member)
