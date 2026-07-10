@@ -1,7 +1,9 @@
 {% load core_extras %}
 <div class="space-y-4">
   <div>
-    <p class="text-xs font-mono text-ink-muted">{{ req.code }}</p>
+    <p class="text-xs font-mono text-ink-muted">
+      {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
+    </p>
     <h3 class="text-lg font-semibold text-ink break-words">{{ req.sub_system|default:"Requirement" }}</h3>
     <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
       <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>

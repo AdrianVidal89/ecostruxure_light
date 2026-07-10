@@ -512,6 +512,7 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         # table — keys must match the `data-*` attributes set on each `<tr>`.
         ctx["sortable_req_columns"] = [
             ("code", "Code"),
+            ("externalCode", "External code"),
             ("subsystem", "Sub-system"),
             ("gravityRank", "Gravity"),
             ("operationRank", "Operation"),
@@ -1930,9 +1931,14 @@ class RequirementImportView(POCLeadRequiredMixin, View):
             if not rows:
                 messages.error(request, "Nothing to import — please upload the file again.")
                 return redirect("pocs:requirement_import", pk=self.poc.pk)
-            created = import_requirements(self.poc, rows, request.user)
+            created, updated = import_requirements(self.poc, rows, request.user)
             request.session.pop(self._session_key(), None)
-            messages.success(request, f"Imported {created} requirement(s).")
+            parts = []
+            if created:
+                parts.append(f"created {created}")
+            if updated:
+                parts.append(f"updated {updated}")
+            messages.success(request, f"Requirements: {', '.join(parts) or 'nothing to import'}.")
             return redirect(f"{reverse('pocs:detail', args=[self.poc.pk])}?tab=specs")
 
         # Stage 1: upload — parse and show the validated preview.
@@ -1997,6 +2003,40 @@ def usecase_import_template(request, pk):
     return response
 
 
+def requirement_export(request, pk):
+    """Download every current Requirement of this POC as .xlsx — edit it and
+    re-upload via the importer (matched by ``code``) to update them in place."""
+    poc = get_object_or_404(POC, pk=pk)
+    if not user_is_poc_member(request.user, poc):
+        raise PermissionDenied
+    from .requirements_import import build_requirements_export_xlsx
+
+    buf = build_requirements_export_xlsx(poc)
+    response = HttpResponse(
+        buf.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="requirements_export.xlsx"'
+    return response
+
+
+def usecase_export(request, pk):
+    """Download every current Use Case of this POC as .xlsx — edit it and
+    re-upload via the importer (matched by ``code``) to update them in place."""
+    poc = get_object_or_404(POC, pk=pk)
+    if not user_is_poc_member(request.user, poc):
+        raise PermissionDenied
+    from .requirements_import import build_usecases_export_xlsx
+
+    buf = build_usecases_export_xlsx(poc)
+    response = HttpResponse(
+        buf.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="usecases_export.xlsx"'
+    return response
+
+
 class UseCaseImportView(POCLeadRequiredMixin, View):
     """Import Use Cases from an .xlsx with a per-row validated preview (10c)."""
 
@@ -2020,9 +2060,14 @@ class UseCaseImportView(POCLeadRequiredMixin, View):
             if not rows:
                 messages.error(request, "Nothing to import — please upload the file again.")
                 return redirect("pocs:usecase_import", pk=self.poc.pk)
-            created = import_usecases(self.poc, rows, request.user)
+            created, updated = import_usecases(self.poc, rows, request.user)
             request.session.pop(self._session_key(), None)
-            messages.success(request, f"Imported {created} use case(s).")
+            parts = []
+            if created:
+                parts.append(f"created {created}")
+            if updated:
+                parts.append(f"updated {updated}")
+            messages.success(request, f"Use cases: {', '.join(parts) or 'nothing to import'}.")
             return redirect(f"{reverse('pocs:detail', args=[self.poc.pk])}?tab=specs")
 
         form = RequirementImportForm(request.POST, request.FILES)

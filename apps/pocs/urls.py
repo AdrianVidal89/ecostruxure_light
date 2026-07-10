@@ -50,6 +50,11 @@ urlpatterns = [
         name="requirement_import_template",
     ),
     path(
+        "<int:pk>/requirements/export/",
+        views.requirement_export,
+        name="requirement_export",
+    ),
+    path(
         "<int:pk>/requirements/bulk-status/",
         views.requirement_bulk_status,
         name="requirement_bulk_status",
@@ -88,6 +93,11 @@ urlpatterns = [
         "<int:pk>/use-cases/import/template/",
         views.usecase_import_template,
         name="usecase_import_template",
+    ),
+    path(
+        "<int:pk>/use-cases/export/",
+        views.usecase_export,
+        name="usecase_export",
     ),
     path(
         "<int:pk>/use-cases/bulk-status/",

@@ -17,11 +17,20 @@
   <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
     <p class="text-sm text-ink-muted">
       Upload an <code>.xlsx</code> with one use case per row. Expected columns
-      (headers, case-insensitive): <code>title</code> (required, unique),
+      (headers, case-insensitive): <code>external_code</code> (optional — this use case's
+      own code in your source documentation, e.g. <code>UC001</code>), <code>title</code>
+      (required, unique),
       <code>description</code>, <code>actor</code>, <code>priority</code>,
       <code>status</code>, <code>remarks</code>, <code>requirements</code>
-      (existing requirement codes, comma-separated). The <code>code</code> is generated
-      automatically; priority defaults to Medium and status to Draft when blank.
+      (existing requirement codes, comma-separated). Light's own <code>code</code> is
+      generated automatically; priority defaults to Medium and status to Draft when blank.
+    </p>
+    <p class="text-sm text-ink-muted">
+      <strong>To update existing use cases:</strong> use “Export” on the Use Cases
+      section to download everything already in this POC (it includes Light's own
+      <code>code</code> column) — edit any cell except <code>code</code> and re-upload it
+      here; a row whose <code>code</code> matches an existing use case UPDATES it
+      instead of creating a new one.
     </p>
     <a href="{% url 'pocs:usecase_import_template' poc.pk %}" class="inline-flex items-center gap-2 text-sm text-brand-dark hover:underline">
       <i data-lucide="download" class="w-4 h-4"></i> Download blank .xlsx template

@@ -86,6 +86,23 @@ class LockedCheckboxSelectMultiple(forms.CheckboxSelectMultiple):
             option["attrs"]["disabled"] = True
         return option
 
+
+class RequirementChoiceField(forms.ModelMultipleChoiceField):
+    """A Requirement's bare code isn't enough to recognise it when linking —
+    show its original source-document code (if any) and its Functional
+    classification alongside it (used wherever requirements are checked off,
+    e.g. linking them to a Use Case or a Test)."""
+
+    def label_from_instance(self, obj):
+        bits = [obj.code]
+        if obj.external_code:
+            bits.append(obj.external_code)
+        functional = obj.get_req_functional_display()
+        if functional:
+            bits.append(functional)
+        return " · ".join(bits)
+
+
 # Imported business fields shown in the POC "Details" panel. Editable by
 # admins/leads through the edit form (rendered generically — see poc_form.html).
 POC_DETAIL_FIELDS = (
@@ -365,6 +382,12 @@ class TestForm(NonBlankMixin, forms.ModelForm):
 
     non_blank_fields = ("title",)
 
+    requirements = RequirementChoiceField(
+        queryset=Requirement.objects.none(),
+        required=False,
+        widget=LockedCheckboxSelectMultiple(),
+    )
+
     class Meta:
         model = Test
         fields = (
@@ -384,7 +407,6 @@ class TestForm(NonBlankMixin, forms.ModelForm):
             "expected_result": forms.Textarea(
                 attrs={"rows": 4, "class": MD_EDITOR_CLASS}
             ),
-            "requirements": LockedCheckboxSelectMultiple(),
         }
 
     def __init__(self, *args, poc=None, **kwargs):
@@ -426,6 +448,12 @@ class MemberTestForm(NonBlankMixin, forms.ModelForm):
 
     non_blank_fields = ("title",)
 
+    requirements = RequirementChoiceField(
+        queryset=Requirement.objects.none(),
+        required=False,
+        widget=LockedCheckboxSelectMultiple(),
+    )
+
     class Meta:
         model = Test
         fields = (
@@ -440,7 +468,6 @@ class MemberTestForm(NonBlankMixin, forms.ModelForm):
             "description": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
             "acceptance_criteria": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
             "expected_result": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
-            "requirements": LockedCheckboxSelectMultiple(),
         }
 
     def __init__(self, *args, poc=None, **kwargs):
@@ -682,15 +709,6 @@ class POCImageForm(forms.ModelForm):
         }
 
 
-class RequirementChoiceField(forms.ModelMultipleChoiceField):
-    """A Requirement's bare code isn't enough to recognise it when linking —
-    show the sub-system alongside it (used wherever requirements are checked
-    off, e.g. linking them to a Use Case)."""
-
-    def label_from_instance(self, obj):
-        return f"{obj.code} · {obj.sub_system}" if obj.sub_system else obj.code
-
-
 class RequirementForm(NonBlankMixin, forms.ModelForm):
     """Create / edit a Requirement of a POC.
 
@@ -762,6 +780,7 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     class Meta:
         model = Requirement
         fields = (
+            "external_code",
             "sub_system",
             "req_gravity",
             "req_operation",
@@ -774,6 +793,9 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
             "remarks",
         )
         widgets = {
+            "external_code": forms.TextInput(attrs={
+                "class": INPUT_CLASS, "placeholder": "e.g. FR101 — your source documentation's own code",
+            }),
             "sub_system": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={
                 "rows": 3, "class": INPUT_CLASS,
@@ -846,6 +868,7 @@ class UseCaseForm(NonBlankMixin, forms.ModelForm):
     class Meta:
         model = UseCase
         fields = (
+            "external_code",
             "title",
             "description",
             "actor",
@@ -855,6 +878,9 @@ class UseCaseForm(NonBlankMixin, forms.ModelForm):
             "requirements",
         )
         widgets = {
+            "external_code": forms.TextInput(attrs={
+                "class": INPUT_CLASS, "placeholder": "e.g. UC001 — your source documentation's own code",
+            }),
             "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
             "actor": forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "e.g. Operator"}),

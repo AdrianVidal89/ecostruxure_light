@@ -260,6 +260,13 @@
                   class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
                   x-text="activeFilterCount"></span>
           </button>
+          {% if use_cases %}
+            <a href="{% url 'pocs:usecase_export' poc.pk %}"
+               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+               title="Download all use cases as .xlsx — edit and re-import to update them">
+              <i data-lucide="download" class="w-4 h-4"></i> Export
+            </a>
+          {% endif %}
           {% if can_manage %}
             <a href="{% url 'pocs:usecase_import' poc.pk %}"
                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
@@ -397,6 +404,13 @@
               <i data-lucide="table" class="w-4 h-4"></i> Open table ({{ requirements|length }})
             </button>
           {% endif %}
+          {% if requirements %}
+            <a href="{% url 'pocs:requirement_export' poc.pk %}"
+               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+               title="Download all requirements as .xlsx — edit and re-import to update them">
+              <i data-lucide="download" class="w-4 h-4"></i> Export
+            </a>
+          {% endif %}
           {% if can_manage %}
             <a href="{% url 'pocs:requirement_import' poc.pk %}"
                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
@@ -454,7 +468,7 @@
                  matches(el) {
                    const d = el.dataset;
                    const f = this.filters;
-                   if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
+                   if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase()) && !d.externalCode.toLowerCase().includes(f.q.toLowerCase())) return false;
                    if (f.gravity && d.gravity !== f.gravity) return false;
                    if (f.operation && d.operation !== f.operation) return false;
                    if (f.functional && d.functional !== f.functional) return false;
@@ -573,7 +587,7 @@
                 <tbody class="divide-y divide-line" x-ref="tbody">
                   {% for req in requirements %}
                     <tr class="hover:bg-canvas/50" x-show="matches($el)"
-                        data-code="{{ req.code }}" data-subsystem="{{ req.sub_system }}"
+                        data-code="{{ req.code }}" data-external-code="{{ req.external_code }}" data-subsystem="{{ req.sub_system }}"
                         data-gravity="{{ req.req_gravity }}" data-operation="{{ req.req_operation }}"
                         data-functional="{{ req.req_functional }}" data-category="{{ req.req_category }}"
                         data-lifecycle="{{ req.life_cycle_phase }}"
@@ -590,6 +604,7 @@
                         </td>
                       {% endif %}
                       <td class="px-3 py-2 font-mono text-xs text-ink">{{ req.code }}</td>
+                      <td class="px-3 py-2 font-mono text-xs text-ink-muted">{{ req.external_code|default:"—" }}</td>
                       <td class="px-3 py-2 text-ink">{{ req.sub_system|default:"—" }}</td>
                       <td class="px-3 py-2 text-ink-muted">{{ req.get_req_gravity_display }}</td>
                       <td class="px-3 py-2 text-ink-muted">{{ req.get_req_operation_display }}</td>

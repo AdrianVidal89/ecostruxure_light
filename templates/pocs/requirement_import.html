@@ -17,12 +17,14 @@
   <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
     <p class="text-sm text-ink-muted">
       Upload an <code>.xlsx</code> with one requirement per row. Expected columns
-      (headers, case-insensitive): <code>sub_system</code>, <code>req_gravity</code>,
+      (headers, case-insensitive): <code>external_code</code>, <code>sub_system</code>, <code>req_gravity</code>,
       <code>req_operation</code>, <code>req_functional</code>, <code>req_category</code>,
       <code>description</code>,
       <code>validation_criteria</code>, <code>life_cycle_phase</code>,
       <code>reference_documentations</code>, <code>remarks</code>, <code>use_cases</code>.
-      The <code>code</code> is generated automatically. <code>req_gravity</code>,
+      <code>external_code</code> is optional free text — this requirement's own code in
+      your source documentation (e.g. <code>FR101</code>), kept purely for cross-reference.
+      Light's own <code>code</code> is generated automatically. <code>req_gravity</code>,
       <code>req_operation</code>, <code>req_functional</code> and <code>req_category</code>
       accept either a value or its label from the suggested list below — but they're not
       limited to it: any other text is accepted too and saved as a new suggestion for this
@@ -34,6 +36,13 @@
       validation criteria matches one already in this POC (or an earlier row in the
       same file) is flagged and skipped — safe to re-upload the same sheet without
       creating copies.
+    </p>
+    <p class="text-sm text-ink-muted">
+      <strong>To update existing requirements:</strong> use “Export” on the Requirements
+      table to download everything already in this POC (it includes Light's own
+      <code>code</code> column) — edit any cell except <code>code</code> and re-upload it
+      here; a row whose <code>code</code> matches an existing requirement UPDATES it
+      instead of creating a new one.
     </p>
     <a href="{% url 'pocs:requirement_import_template' poc.pk %}" class="inline-flex items-center gap-2 text-sm text-brand-dark hover:underline">
       <i data-lucide="download" class="w-4 h-4"></i> Download blank .xlsx template

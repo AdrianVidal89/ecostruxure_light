@@ -208,6 +208,15 @@ class POC(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        wbs_changed = False
+        if self.pk:
+            old_wbs = POC.objects.filter(pk=self.pk).values_list("l2_wbs", flat=True).first()
+            wbs_changed = old_wbs is not None and old_wbs != self.l2_wbs
+        super().save(*args, **kwargs)
+        if wbs_changed:
+            _regenerate_poc_codes(self)
+
     @property
     def is_closed(self):
         return self.closed_at is not None
@@ -1558,6 +1567,30 @@ def _poc_code_prefix(poc):
     return f"POC-{token}"
 
 
+def _regenerate_poc_codes(poc):
+    """Re-derive every Requirement/UseCase code of ``poc``.
+
+    Codes embed the POC's L2 WBS as their prefix (falling back to the POC id
+    when WBS is blank). When the WBS is set or changed after requirements/use
+    cases already exist, their codes are stale — rebuild them all (in creation
+    order, so the numeric suffix stays stable) instead of leaving the old
+    id-based prefix in place.
+    """
+    prefix = _poc_code_prefix(poc)
+    for n, req in enumerate(poc.requirements.order_by("id"), start=1):
+        cat = Requirement.CATEGORY_ABBR.get(req.req_category, "XX")
+        op = Requirement.OPERATION_ABBR.get(req.req_operation, "XX")
+        new_code = f"{prefix}-{cat}-{op}-{n:03d}"
+        if new_code != req.code:
+            req.code = new_code
+            req.save(update_fields=["code"])
+    for n, uc in enumerate(poc.use_cases.order_by("id"), start=1):
+        new_code = f"{prefix}-UC{n:03d}"
+        if new_code != uc.code:
+            uc.code = new_code
+            uc.save(update_fields=["code"])
+
+
 class Requirement(models.Model):
     """A formal requirement of a POC.
 
@@ -1628,6 +1661,15 @@ class Requirement(models.Model):
         unique=True,
         blank=True,
         help_text="Auto-generated, e.g. POC-6000020869-NO-CS-001.",
+    )
+    external_code = models.CharField(
+        "External code",
+        max_length=100,
+        blank=True,
+        db_index=True,
+        help_text="This requirement's own code in your source documentation "
+        "(e.g. FR101) — kept only for cross-reference, never generated or "
+        "enforced by Light.",
     )
     poc = models.ForeignKey(
         POC, on_delete=models.CASCADE, related_name="requirements"
@@ -1829,6 +1871,15 @@ class UseCase(models.Model):
         unique=True,
         blank=True,
         help_text="Auto-generated, e.g. POC-6000020869-UC001.",
+    )
+    external_code = models.CharField(
+        "External code",
+        max_length=100,
+        blank=True,
+        db_index=True,
+        help_text="This use case's own code in your source documentation "
+        "(e.g. UC001) — kept only for cross-reference, never generated or "
+        "enforced by Light.",
     )
     poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="use_cases")
     title = models.CharField(max_length=255)
