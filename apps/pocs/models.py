@@ -221,6 +221,12 @@ class POC(models.Model):
     def is_closed(self):
         return self.closed_at is not None
 
+    def graph_status(self):
+        """Colour band for the central node of the POC overview graph: green
+        while active, orange otherwise (draft, or any other non-active
+        lifecycle status)."""
+        return "green" if self.status == self.Status.ACTIVE else "orange"
+
     @property
     def all_phases_approved(self):
         """True when the POC has leaf work-phases and all of them are approved.
@@ -1114,13 +1120,14 @@ class Test(models.Model):
 
     def graph_status(self):
         """Colour band for the POC overview graph: gray (not tested/in
-        progress), green (passed), red (not passed or skipped)."""
+        progress), green (passed), orange (skipped), red (not passed) —
+        this is what cascades up to colour its linked Requirement."""
         if self.result in self.PASSING_RESULTS:
             return "green"
-        if self.result == self.Result.NOT_PASSED or (
-            self.execution_status == self.ExecutionStatus.SKIPPED
-        ):
+        if self.result == self.Result.NOT_PASSED:
             return "red"
+        if self.execution_status == self.ExecutionStatus.SKIPPED:
+            return "orange"
         return "gray"
 
     @property
@@ -1920,18 +1927,18 @@ class Requirement(models.Model):
         return True
 
     def graph_status(self):
-        """Colour band for the POC overview graph, purely by test completion
-        (not pass/fail — that's ``is_validated``): gray while none of its
-        linked tests are settled, orange once some are, green once all are."""
-        tests = list(self.tests.all())
-        if not tests:
-            return "gray"
-        settled = sum(1 for t in tests if t.is_settled)
-        if settled == 0:
-            return "gray"
-        if settled < len(tests):
+        """Colour band for the POC overview graph — cascades from its linked
+        Tests' own ``graph_status()``: red if any failed, else orange if any
+        was skipped, else green once every linked test passed, else gray
+        (no tests yet, or none decided one way or the other)."""
+        statuses = [t.graph_status() for t in self.tests.all()]
+        if "red" in statuses:
+            return "red"
+        if "orange" in statuses:
             return "orange"
-        return "green"
+        if statuses and all(s == "green" for s in statuses):
+            return "green"
+        return "gray"
 
 
 class RequirementSnapshot(models.Model):
@@ -2089,13 +2096,23 @@ class UseCase(models.Model):
         return bool(reqs) and all(r.is_validated for r in reqs)
 
     def graph_status(self):
-        """Colour band for the POC overview graph: gray (draft/deprecated) /
-        green (active) / red (rejected)."""
-        if self.status == self.Status.ACTIVE:
-            return "green"
-        if self.status == self.Status.REJECTED:
+        """Colour band for the POC overview graph — cascades from its linked
+        Requirements: red if any MVP ("Imposes (MVP)") requirement is red (a
+        non-MVP/"nice to have" requirement being red does NOT force this to
+        red); else orange while not every requirement is green; green once
+        they all are; gray if it has no requirements yet."""
+        reqs = list(self.requirements.all())
+        if not reqs:
+            return "gray"
+        statuses = [(r.graph_status(), r.req_gravity) for r in reqs]
+        if any(
+            status == "red" and gravity == Requirement.Gravity.IMPOSES_MVP
+            for status, gravity in statuses
+        ):
             return "red"
-        return "gray"
+        if all(status == "green" for status, _ in statuses):
+            return "green"
+        return "orange"
 
 
 # ---------------------------------------------------------------------------

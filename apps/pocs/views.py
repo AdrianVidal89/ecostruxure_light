@@ -1844,7 +1844,7 @@ def poc_graph_data(request, pk):
         Test.objects.filter(phase__poc=poc).select_related("phase")
     )
 
-    nodes = [{"id": "poc", "type": "poc", "label": poc.name, "status": "poc"}]
+    nodes = [{"id": "poc", "type": "poc", "label": poc.name, "status": poc.graph_status()}]
     edges = []
 
     linked_req_ids = set()

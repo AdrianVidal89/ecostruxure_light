@@ -8,7 +8,6 @@
  */
 (function () {
   const STATUS_COLOR = {
-    poc: "#3dcd58",
     green: "#3dcd58",
     orange: "#f59e0b",
     red: "#ef4444",

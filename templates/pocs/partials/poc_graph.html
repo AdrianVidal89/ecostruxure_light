@@ -26,10 +26,18 @@ row on its phase page). Context: poc.
     <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="git-fork" class="w-4 h-4"></i> Map</h2>
     <div class="flex items-center gap-3">
       <div class="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
-        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand"></span>Active / Passed / Fully tested</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full" style="background:#f59e0b"></span>Partially tested</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-danger"></span>Rejected / Not passed</span>
-        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-line border border-ink-muted/40"></span>Draft / Not tested</span>
+        <span class="inline-flex items-center gap-1" title="POC: active. Use case: every requirement green. Requirement: every linked test passed. Test: passed.">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand"></span>Active / Passed / All green
+        </span>
+        <span class="inline-flex items-center gap-1" title="POC: draft (or other non-active status). Use case: not every requirement is green yet. Requirement: a linked test was skipped.">
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#f59e0b"></span>Draft / Partial / Skipped
+        </span>
+        <span class="inline-flex items-center gap-1" title="Use case: an MVP (&quot;Imposes&quot;) requirement is red — a non-MVP one being red does not turn the use case red. Requirement: a linked test failed. Test: not passed.">
+          <span class="w-2.5 h-2.5 rounded-full bg-danger"></span>MVP requirement failed / Not passed
+        </span>
+        <span class="inline-flex items-center gap-1" title="No linked items yet, or none decided either way.">
+          <span class="w-2.5 h-2.5 rounded-full bg-line border border-ink-muted/40"></span>Latent / Not tested
+        </span>
       </div>
       <button type="button" x-ref="resetBtn" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line text-xs font-medium text-ink-muted hover:text-ink hover:bg-canvas shrink-0">
         <i data-lucide="scan" class="w-3.5 h-3.5"></i> Reset view
