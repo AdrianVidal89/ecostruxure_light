@@ -148,7 +148,7 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
     nodes = _preorder(phase)
     summary_rows = []
     for node in nodes:
-        for t in node.tests.select_related("assigned_to").all():
+        for t in node.tests.select_related("assigned_to").prefetch_related("requirements").all():
             summary_rows.append((t, node, _test_token(t)))
 
     h1 = "#" * base_level
@@ -170,13 +170,24 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
 
     # Detail, grouped per sub-phase that has tests.
     for node in nodes:
-        node_tests = list(node.tests.select_related("assigned_to").all())
+        node_tests = list(
+            node.tests.select_related("assigned_to").prefetch_related("requirements").all()
+        )
         if not node_tests:
             continue
         lines += [f"{h2} {node.name}", ""]
         for t in node_tests:
             token = _test_token(t)
             lines += [f"{h3} {t.title}", "", f"**Result:** {token}", ""]
+            if t.description:
+                lines += ["**Description:**", "", t.description, ""]
+            reqs = list(t.requirements.all())
+            if reqs:
+                lines += ["**Functional requirements:**", ""]
+                for r in reqs:
+                    label = f"{r.code}" + (f" — {r.description}" if r.description else "")
+                    lines.append(f"- {_cell(label)}")
+                lines.append("")
             if t.acceptance_criteria:
                 lines += ["**Acceptance criteria:**", "", t.acceptance_criteria, ""]
             if t.expected_result:
