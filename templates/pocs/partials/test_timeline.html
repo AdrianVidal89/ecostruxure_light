@@ -44,8 +44,9 @@ all_complete.
           {% endif %}
           {% for m in row.markers %}
             <a href="{% url 'pocs:phase_detail' row.phase.pk %}#test-{{ m.test.id }}"
-               title="{{ m.test.title }}"
+               title="{{ m.test.title }}{% if not m.test.executed_at %}{% if m.test.target_date %} — planned {{ m.test.target_date|date:"Y-m-d" }}{% else %} — no target date set{% endif %}{% endif %}"
                class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 px-1.5 py-1 rounded border text-[10px] font-mono leading-tight text-center hover:z-10 hover:shadow
+                 {% if not m.test.executed_at %}border-dashed{% endif %}
                  {% if m.status == 'as_expected' %}bg-brand/10 border-brand text-brand-dark
                  {% elif m.status == 'not_expected' %}bg-danger/10 border-danger text-danger
                  {% elif m.status == 'in_progress' %}bg-warning/10 border-warning text-warning

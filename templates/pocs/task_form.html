@@ -18,6 +18,11 @@
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
   <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+  {% if parent_task %}
+    <p class="text-sm text-ink-muted -mt-4">
+      This is a sub-task — one of the steps needed to complete “<span class="font-medium text-ink">{{ parent_task.title }}</span>”.
+    </p>
+  {% endif %}
 
   <div class="bg-surface border border-line rounded-xl p-6">
     <form method="post" class="space-y-4">

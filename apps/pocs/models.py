@@ -234,10 +234,11 @@ class POC(models.Model):
     def test_timeline(self):
         """Roadmap view: one row per Test-kind leaf phase, its tests plotted
         chronologically on a shared axis (executed tests at their actual
-        execution date; not-yet-executed tests clustered toward the project's
-        target finish date so the row still reads left-to-right). A row turns
-        green once every one of its tests has passed/skipped; the whole board
-        flags "Testing complete" once every row is green.
+        execution date; not-yet-executed tests at their planned ``target_date``
+        when set, else clustered toward the project's target finish date so the
+        row still reads left-to-right). A row turns green once every one of its
+        tests has passed/skipped; the whole board flags "Testing complete" once
+        every row is green.
         """
         today = timezone.now().date()
         phases = list(
@@ -249,12 +250,16 @@ class POC(models.Model):
             return None
 
         executed_dates = [t.executed_at.date() for t in all_tests if t.executed_at]
+        planned_dates = [
+            t.target_date for t in all_tests if not t.executed_at and t.target_date
+        ]
         target_finish = self.execution_finish
-        candidates_end = [today] + executed_dates
+        dated = executed_dates + planned_dates
+        candidates_end = [today] + dated
         if target_finish:
             candidates_end.append(target_finish)
-        axis_start = min([today] + executed_dates)
-        axis_end = max(candidates_end) if target_finish or executed_dates else today + timedelta(days=30)
+        axis_start = min([today] + dated)
+        axis_end = max(candidates_end) if target_finish or dated else today + timedelta(days=30)
         if axis_end <= axis_start:
             axis_end = axis_start + timedelta(days=30)
         span_days = (axis_end - axis_start).days or 1
@@ -264,25 +269,36 @@ class POC(models.Model):
 
         today_pos = pos_for(today)
 
-        # Not-yet-executed tests have no date to plot — spread them across the
-        # tail of the axis (today → end) in id order so they don't overlap.
-        pending = sorted((t for t in all_tests if not t.executed_at), key=lambda t: t.id)
+        # Not-yet-executed tests with no target_date have no date to plot —
+        # spread only those across the tail of the axis (today → end) in id
+        # order so they don't overlap; a set target_date plots for real.
+        undated_pending = sorted(
+            (t for t in all_tests if not t.executed_at and not t.target_date),
+            key=lambda t: t.id,
+        )
         pending_pos = {}
-        if pending:
+        if undated_pending:
             tail_start = max(today_pos, 60)
-            step = (100 - tail_start) / (len(pending) + 1)
-            for i, t in enumerate(pending, start=1):
+            step = (100 - tail_start) / (len(undated_pending) + 1)
+            for i, t in enumerate(undated_pending, start=1):
                 pending_pos[t.id] = round(tail_start + step * i)
+
+        def pos_of(t):
+            if t.executed_at:
+                return pos_for(t.executed_at.date())
+            if t.target_date:
+                return pos_for(t.target_date)
+            return pending_pos[t.id]
 
         rows = []
         for phase in phases:
             tests = list(phase.tests.all())
             if not tests:
                 continue
-            markers = []
-            for t in tests:
-                pos = pos_for(t.executed_at.date()) if t.executed_at else pending_pos[t.id]
-                markers.append({"test": t, "pos": pos, "status": _board_cell_status([t])})
+            markers = [
+                {"test": t, "pos": pos_of(t), "status": _board_cell_status([t])}
+                for t in tests
+            ]
             rows.append({
                 "phase": phase,
                 "status": _board_cell_status(tests),
@@ -733,6 +749,18 @@ class Phase(models.Model):
     def subtree_tests(self):
         return Test.objects.filter(phase_id__in=self.descendant_ids())
 
+    def ancestors(self):
+        """This phase's parent chain, nearest first — freshly re-fetched from
+        the DB (unlike ``self.parent``, which may be a stale in-memory copy
+        from before a status cascade/bubble)."""
+        chain = []
+        parent_id = self.parent_id
+        while parent_id:
+            node = Phase.objects.get(pk=parent_id)
+            chain.append(node)
+            parent_id = node.parent_id
+        return chain
+
     def _own_work_status(self):
         """Status derived from this phase's OWN Tasks/Tests only (not its
         sub-phases). ``None`` when it holds no work of its own.
@@ -879,6 +907,14 @@ class Task(models.Model):
         BLOCKED = "blocked", "Blocked"
 
     phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="tasks")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="subtasks",
+        help_text="Optional — makes this a sub-task needed to complete the parent.",
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, help_text="Markdown supported.")
     assigned_to = models.ForeignKey(
@@ -928,8 +964,31 @@ class Task(models.Model):
             self.Status.BLOCKED,
         }
 
+    @property
+    def has_incomplete_subtasks(self):
+        """True while any direct sub-task isn't completed yet — blocks marking
+        this (parent) task completed, since the sub-tasks are the work needed
+        to get there."""
+        return self.subtasks.exclude(status=self.Status.COMPLETED).exists()
+
+    @property
+    def subtask_progress_percent(self):
+        total = self.subtasks.count()
+        if not total:
+            return None
+        done = self.subtasks.filter(status=self.Status.COMPLETED).count()
+        return round(done / total * 100)
+
     def mark_completed(self, user, notes=None):
-        """Mark complete and stamp who/when. Saves the instance."""
+        """Mark complete and stamp who/when. Saves the instance.
+
+        Raises ``ValueError`` if a direct sub-task is still incomplete — those
+        are the prerequisite work, so the parent can't close before them.
+        """
+        if self.has_incomplete_subtasks:
+            raise ValueError(
+                "Complete all sub-tasks before completing this task."
+            )
         self.status = self.Status.COMPLETED
         self.completed_by = user
         self.completed_at = timezone.now()
@@ -1015,6 +1074,12 @@ class Test(models.Model):
         blank=True,
         related_name="assigned_tests",
     )
+    target_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Planned execution date — drives the testing roadmap timeline "
+        "before the test has an actual execution date.",
+    )
     evidence_url = models.URLField(
         null=True, blank=True, help_text="Alternative to an uploaded file."
     )
@@ -1046,6 +1111,17 @@ class Test(models.Model):
     @property
     def is_started(self):
         return self.execution_status != self.ExecutionStatus.NOT_TESTED
+
+    def graph_status(self):
+        """Colour band for the POC overview graph: gray (not tested/in
+        progress), green (passed), red (not passed or skipped)."""
+        if self.result in self.PASSING_RESULTS:
+            return "green"
+        if self.result == self.Result.NOT_PASSED or (
+            self.execution_status == self.ExecutionStatus.SKIPPED
+        ):
+            return "red"
+        return "gray"
 
     @property
     def needs_validation(self):
@@ -1180,6 +1256,59 @@ class Test(models.Model):
             self.executed_by = None
             self.result = ""
         super().save(*args, **kwargs)
+
+    def replace_parameters_from_text(self, text):
+        """Bulk-replace this test's parameters from pasted lines.
+
+        Each non-blank line is ``name = value`` (``:`` or a tab also accepted
+        as the separator); a line with no separator becomes a name with a
+        blank value. Built for pasting hundreds of parameters at once instead
+        of adding them one row at a time — the whole set is replaced so the
+        pasted text is always the single source of truth.
+        """
+        rows = []
+        for line in (text or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            name, value = line, ""
+            for sep in ("\t", "=", ":"):
+                if sep in line:
+                    name, value = line.split(sep, 1)
+                    break
+            name = name.strip()
+            if not name:
+                continue
+            rows.append((name, value.strip()))
+        self.parameters.all().delete()
+        TestParameter.objects.bulk_create(
+            TestParameter(test=self, name=name, value=value, order=i)
+            for i, (name, value) in enumerate(rows)
+        )
+        return len(rows)
+
+    def parameters_as_text(self):
+        """Inverse of ``replace_parameters_from_text`` — for pre-filling the
+        bulk-edit textarea with the current parameters."""
+        return "\n".join(f"{p.name} = {p.value}" for p in self.parameters.all())
+
+
+class TestParameter(models.Model):
+    """A single named input/parameter of a Test (e.g. a config value the test
+    is run with). A test can carry hundreds of these — see
+    ``Test.replace_parameters_from_text`` for the bulk-paste path that makes
+    that practical instead of one row at a time."""
+
+    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name="parameters")
+    name = models.CharField(max_length=255)
+    value = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.name} = {self.value}"
 
 
 # ---------------------------------------------------------------------------
@@ -1790,6 +1919,20 @@ class Requirement(models.Model):
             return False
         return True
 
+    def graph_status(self):
+        """Colour band for the POC overview graph, purely by test completion
+        (not pass/fail — that's ``is_validated``): gray while none of its
+        linked tests are settled, orange once some are, green once all are."""
+        tests = list(self.tests.all())
+        if not tests:
+            return "gray"
+        settled = sum(1 for t in tests if t.is_settled)
+        if settled == 0:
+            return "gray"
+        if settled < len(tests):
+            return "orange"
+        return "green"
+
 
 class RequirementSnapshot(models.Model):
     """A file attached to a Requirement (``reference_snapshots`` — many per req)."""
@@ -1865,6 +2008,7 @@ class UseCase(models.Model):
         DRAFT = "draft", "Draft"
         ACTIVE = "active", "Active"
         DEPRECATED = "deprecated", "Deprecated"
+        REJECTED = "rejected", "Rejected"
 
     code = models.CharField(
         max_length=100,
@@ -1943,6 +2087,15 @@ class UseCase(models.Model):
         """Approved/finished when it has requirements and all are validated."""
         reqs = list(self.requirements.all())
         return bool(reqs) and all(r.is_validated for r in reqs)
+
+    def graph_status(self):
+        """Colour band for the POC overview graph: gray (draft/deprecated) /
+        green (active) / red (rejected)."""
+        if self.status == self.Status.ACTIVE:
+            return "green"
+        if self.status == self.Status.REJECTED:
+            return "red"
+        return "gray"
 
 
 # ---------------------------------------------------------------------------

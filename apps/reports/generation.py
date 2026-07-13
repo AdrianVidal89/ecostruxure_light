@@ -159,19 +159,23 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
     if include_title:
         lines += [f"{h1} {phase.name} — Test Report", ""]
 
-    # Summary table (result tokens drive PASS/FAIL colouring).
-    lines += [f"{h2} Summary", "", "| Test | Phase | Result |", "| --- | --- | --- |"]
+    # Summary table (result tokens drive PASS/FAIL colouring). Leading "ID"
+    # column is the test's own code (e.g. UT-001) so rows are traceable back
+    # to the test even once sorted/exported out of the report.
+    lines += [f"{h2} Summary", "", "| ID | Test | Phase | Result |", "| --- | --- | --- | --- |"]
     if summary_rows:
         for t, node, token in summary_rows:
-            lines.append(f"| {_cell(t.title)} | {_cell(node.name)} | {token} |")
+            lines.append(f"| {_cell(t.test_code)} | {_cell(t.title)} | {_cell(node.name)} | {token} |")
     else:
-        lines.append("| _No tests_ |  |  |")
+        lines.append("| _No tests_ |  |  |  |")
     lines.append("")
 
     # Detail, grouped per sub-phase that has tests.
     for node in nodes:
         node_tests = list(
-            node.tests.select_related("assigned_to").prefetch_related("requirements").all()
+            node.tests.select_related("assigned_to")
+            .prefetch_related("requirements", "parameters")
+            .all()
         )
         if not node_tests:
             continue
@@ -181,6 +185,12 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
             lines += [f"{h3} {t.title}", "", f"**Result:** {token}", ""]
             if t.description:
                 lines += ["**Description:**", "", t.description, ""]
+            params = list(t.parameters.all())
+            if params:
+                lines += ["**Parameters:**", "", "| Name | Value |", "| --- | --- |"]
+                for p in params:
+                    lines.append(f"| {_cell(p.name)} | {_cell(p.value)} |")
+                lines.append("")
             reqs = list(t.requirements.all())
             if reqs:
                 lines += ["**Functional requirements:**", ""]

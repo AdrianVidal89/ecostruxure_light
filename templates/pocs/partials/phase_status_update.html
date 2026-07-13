@@ -1,12 +1,21 @@
 {% comment %}
 HTMX response after a phase status change: swaps the phase's status control
 (primary), refreshes the Overview progress value out-of-band, and updates every
-sub-phase's status control out-of-band so the override flows down live.
-Context: phase, descendants ({phase, editable} dicts), editable,
+sub-phase's AND ancestor's status control + status dot out-of-band so the
+override flows down (and any bubbled recalculation flows up) live — no page
+reload needed for either the dropdown/badge or the little status dot next to
+it in the Phases tab (phase_card.html).
+Context: phase, descendants / ancestors ({phase, editable} dicts), editable,
 phase_status_choices, progress.
 {% endcomment %}
 {% include "pocs/partials/phase_status_control.html" %}
+{% include "pocs/partials/status_dot.html" with phase=phase status=phase.status oob=True %}
 {% for d in descendants %}
   {% include "pocs/partials/phase_status_control.html" with phase=d.phase editable=d.editable oob=True %}
+  {% include "pocs/partials/status_dot.html" with phase=d.phase status=d.phase.status oob=True %}
+{% endfor %}
+{% for a in ancestors %}
+  {% include "pocs/partials/phase_status_control.html" with phase=a.phase editable=a.editable oob=True %}
+  {% include "pocs/partials/status_dot.html" with phase=a.phase status=a.phase.status oob=True %}
 {% endfor %}
 <p id="poc-progress" hx-swap-oob="true" class="text-2xl font-semibold text-ink mt-1">{{ progress }}%</p>

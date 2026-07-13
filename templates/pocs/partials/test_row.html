@@ -6,6 +6,7 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
 {% endcomment %}
 <div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
      x-data="{ showDef: false, recordOpen: {% if exec_form %}true{% else %}false{% endif %},
+       paramsEditing: false,
        previewOpen: false, previewHtml: '',
        openPreview(url) {
          this.previewHtml = '';
@@ -27,6 +28,8 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
         </span>
         {% if test.executed_at %}
           <span class="inline-flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> {{ test.executed_at|date:"Y-m-d H:i" }}{% if test.executed_by %} by {{ test.executed_by.username }}{% endif %}</span>
+        {% elif test.target_date %}
+          <span class="inline-flex items-center gap-1"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Target: {{ test.target_date|date:"Y-m-d" }}</span>
         {% endif %}
         <button @click="showDef = !showDef" class="inline-flex items-center gap-1 text-brand-dark hover:underline">
           <i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span x-text="showDef ? 'Hide details' : 'View details'"></span>
@@ -99,6 +102,56 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
         <span class="text-sm text-ink-muted">No requirements linked.</span>
       {% endfor %}
     </div>
+  </div>
+
+  {# Parameters — a test can carry hundreds; pasted in bulk as "name = value" lines. #}
+  <div class="mt-3 pt-3 border-t border-line">
+    <div class="flex items-center justify-between">
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">
+        Parameters <span class="normal-case text-ink-muted/80">({{ test.parameters.count }})</span>
+      </p>
+      {% if test.can_execute %}
+        <button type="button" @click="paramsEditing = !paramsEditing" class="text-xs font-medium text-brand-dark hover:underline">
+          <span x-show="!paramsEditing">{% if test.parameters.exists %}Edit{% else %}Add parameters{% endif %}</span>
+          <span x-show="paramsEditing" x-cloak>Cancel</span>
+        </button>
+      {% endif %}
+    </div>
+
+    <div x-show="!paramsEditing">
+      {% if test.parameters.exists %}
+        <div class="mt-2 max-h-56 overflow-y-auto rounded-lg border border-line">
+          <table class="w-full text-xs">
+            <tbody class="divide-y divide-line">
+              {% for p in test.parameters.all %}
+                <tr>
+                  <td class="px-2.5 py-1.5 font-mono text-ink-muted whitespace-nowrap align-top">{{ p.name }}</td>
+                  <td class="px-2.5 py-1.5 text-ink break-words">{{ p.value }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted mt-1">No parameters defined.</p>
+      {% endif %}
+    </div>
+
+    {% if test.can_execute %}
+      <form x-show="paramsEditing" x-cloak class="mt-2 space-y-2"
+            hx-post="{% url 'pocs:test_parameters_save' test.id %}"
+            hx-target="#test-{{ test.id }}" hx-swap="outerHTML">
+        <p class="text-xs text-ink-muted">
+          One per line: <code class="bg-canvas px-1 rounded">Name = Value</code> (also accepts <code class="bg-canvas px-1 rounded">:</code> or a tab).
+          Paste hundreds at once — saving replaces the full list with what's below.
+        </p>
+        <textarea name="parameters_text" rows="8" placeholder="Voltage = 230V&#10;Channel = 4&#10;Sample rate = 1kHz"
+                  class="w-full rounded-lg border border-line px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ test.parameters_as_text }}</textarea>
+        <button type="submit" class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+          Save parameters
+        </button>
+      </form>
+    {% endif %}
   </div>
 
   {# Preview popup — fetches a read-only fragment for the clicked requirement. #}

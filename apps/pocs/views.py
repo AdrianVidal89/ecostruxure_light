@@ -944,9 +944,12 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         )
 
         # Tasks render on every phase — ordered by due date, completed last.
+        # Sub-tasks (task.parent set) are nested under their parent's row
+        # rather than listed again at the top level.
         today = timezone.localdate()
-        tasks = list(order_tasks(phase.tasks.select_related("assigned_to")))
-        for task in tasks:
+        all_tasks = list(order_tasks(phase.tasks.select_related("assigned_to")))
+        by_id = {t.id: t for t in all_tasks}
+        for task in all_tasks:
             task.can_execute = can_edit or task.assigned_to_id == user.id
             task.allowed_statuses = task_allowed_statuses(task.status)
             task.is_overdue = bool(
@@ -954,8 +957,13 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
                 and task.due_date < today
                 and task.status != Task.Status.COMPLETED
             )
+            task.child_list = []
+        for task in all_tasks:
+            if task.parent_id and task.parent_id in by_id:
+                by_id[task.parent_id].child_list.append(task)
+        tasks = [t for t in all_tasks if not t.parent_id]
         ctx["tasks"] = tasks
-        ctx["task_timeline"] = build_task_timeline(tasks, today)
+        ctx["task_timeline"] = build_task_timeline(all_tasks, today)
 
         # A template is downloadable from ANY phase (any kind): the phase's own
         # if attached, otherwise the global default.
@@ -1059,13 +1067,26 @@ class _ItemEditMixin(LoginRequiredMixin):
 
 
 class TaskCreateView(_PhaseEditCreateMixin, CreateView):
-    """Create a task within any phase (admin or editing lead)."""
+    """Create a task within any phase (admin or editing lead).
+
+    ``?parent=<task_id>`` (same phase) makes it a sub-task — one of the
+    prerequisite steps needed to complete that parent task.
+    """
 
     require_leaf = False  # tasks may be added to parent phases too
 
     model = Task
     form_class = TaskForm
     template_name = "pocs/task_form.html"
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.parent_task = None
+        parent_id = request.GET.get("parent") or request.POST.get("parent")
+        if parent_id:
+            self.parent_task = get_object_or_404(
+                Task, pk=parent_id, phase=self.phase
+            )
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -1076,11 +1097,17 @@ class TaskCreateView(_PhaseEditCreateMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["phase"] = self.phase
         ctx["poc"] = self.poc
-        ctx["title"] = "Add task"
+        ctx["parent_task"] = self.parent_task
+        ctx["title"] = (
+            f"Add sub-task · {self.parent_task.title}"
+            if self.parent_task
+            else "Add task"
+        )
         return ctx
 
     def form_valid(self, form):
         form.instance.phase = self.phase
+        form.instance.parent = self.parent_task
         self.object = form.save()
         self.phase.recalculate_status()
         messages.success(self.request, f"Task “{self.object.title}” created.")
@@ -1132,11 +1159,21 @@ class TaskDeleteView(_ItemEditMixin, DeleteView):
         return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
-def _render_task_row(request, task):
+def _annotate_task_tree(task, can_edit, user_id):
+    """Annotate a task (can_execute/allowed_statuses) and recursively its
+    sub-tasks, attaching each level as ``.child_list`` for template rendering."""
+    task.can_execute = can_edit or task.assigned_to_id == user_id
+    task.allowed_statuses = task_allowed_statuses(task.status)
+    task.child_list = list(task.subtasks.select_related("assigned_to"))
+    for sub in task.child_list:
+        _annotate_task_tree(sub, can_edit, user_id)
+    return task
+
+
+def _render_task_row(request, task, error=None):
     """Render a single task row partial (for HTMX swaps)."""
     can_edit = user_can_edit_phase(request.user, task.phase)
-    task.can_execute = can_edit or task.assigned_to_id == request.user.id
-    task.allowed_statuses = task_allowed_statuses(task.status)
+    _annotate_task_tree(task, can_edit, request.user.id)
     return render(
         request,
         "pocs/partials/task_row.html",
@@ -1147,6 +1184,7 @@ def _render_task_row(request, task):
                 can_edit and task.phase.is_test and task.phase.is_leaf
             ),
             "task_status_choices": Task.Status.choices,
+            "error": error,
         },
     )
 
@@ -1177,7 +1215,10 @@ def task_set_status(request, task_pk):
         return _render_task_row(request, task)
 
     if new_status == Task.Status.COMPLETED:
-        task.mark_completed(request.user)
+        try:
+            task.mark_completed(request.user)
+        except ValueError as exc:
+            return _render_task_row(request, task, error=str(exc))
     else:
         task.status = new_status
         task.save()
@@ -1210,7 +1251,11 @@ def task_bulk_status(request, phase_pk):
                 skipped += 1
                 continue
             if new_status == Task.Status.COMPLETED:
-                task.mark_completed(request.user)
+                try:
+                    task.mark_completed(request.user)
+                except ValueError:
+                    skipped += 1
+                    continue
             else:
                 task.status = new_status
                 task.save()
@@ -1454,6 +1499,21 @@ def test_link_requirements(request, test_pk):
     form = TestRequirementsForm(request.POST, poc=test.phase.poc)
     if form.is_valid():
         test.requirements.set(form.cleaned_data["requirements"])
+    return _render_test_row(request, test)
+
+
+@require_POST
+def test_parameters_save(request, test_pk):
+    """Bulk-replace a test's parameters from a pasted ``name = value`` block
+    (HTMX) — the practical way to set the hundreds a test may carry, rather
+    than adding rows one at a time."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    test = get_object_or_404(Test, pk=test_pk)
+    if not user_can_execute_test(request.user, test):
+        raise PermissionDenied
+    count = test.replace_parameters_from_text(request.POST.get("parameters_text", ""))
+    messages.success(request, f"Saved {count} parameter(s).")
     return _render_test_row(request, test)
 
 
@@ -1750,6 +1810,77 @@ def usecase_preview(request, pk):
     if not user_is_poc_member(request.user, uc.poc):
         raise PermissionDenied
     return render(request, "pocs/partials/usecase_preview.html", {"usecase": uc})
+
+
+def test_preview(request, pk):
+    """Read-only fragment for the "eye" preview popup — used by the Overview
+    graph so clicking a test node reads it in place, same pattern as
+    ``requirement_preview``/``usecase_preview``."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    test = get_object_or_404(Test, pk=pk)
+    if not user_is_poc_member(request.user, test.phase.poc):
+        raise PermissionDenied
+    return render(request, "pocs/partials/test_preview.html", {"test": test})
+
+
+def poc_graph_data(request, pk):
+    """JSON graph for the Overview "map" view: POC -> Use Cases -> Requirements
+    -> Tests, coloured by each node's ``graph_status()``.
+
+    Requirements with no use case, and tests with no linked requirement, are
+    still included — wired straight to the POC node — so nothing in the POC
+    is silently dropped from the map just because it isn't fully linked up yet.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    poc = get_object_or_404(POC, pk=pk)
+    if not user_is_poc_member(request.user, poc):
+        raise PermissionDenied
+
+    use_cases = list(poc.use_cases.prefetch_related("requirements"))
+    requirements = list(poc.requirements.prefetch_related("tests", "use_cases"))
+    all_tests = list(
+        Test.objects.filter(phase__poc=poc).select_related("phase")
+    )
+
+    nodes = [{"id": "poc", "type": "poc", "label": poc.name, "status": "poc"}]
+    edges = []
+
+    linked_req_ids = set()
+    for uc in use_cases:
+        nodes.append(
+            {"id": f"uc-{uc.id}", "type": "usecase", "label": uc.title,
+             "status": uc.graph_status(), "url": reverse("pocs:usecase_preview", args=[uc.id])}
+        )
+        edges.append({"source": "poc", "target": f"uc-{uc.id}"})
+        for req in uc.requirements.all():
+            linked_req_ids.add(req.id)
+            edges.append({"source": f"uc-{uc.id}", "target": f"req-{req.id}"})
+
+    linked_test_ids = set()
+    for req in requirements:
+        nodes.append(
+            {"id": f"req-{req.id}", "type": "requirement", "label": req.code,
+             "status": req.graph_status(), "url": reverse("pocs:requirement_preview", args=[req.id])}
+        )
+        if req.id not in linked_req_ids:
+            # Orphan requirement (no use case yet) — still shown, wired to the POC.
+            edges.append({"source": "poc", "target": f"req-{req.id}"})
+        for t in req.tests.all():
+            linked_test_ids.add(t.id)
+            edges.append({"source": f"req-{req.id}", "target": f"test-{t.id}"})
+
+    for t in all_tests:
+        nodes.append(
+            {"id": f"test-{t.id}", "type": "test", "label": t.test_code or t.title,
+             "status": t.graph_status(), "url": reverse("pocs:test_preview", args=[t.id])}
+        )
+        if t.id not in linked_test_ids:
+            # Orphan test (no requirement linked yet) — still shown, wired to the POC.
+            edges.append({"source": "poc", "target": f"test-{t.id}"})
+
+    return JsonResponse({"nodes": nodes, "edges": edges})
 
 
 class UseCaseUpdateView(_SpecUpdateMixin, UpdateView):
@@ -2849,6 +2980,7 @@ def phase_set_status(request, phase_pk):
         raise PermissionDenied
     new_status = request.POST.get("status")
     descendants = []
+    ancestors = []
     if new_status in dict(Phase.MANUAL_STATUS_CHOICES):
         # Apply the override to the whole subtree so sub-phases update live.
         phase.set_status_cascade(new_status)
@@ -2858,12 +2990,21 @@ def phase_set_status(request, phase_pk):
                 id__in=phase.descendant_ids(include_self=False)
             )
         ]
+        # The cascade also bubbles a recalculation up to ancestors (a parent
+        # can flip e.g. in_progress -> completed once every child is done) —
+        # re-fetch them fresh so their status controls/dots stay in sync
+        # without a page reload.
+        ancestors = [
+            {"phase": a, "editable": user_can_edit_phase(request.user, a)}
+            for a in phase.ancestors()
+        ]
     return render(
         request,
         "pocs/partials/phase_status_update.html",
         {
             "phase": phase,
             "descendants": descendants,
+            "ancestors": ancestors,
             "editable": True,
             "phase_status_choices": Phase.MANUAL_STATUS_CHOICES,
             "progress": phase.poc.progress_percent(),

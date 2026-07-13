@@ -50,7 +50,7 @@ each with a coloured status dot. Editors get the click-to-set status control.
       {% for child in children %}
         <div>
           <div class="flex items-center gap-3 px-4 py-3 hover:bg-canvas transition-soft group">
-            {% include "pocs/partials/status_dot.html" with status=child.status %}
+            {% include "pocs/partials/status_dot.html" with phase=child status=child.status %}
             <a href="{% url 'pocs:phase_detail' child.pk %}"
                class="flex-1 min-w-0 flex items-center gap-2 text-sm font-medium text-ink group-hover:text-brand-dark">
               <span class="truncate">{{ child.name }}</span>
@@ -70,7 +70,7 @@ each with a coloured status dot. Editors get the click-to-set status control.
               <div class="bg-canvas/50 divide-y divide-line/70 border-t border-line/70">
                 {% for grandchild in grandchildren %}
                   <div class="flex items-center gap-3 pl-9 pr-4 py-2 hover:bg-canvas transition-soft group">
-                    {% include "pocs/partials/status_dot.html" with status=grandchild.status %}
+                    {% include "pocs/partials/status_dot.html" with phase=grandchild status=grandchild.status %}
                     <a href="{% url 'pocs:phase_detail' grandchild.pk %}"
                        class="flex-1 min-w-0 flex items-center gap-2 text-xs font-medium text-ink group-hover:text-brand-dark">
                       <span class="truncate">{{ grandchild.name }}</span>

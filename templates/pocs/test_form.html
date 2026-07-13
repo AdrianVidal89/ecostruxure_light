@@ -68,6 +68,14 @@
         <p class="text-xs text-ink-muted">This test will be assigned to you so you can record its result.</p>
       {% endif %}
 
+      <div>
+        <label for="{{ form.target_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          Target date <span class="text-ink-muted font-normal">(planned execution — shown on the testing roadmap)</span>
+        </label>
+        {{ form.target_date }}
+        {% for error in form.target_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
       {# Requirements this test responds to (optional; spec 4/user) #}
       <div>
         <label class="block text-sm font-medium text-ink mb-1">Requirements <span class="text-ink-muted font-normal">(optional — which requirement(s) this test validates)</span></label>

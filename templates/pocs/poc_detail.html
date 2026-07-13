@@ -181,6 +181,9 @@
         </dl>
       </div>
     {% endif %}
+
+    {# Obsidian-style map: POC -> Use Cases -> Requirements -> Tests. #}
+    {% include "pocs/partials/poc_graph.html" %}
   </section>
 
   {# ---------- Requirements & Use Cases ---------- #}
@@ -811,4 +814,8 @@
   </section>
 
 </div>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'js/pocgraph.js' %}"></script>
 {% endblock %}

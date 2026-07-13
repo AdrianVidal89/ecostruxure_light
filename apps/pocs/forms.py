@@ -396,6 +396,7 @@ class TestForm(NonBlankMixin, forms.ModelForm):
             "acceptance_criteria",
             "expected_result",
             "assigned_to",
+            "target_date",
             "requirements",
         )
         widgets = {
@@ -407,6 +408,7 @@ class TestForm(NonBlankMixin, forms.ModelForm):
             "expected_result": forms.Textarea(
                 attrs={"rows": 4, "class": MD_EDITOR_CLASS}
             ),
+            "target_date": _date_input(),
         }
 
     def __init__(self, *args, poc=None, **kwargs):
@@ -414,6 +416,7 @@ class TestForm(NonBlankMixin, forms.ModelForm):
         self.fields["assigned_to"].required = False
         self.fields["assigned_to"].empty_label = "— Unassigned —"
         self.fields["assigned_to"].widget.attrs["class"] = INPUT_CLASS
+        self.fields["target_date"].required = False
         self.fields["requirements"].required = False
         self.requirement_locks = {}
         if poc is not None:
@@ -461,6 +464,7 @@ class MemberTestForm(NonBlankMixin, forms.ModelForm):
             "description",
             "acceptance_criteria",
             "expected_result",
+            "target_date",
             "requirements",
         )
         widgets = {
@@ -468,10 +472,12 @@ class MemberTestForm(NonBlankMixin, forms.ModelForm):
             "description": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
             "acceptance_criteria": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
             "expected_result": forms.Textarea(attrs={"rows": 4, "class": MD_EDITOR_CLASS}),
+            "target_date": _date_input(),
         }
 
     def __init__(self, *args, poc=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["target_date"].required = False
         self.fields["requirements"].required = False
         self.requirement_locks = {}
         if poc is not None:

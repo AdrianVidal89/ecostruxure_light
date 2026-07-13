@@ -32,6 +32,7 @@ urlpatterns = [
     path("create/", views.POCCreateView.as_view(), name="create"),
     path("<int:pk>/", views.POCDetailView.as_view(), name="detail"),
     path("<int:pk>/edit/", views.POCUpdateView.as_view(), name="edit"),
+    path("<int:pk>/graph/", views.poc_graph_data, name="poc_graph_data"),
     # --- Requirements & Use Cases (spec Fase 3c) ---
     path("<int:pk>/specs/", views.poc_specs_redirect, name="specs"),
     path(
@@ -234,6 +235,7 @@ urlpatterns = [
         name="test_create",
     ),
     path("tests/<int:test_pk>/edit/", views.TestUpdateView.as_view(), name="test_edit"),
+    path("tests/<int:pk>/preview/", views.test_preview, name="test_preview"),
     path(
         "tests/<int:test_pk>/delete/",
         views.TestDeleteView.as_view(),
@@ -244,6 +246,11 @@ urlpatterns = [
         "tests/<int:test_pk>/requirements/",
         views.test_link_requirements,
         name="test_link_requirements",
+    ),
+    path(
+        "tests/<int:test_pk>/parameters/",
+        views.test_parameters_save,
+        name="test_parameters_save",
     ),
     # --- Phase documents (Documentation / Functional Analysis) ---
     path(
