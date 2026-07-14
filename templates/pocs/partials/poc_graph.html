@@ -26,11 +26,11 @@ row on its phase page). Context: poc.
     <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="git-fork" class="w-4 h-4"></i> Map</h2>
     <div class="flex items-center gap-3">
       <div class="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
-        <span class="inline-flex items-center gap-1" title="POC: active. Use case: every requirement green. Requirement: every linked test passed. Test: passed.">
-          <span class="w-2.5 h-2.5 rounded-full bg-brand"></span>Active / Passed / All green
+        <span class="inline-flex items-center gap-1" title="POC: active AND every use case green. Use case: every requirement green. Requirement: every linked test passed. Test: passed.">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand"></span>Active + all green / Passed / All green
         </span>
-        <span class="inline-flex items-center gap-1" title="POC: draft (or other non-active status). Use case: not every requirement is green yet. Requirement: a linked test was skipped.">
-          <span class="w-2.5 h-2.5 rounded-full" style="background:#f59e0b"></span>Draft / Partial / Skipped
+        <span class="inline-flex items-center gap-1" title="POC: not active, or active with a use case not fully green yet. Use case: not every requirement is green yet. Requirement: a linked test was skipped.">
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#f59e0b"></span>Draft or partial / Skipped
         </span>
         <span class="inline-flex items-center gap-1" title="Use case: an MVP (&quot;Imposes&quot;) requirement is red — a non-MVP one being red does not turn the use case red. Requirement: a linked test failed. Test: not passed.">
           <span class="w-2.5 h-2.5 rounded-full bg-danger"></span>MVP requirement failed / Not passed

@@ -20,7 +20,7 @@ Markdown fields store raw Markdown; rendering happens at the template layer
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
@@ -223,9 +223,15 @@ class POC(models.Model):
 
     def graph_status(self):
         """Colour band for the central node of the POC overview graph: green
-        while active, orange otherwise (draft, or any other non-active
-        lifecycle status)."""
-        return "green" if self.status == self.Status.ACTIVE else "orange"
+        only while active AND every one of its Use Cases is green (fully
+        validated); orange while active with Use Cases still pending, or for
+        any non-active lifecycle status (draft, etc.)."""
+        if self.status != self.Status.ACTIVE:
+            return "orange"
+        use_cases = list(self.use_cases.all())
+        if use_cases and all(uc.graph_status() == "green" for uc in use_cases):
+            return "green"
+        return "orange"
 
     @property
     def all_phases_approved(self):
@@ -1514,6 +1520,7 @@ class AuditLog(models.Model):
             "generatedreport": "report",
             "requirement": "requirement",
             "usecase": "use case",
+            "comment": "comment",
         }.get(self.content_type.model, self.content_type.model)
 
 
@@ -1811,6 +1818,7 @@ class Requirement(models.Model):
         POC, on_delete=models.CASCADE, related_name="requirements"
     )
     sub_system = models.CharField(max_length=255, blank=True)
+    comments = GenericRelation("pocs.Comment")
 
     req_gravity = models.CharField(max_length=100)
     req_operation = models.CharField(max_length=100)
@@ -1904,6 +1912,15 @@ class Requirement(models.Model):
 
     def get_life_cycle_phase_display(self):
         return self._display_for("life_cycle_phase")
+
+    @property
+    def has_open_comment(self):
+        """True while an un-Acked review comment is pending on this requirement.
+
+        Drives the orange "needs attention" halo in the UI until the POC lead
+        marks the comment Applied or Rejected.
+        """
+        return self.comments.filter(status=Comment.Status.OPEN).exists()
 
     @property
     def is_validated(self):
@@ -2033,6 +2050,7 @@ class UseCase(models.Model):
         "enforced by Light.",
     )
     poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="use_cases")
+    comments = GenericRelation("pocs.Comment")
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     actor = models.CharField(
@@ -2095,6 +2113,11 @@ class UseCase(models.Model):
         reqs = list(self.requirements.all())
         return bool(reqs) and all(r.is_validated for r in reqs)
 
+    @property
+    def has_open_comment(self):
+        """True while an un-Acked review comment is pending on this use case."""
+        return self.comments.filter(status=Comment.Status.OPEN).exists()
+
     def graph_status(self):
         """Colour band for the POC overview graph — cascades from its linked
         Requirements: red if any MVP ("Imposes (MVP)") requirement is red (a
@@ -2113,6 +2136,72 @@ class UseCase(models.Model):
         if all(status == "green" for status, _ in statuses):
             return "green"
         return "orange"
+
+
+# ---------------------------------------------------------------------------
+# Comments / feedback (Requirement & Use Case review loop)
+# ---------------------------------------------------------------------------
+class Comment(models.Model):
+    """A review comment on a :class:`Requirement` or :class:`UseCase`.
+
+    Any POC member may leave one; a POC lead (or admin) acknowledges it by
+    marking it Applied or Rejected, optionally with a reply. While it stays
+    OPEN, the commented item shows an orange halo (see ``has_open_comment``
+    on both target models) until it's resolved.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        APPLIED = "applied", "Applied"
+        REJECTED = "rejected", "Rejected"
+
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    # Direct POC link so comments stay queryable (e.g. the pending-Ack count)
+    # without walking the generic FK — mirrors AuditLog.poc.
+    poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="comments")
+
+    text = models.TextField()
+    author = models.ForeignKey(
+        USER, on_delete=models.PROTECT, related_name="authored_comments"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.OPEN
+    )
+    resolved_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_comments",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["content_type", "object_id"])]
+
+    def __str__(self):
+        return f"Comment #{self.pk} on {self.content_object}"
+
+    @property
+    def is_open(self):
+        return self.status == self.Status.OPEN
+
+    def ack(self, user, status, note=""):
+        """Resolve the comment as Applied or Rejected (the Lead's 'Ack')."""
+        self.status = status
+        self.resolved_by = user
+        self.resolved_at = timezone.now()
+        self.resolution_note = note
+        self.save(
+            update_fields=["status", "resolved_by", "resolved_at", "resolution_note"]
+        )
 
 
 # ---------------------------------------------------------------------------

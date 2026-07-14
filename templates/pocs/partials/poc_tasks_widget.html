@@ -1,0 +1,34 @@
+{% comment %}
+Concise Tasks widget for the POC Overview tab (between Details and the Map).
+Context: poc_tasks (order_tasks() queryset — due date, completed last).
+{% endcomment %}
+<div class="bg-surface border border-line rounded-xl p-6">
+  <h2 class="font-medium text-ink mb-3 flex items-center gap-2">
+    <i data-lucide="list-checks" class="w-4 h-4"></i> Tasks
+    <span class="text-ink-muted font-normal">({{ poc_tasks|length }})</span>
+  </h2>
+  {% if poc_tasks %}
+    <div class="divide-y divide-line max-h-80 overflow-y-auto">
+      {% for task in poc_tasks %}
+        <div class="flex items-center gap-3 py-2.5">
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-ink truncate">{{ task.title }}</p>
+            <a href="{% url 'pocs:phase_detail' task.phase_id %}"
+               class="text-xs text-ink-muted hover:text-brand-dark hover:underline truncate inline-block max-w-full">
+              {{ task.phase.name }}
+            </a>
+          </div>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
+            {% if task.status == 'completed' %}bg-brand/10 text-brand-dark
+            {% elif task.status == 'in_progress' %}bg-info/10 text-info
+            {% elif task.status == 'blocked' %}bg-warning/10 text-warning
+            {% else %}bg-line text-ink-muted{% endif %}">
+            {{ task.get_status_display }}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-ink-muted">No tasks yet.</p>
+  {% endif %}
+</div>

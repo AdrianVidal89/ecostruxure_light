@@ -11,8 +11,14 @@
       {% if usecase.is_approved %}
         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
       {% endif %}
+      {% if usecase.has_open_comment %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+      {% endif %}
       {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
     </div>
+    <a href="{% url 'pocs:usecase_detail' usecase.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+      <i data-lucide="message-square-text" class="w-3.5 h-3.5"></i> View full page &amp; comments
+    </a>
   </div>
 
   <div>

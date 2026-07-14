@@ -22,6 +22,9 @@
         {% if usecase.is_approved %}
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
         {% endif %}
+        {% if usecase.has_open_comment %}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+        {% endif %}
         {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
       </div>
     </div>
@@ -43,7 +46,7 @@
     </div>
   </div>
 
-  <div class="bg-surface border border-line rounded-xl p-6 space-y-6">
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-6 {% if usecase.has_open_comment %}ring-2 ring-warning/40{% endif %}">
     <div>
       <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
       {% if usecase.description %}
@@ -82,5 +85,7 @@
       {% if usecase.modified_by %}<span>Last modified by {{ usecase.modified_by }} · {{ usecase.modified_date|date:"d M Y, H:i" }}</span>{% endif %}
     </div>
   </div>
+
+  {% include "pocs/partials/comment_thread.html" with target=usecase target_kind=comment_target %}
 </div>
 {% endblock %}

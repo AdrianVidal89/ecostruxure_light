@@ -182,6 +182,9 @@
       </div>
     {% endif %}
 
+    {# Concise Tasks widget for this POC (name + phase + status colour). #}
+    {% include "pocs/partials/poc_tasks_widget.html" %}
+
     {# Obsidian-style map: POC -> Use Cases -> Requirements -> Tests. #}
     {% include "pocs/partials/poc_graph.html" %}
   </section>
@@ -332,7 +335,7 @@
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4" x-ref="ucGrid">
         {% for uc in use_cases %}
-          <div class="bg-surface border border-line rounded-xl p-4" x-data="{ showAllReqs: false }"
+          <div class="bg-surface border rounded-xl p-4 {% if uc.has_open_comment %}border-warning ring-2 ring-warning/40{% else %}border-line{% endif %}" x-data="{ showAllReqs: false }"
                data-uc-card x-show="matches($el)"
                data-code="{{ uc.code }}" data-title="{{ uc.title }}" data-status="{{ uc.status }}"
                data-priority="{{ uc.priority }}" data-approved="{% if uc.is_approved %}yes{% else %}no{% endif %}">
@@ -348,6 +351,9 @@
                   <span class="px-2 py-0.5 rounded-full {% if uc.status == 'active' %}bg-brand/10 text-brand-dark{% elif uc.status == 'deprecated' %}bg-line text-ink-muted{% else %}bg-info/10 text-info{% endif %}">{{ uc.get_status_display }}</span>
                   {% if uc.is_approved %}
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+                  {% endif %}
+                  {% if uc.has_open_comment %}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning" title="Awaiting Lead Ack"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Open comment</span>
                   {% endif %}
                   {% if uc.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ uc.actor }}</span>{% endif %}
                 </div>
@@ -623,7 +629,10 @@
                       <td class="px-3 py-2 text-ink-muted">{{ req.use_cases.count }}</td>
                       <td class="px-3 py-2">
                         <div class="flex items-center justify-end gap-1">
-                          <button type="button" @click="openPreview('{% url 'pocs:requirement_preview' req.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                          <a href="{% url 'pocs:requirement_detail' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas relative" title="View">
+                            <i data-lucide="eye" class="w-4 h-4"></i>
+                            {% if req.has_open_comment %}<span class="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-warning" title="Open comment"></span>{% endif %}
+                          </a>
                           {% if can_manage %}
                             <a href="{% url 'pocs:requirement_edit' req.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
                             <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');" class="contents">

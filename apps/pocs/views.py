@@ -19,6 +19,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db.models import Case, F, IntegerField, Max, Q, When
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -54,6 +55,8 @@ from .forms import (
     BasePhaseDocumentForm,
     BaseTaskForm,
     BaseTestForm,
+    CommentDecisionForm,
+    CommentForm,
     FunctionalAnalysisStepForm,
     MemberTestForm,
     PhaseDocumentForm,
@@ -81,6 +84,7 @@ from .models import (
     BasePhaseDocument,
     BaseTask,
     BaseTest,
+    Comment,
     EVIDENCE_EXTENSIONS,
     EvidenceFile,
     FunctionalAnalysisStep,
@@ -433,6 +437,10 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["all_phases_approved"] = poc.all_phases_approved
         # Testing roadmap: one row per Test-phase, tests plotted chronologically.
         ctx["test_timeline"] = poc.test_timeline()
+        # Concise Tasks widget shown between Details and the Map in Overview.
+        ctx["poc_tasks"] = order_tasks(
+            Task.objects.filter(phase__poc=poc).select_related("phase", "assigned_to")
+        )
         # Audit log is visible to admins and POC leads only.
         if can_lead:
             ctx["audit_logs"] = _poc_audit_logs(poc)
@@ -1608,6 +1616,101 @@ def validation_decide(request, validation_pk):
 
 
 # ---------------------------------------------------------------------------
+# Comments / feedback on Requirements & Use Cases
+# ---------------------------------------------------------------------------
+COMMENT_TARGET_MODELS = {"usecase": UseCase, "requirement": Requirement}
+
+
+def _comment_target_url(obj):
+    """Where a comment on ``obj`` (a UseCase or Requirement) lives."""
+    if isinstance(obj, UseCase):
+        return reverse("pocs:usecase_detail", args=[obj.pk])
+    return reverse("pocs:requirement_detail", args=[obj.pk])
+
+
+def _pending_comments_for(user):
+    """Open comments this user may Ack: admins see every POC's, a POC lead
+    only theirs (mirrors ``_pending_validations_for``)."""
+    qs = Comment.objects.filter(status=Comment.Status.OPEN)
+    if user.is_admin:
+        return qs
+    lead_poc_ids = POCMembership.objects.filter(
+        user=user, role_in_poc=POCMembership.Role.LEAD
+    ).values_list("poc_id", flat=True)
+    return qs.filter(poc_id__in=lead_poc_ids)
+
+
+@require_POST
+def comment_create(request, model, pk):
+    """Add a review comment to a Requirement or Use Case (any POC member)."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    target_model = COMMENT_TARGET_MODELS.get(model)
+    if target_model is None:
+        raise Http404
+    obj = get_object_or_404(target_model, pk=pk)
+    if not user_is_poc_member(request.user, obj.poc):
+        raise PermissionDenied
+    form = CommentForm(request.POST)
+    if form.is_valid():
+        comment = Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(target_model),
+            object_id=obj.pk,
+            poc=obj.poc,
+            text=form.cleaned_data["text"],
+            author=request.user,
+        )
+        record_audit(comment, "comment_added", request.user)
+        messages.success(request, "Comment added.")
+    else:
+        messages.error(request, "Comment can't be empty.")
+    return redirect(_comment_target_url(obj))
+
+
+class CommentListView(LoginRequiredMixin, View):
+    """Page listing open comments awaiting the current user's Ack."""
+
+    template_name = "pocs/comments.html"
+
+    def get(self, request):
+        comments = list(
+            _pending_comments_for(request.user).select_related(
+                "author", "poc", "content_type"
+            )
+        )
+        for c in comments:
+            c.target_url = _comment_target_url(c.content_object)
+        return render(
+            request,
+            self.template_name,
+            {"comments": comments, "total": len(comments)},
+        )
+
+
+@require_POST
+def comment_decide(request, comment_pk):
+    """A POC lead's Ack on a pending comment: mark Applied or Rejected."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    comment = get_object_or_404(Comment, pk=comment_pk)
+    if not user_can_lead_poc(request.user, comment.poc):
+        raise PermissionDenied
+    if comment.status != Comment.Status.OPEN:
+        messages.info(request, "This comment has already been decided.")
+        return redirect("pocs:comments")
+
+    form = CommentDecisionForm(request.POST)
+    if form.is_valid():
+        decision = form.cleaned_data["decision"]
+        note = form.cleaned_data["note"]
+        comment.ack(request.user, decision, note)
+        details = {"note": {"before": None, "after": note}} if note else {}
+        record_audit(comment, f"comment_{decision}", request.user, details)
+        messages.success(request, f"Comment marked {comment.get_status_display()}.")
+    return redirect("pocs:comments")
+
+
+# ---------------------------------------------------------------------------
 # Requirements & Use Cases (per-POC registry — spec Fase 3c)
 # ---------------------------------------------------------------------------
 def poc_specs_redirect(request, pk):
@@ -1789,6 +1892,35 @@ class UseCaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["poc"] = self.poc
         ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc)
+        ctx["comments"] = self.object.comments.select_related("author", "resolved_by")
+        ctx["comment_form"] = CommentForm()
+        ctx["comment_target"] = "usecase"
+        return ctx
+
+
+class RequirementDetailView(POCMemberRequiredMixin, DetailView):
+    """Full-page, read-only view of a Requirement (mirrors UseCaseDetailView).
+
+    Also the home of its comments thread — Requirements have no other
+    per-item page (only the quick-look ``requirement_preview`` modal).
+    """
+
+    model = Requirement
+    template_name = "pocs/requirement_detail.html"
+    context_object_name = "req"
+
+    def get_poc(self):
+        if not hasattr(self, "_poc"):
+            self._poc = get_object_or_404(Requirement, pk=self.kwargs["pk"]).poc
+        return self._poc
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["poc"] = self.poc
+        ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc)
+        ctx["comments"] = self.object.comments.select_related("author", "resolved_by")
+        ctx["comment_form"] = CommentForm()
+        ctx["comment_target"] = "requirement"
         return ctx
 
 

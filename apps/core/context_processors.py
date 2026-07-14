@@ -23,6 +23,8 @@ def navigation(request):
 
     # Pending test-outcome validations awaiting this user (spec Fase 3b).
     validation_count = _pending_validation_count(user) if authed else 0
+    # Open Requirement/Use Case comments awaiting this user's Ack.
+    comment_count = _pending_comment_count(user) if authed else 0
 
     nav_items = [
         {
@@ -50,6 +52,14 @@ def navigation(request):
             "available": True,
             "badge": validation_count,
             # Only relevant to validators (admins, or when there's something).
+            "show_if_badge_or_admin": True,
+        },
+        {
+            "label": "Comments",
+            "url_name": "pocs:comments",
+            "icon": "message-square-warning",
+            "available": True,
+            "badge": comment_count,
             "show_if_badge_or_admin": True,
         },
         {
@@ -106,6 +116,7 @@ def navigation(request):
         "app_version": getattr(settings, "APP_VERSION", "0.1.0"),
         "nav_items": visible,
         "validation_count": validation_count,
+        "comment_count": comment_count,
         "branding": _branding(),
     }
 
@@ -127,6 +138,22 @@ def _pending_validation_count(user):
             Q(test__phase__phase_leader=user)
             | Q(test__phase__poc_id__in=lead_ids)
         ).count()
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _pending_comment_count(user):
+    """Count of open Requirement/Use Case comments this user may Ack."""
+    try:
+        from apps.pocs.models import Comment, POCMembership
+
+        qs = Comment.objects.filter(status="open")
+        if getattr(user, "is_admin", False):
+            return qs.count()
+        lead_ids = POCMembership.objects.filter(
+            user=user, role_in_poc="lead"
+        ).values_list("poc_id", flat=True)
+        return qs.filter(poc_id__in=lead_ids).count()
     except Exception:  # noqa: BLE001
         return 0
 

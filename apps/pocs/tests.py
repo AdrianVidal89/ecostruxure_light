@@ -1984,3 +1984,146 @@ class Fase11FinalReportStructureTests(TestCase):
         report = generate_final_report(self.poc, self.admin, conclusion="Done.")
         self.assertEqual(report.status, GeneratedReport.Status.READY, report.error_message)
         self.assertTrue(report.output_file)
+
+
+class PocGraphStatusTests(TestCase):
+    """POC node colour now derives from its Use Cases (🎉 Improvements #2):
+    green only when active AND every use case is green; orange otherwise."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "g_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="G POC", created_by=self.admin, status="draft")
+
+    def test_draft_poc_is_orange_regardless_of_use_cases(self):
+        self.assertEqual(self.poc.graph_status(), "orange")
+
+    def test_active_poc_with_no_use_cases_is_orange(self):
+        self.poc.status = "active"
+        self.poc.save()
+        self.assertEqual(self.poc.graph_status(), "orange")
+
+    def test_active_poc_orange_until_all_use_cases_green(self):
+        self.poc.status = "active"
+        self.poc.save()
+        uc1 = UseCase.objects.create(poc=self.poc, title="UC1", created_by=self.admin)
+        UseCase.objects.create(poc=self.poc, title="UC2", created_by=self.admin)
+        # uc1 has no requirements yet -> gray, so the POC is not all-green.
+        self.assertEqual(uc1.graph_status(), "gray")
+        self.assertEqual(self.poc.graph_status(), "orange")
+
+    def test_active_poc_green_only_when_every_use_case_green(self):
+        self.poc.status = "active"
+        self.poc.save()
+        phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        uc = UseCase.objects.create(poc=self.poc, title="UC", created_by=self.admin)
+        uc.requirements.add(req)
+        test = Test.objects.create(phase=phase, title="t")
+        test.requirements.add(req)
+        # Not passed yet -> use case not green -> POC stays orange.
+        self.assertEqual(self.poc.graph_status(), "orange")
+        test.execution_status = "test_completed"
+        test.result = "passed"
+        test.save()
+        self.assertEqual(uc.graph_status(), "green")
+        self.assertEqual(self.poc.graph_status(), "green")
+        # A second, unfinished use case pulls the POC back to orange.
+        UseCase.objects.create(poc=self.poc, title="UC2", created_by=self.admin)
+        self.assertEqual(self.poc.graph_status(), "orange")
+
+
+class CommentFeedbackTests(TestCase):
+    """Improvements #4: Member comments on Use Cases/Requirements; the POC
+    lead Acks (Applied/Rejected); an open comment shows as a halo until then."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "c_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "c_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.lead = User.objects.create_user(
+            "c_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="C POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        self.uc = UseCase.objects.create(poc=self.poc, title="UC", created_by=self.admin)
+        self.req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+
+    def test_member_can_comment_and_halo_appears(self):
+        self.assertFalse(self.uc.has_open_comment)
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:comment_create", args=["usecase", self.uc.pk]),
+            {"text": "Please clarify the actor."},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(self.uc.has_open_comment)
+
+    def test_non_member_cannot_comment(self):
+        outsider = User.objects.create_user(
+            "c_outsider", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.client.force_login(outsider)
+        resp = self.client.post(
+            reverse("pocs:comment_create", args=["requirement", self.req.pk]),
+            {"text": "Trying to comment."},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(self.req.has_open_comment)
+
+    def test_lead_ack_applied_clears_halo(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.pocs.models import Comment
+
+        comment = Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(Requirement),
+            object_id=self.req.pk,
+            poc=self.poc,
+            text="Missing detail.",
+            author=self.member,
+        )
+        self.assertTrue(self.req.has_open_comment)
+        self.client.force_login(self.lead)
+        resp = self.client.post(
+            reverse("pocs:comment_decide", args=[comment.pk]),
+            {"decision": "applied", "note": "Fixed."},
+        )
+        self.assertEqual(resp.status_code, 302)
+        comment.refresh_from_db()
+        self.assertEqual(comment.status, "applied")
+        self.assertEqual(comment.resolved_by, self.lead)
+        self.assertFalse(self.req.has_open_comment)
+
+    def test_member_cannot_ack(self):
+        from apps.pocs.models import Comment
+        from django.contrib.contenttypes.models import ContentType
+
+        comment = Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(UseCase),
+            object_id=self.uc.pk,
+            poc=self.poc,
+            text="Needs review.",
+            author=self.member,
+        )
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:comment_decide", args=[comment.pk]),
+            {"decision": "applied", "note": ""},
+        )
+        self.assertEqual(resp.status_code, 403)
+        comment.refresh_from_db()
+        self.assertEqual(comment.status, "open")

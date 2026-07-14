@@ -31,3 +31,7 @@ Thumbs.db
 # --- Local tooling (not needed on the servers) ---
 .claude/
 *.code-workspace
+
+# --- Claude/graphify local artifacts ---
+/CLAUDE.md
+/graphify-out/

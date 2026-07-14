@@ -28,6 +28,17 @@ urlpatterns = [
         views.validation_decide,
         name="validation_decide",
     ),
+    path("comments/", views.CommentListView.as_view(), name="comments"),
+    path(
+        "comments/<int:comment_pk>/decide/",
+        views.comment_decide,
+        name="comment_decide",
+    ),
+    path(
+        "comments/<str:model>/<int:pk>/create/",
+        views.comment_create,
+        name="comment_create",
+    ),
     path("import/", views.POCImportView.as_view(), name="import"),
     path("create/", views.POCCreateView.as_view(), name="create"),
     path("<int:pk>/", views.POCDetailView.as_view(), name="detail"),
@@ -79,6 +90,11 @@ urlpatterns = [
         "requirements/<int:pk>/preview/",
         views.requirement_preview,
         name="requirement_preview",
+    ),
+    path(
+        "requirements/<int:pk>/",
+        views.RequirementDetailView.as_view(),
+        name="requirement_detail",
     ),
     path(
         "<int:pk>/use-cases/create/",

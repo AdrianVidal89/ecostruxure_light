@@ -15,7 +15,13 @@
       {% else %}
         <span class="px-2 py-0.5 rounded-full bg-line text-ink-muted">Pending</span>
       {% endif %}
+      {% if req.has_open_comment %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+      {% endif %}
     </div>
+    <a href="{% url 'pocs:requirement_detail' req.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+      <i data-lucide="message-square-text" class="w-3.5 h-3.5"></i> View full page &amp; comments
+    </a>
   </div>
 
   {% if req.life_cycle_phase %}

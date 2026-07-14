@@ -180,9 +180,12 @@
   {% endif %}
 
   {# ---------- Tasks — addable on ANY phase (parent or leaf) ---------- #}
-  <section class="space-y-3">
+  <section class="space-y-3 rounded-xl border border-info/30 bg-info/5 p-4">
     <div class="flex items-center justify-between">
-      <h2 class="font-medium text-ink">Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span></h2>
+      <h2 class="font-medium text-ink flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-info shrink-0"></span>
+        Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span>
+      </h2>
       {% if can_add_task %}
         <a href="{% url 'pocs:task_create' phase.pk %}"
            class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
@@ -225,9 +228,12 @@
 
   {% if is_leaf and is_test %}
     {# ---------- Tests (leaf Test phases) ---------- #}
-    <section class="space-y-3">
+    <section class="space-y-3 rounded-xl border border-brand/30 bg-brand/5 p-4">
       <div class="flex items-center justify-between">
-        <h2 class="font-medium text-ink">Tests <span class="text-ink-muted font-normal">({{ tests|length }})</span></h2>
+        <h2 class="font-medium text-ink flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-brand shrink-0"></span>
+          Tests <span class="text-ink-muted font-normal">({{ tests|length }})</span>
+        </h2>
         {% if can_add_test %}
           <a href="{% url 'pocs:test_create' phase.pk %}"
              class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
