@@ -21,7 +21,7 @@
       <form method="get" class="ml-1">
         {% if filter %}<input type="hidden" name="f" value="{{ filter }}">{% endif %}
         <select name="u" onchange="this.form.submit()"
-                class="rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+                class="rounded-lg border border-line bg-surface text-ink px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
           <option value="">All assignees</option>
           {% for u in users %}
             <option value="{{ u.id }}" {% if assignee_filter == u.id|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
@@ -40,10 +40,7 @@
       </a>
       {% for entry in group.phases %}
         <div class="pl-2">
-          <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
-            <a href="{% url 'pocs:phase_detail' entry.phase.pk %}" class="hover:text-ink hover:underline">{{ entry.phase.name }}</a>
-          </p>
-          {% include "pocs/partials/task_gantt.html" with gantt=group.gantt roots=entry.roots %}
+          {% include "pocs/partials/task_phase_group.html" with entry=entry gantt=group.gantt %}
         </div>
       {% endfor %}
     </div>

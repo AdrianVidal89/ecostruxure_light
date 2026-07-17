@@ -19,6 +19,10 @@
     return s && s.length > n ? s.slice(0, n - 1) + "…" : s || "";
   }
 
+  function isDarkMode() {
+    return document.documentElement.classList.contains("dark");
+  }
+
   function initPocGraph(container, dataUrl) {
     const canvas = document.createElement("canvas");
     canvas.style.display = "block";
@@ -127,6 +131,15 @@
     }
 
     function draw() {
+      const dark = isDarkMode();
+      // Canvas drawing is plain JS and never picks up the CSS custom-property
+      // theming the rest of the app uses, so the hover ring and label colours
+      // are re-picked here per theme instead of hardcoded (labels were near-
+      // black and unreadable once the canvas itself went dark).
+      const ringColor = dark ? "#e0e0e0" : "#111827";
+      const ringColorDim = dark ? "rgba(224,224,224,0.25)" : "rgba(17,24,39,0.25)";
+      const labelColor = dark ? "#4ade80" : "#1a7a2e"; // Schneider green, tuned per theme for contrast
+
       ctx.clearRect(0, 0, width, height);
       ctx.save();
       ctx.translate(offsetX, offsetY);
@@ -148,10 +161,10 @@
         ctx.fillStyle = STATUS_COLOR[n.status] || "#9ca3af";
         ctx.fill();
         ctx.lineWidth = (n === hovered ? 2.5 : 1) / scale;
-        ctx.strokeStyle = n === hovered ? "#111827" : "rgba(17,24,39,0.25)";
+        ctx.strokeStyle = n === hovered ? ringColor : ringColorDim;
         ctx.stroke();
         if (scale > 0.75 || n.type === "poc") {
-          ctx.fillStyle = "#111827";
+          ctx.fillStyle = labelColor;
           ctx.font = `${11 / scale}px sans-serif`;
           ctx.textAlign = "center";
           ctx.fillText(truncate(n.label, 22), n.x, n.y + r + 12 / scale);

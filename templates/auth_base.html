@@ -40,12 +40,14 @@
     /* Same token values as base.html — kept in sync manually since this is a
        separate <head> (the login page renders before any app chrome). */
     :root {
+      color-scheme: light;
       --color-brand: 61 205 88; --color-brand-dark: 26 122 46;
       --color-canvas: 245 246 247; --color-surface: 255 255 255; --color-surface-elevated: 255 255 255;
       --color-ink: 26 26 26; --color-ink-muted: 75 85 99; --color-line: 229 231 235;
       --color-danger: 239 68 68; --color-warning: 249 115 22; --color-info: 59 130 246;
     }
     html.dark {
+      color-scheme: dark;
       --color-brand: 74 222 128; --color-brand-dark: 134 239 172;
       --color-canvas: 18 18 18; --color-surface: 30 30 30; --color-surface-elevated: 38 38 38;
       --color-ink: 224 224 224; --color-ink-muted: 156 163 175; --color-line: 110 110 120;
@@ -58,8 +60,8 @@
 </head>
 
 <body class="h-full bg-canvas text-ink font-sans antialiased flex items-center justify-center p-4">
-  {# Theme toggle — top-right corner. Plain JS (this lean auth page doesn't
-     load Alpine — same mechanism as the main app header, just without it). #}
+  {% comment %} Theme toggle — top-right corner. Plain JS (this lean auth page doesn't
+     load Alpine — same mechanism as the main app header, just without it). {% endcomment %}
   <button type="button" id="theme-toggle" onclick="
       var d = !document.documentElement.classList.contains('dark');
       document.documentElement.classList.toggle('dark', d);
@@ -86,10 +88,10 @@
         <img src="{{ branding.logo.url }}" alt="Logo" class="h-24 max-w-[18rem] object-contain">
       {% else %}
         <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shadow-md">
-          <span class="text-white font-extrabold text-4xl leading-none">E</span>
+          <span class="text-white font-extrabold text-4xl leading-none">O</span>
         </div>
       {% endif %}
-      <span class="text-2xl font-semibold">EcoStruxure <span class="text-brand-dark">Light</span></span>
+      <span class="text-2xl font-semibold">OSPI <span class="text-brand-dark">Light</span></span>
     </div>
 
     {% block content %}{% endblock %}

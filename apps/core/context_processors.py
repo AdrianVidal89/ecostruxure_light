@@ -112,7 +112,7 @@ def navigation(request):
     ]
 
     return {
-        "app_name": "EcoStruxure Light",
+        "app_name": "OSPI Light",
         "app_version": getattr(settings, "APP_VERSION", "0.1.0"),
         "nav_items": visible,
         "validation_count": validation_count,

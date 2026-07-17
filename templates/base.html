@@ -7,8 +7,8 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
-  {# Apply the saved/system theme before Tailwind & first paint, so there's no
-     flash of the wrong theme. Kept intentionally tiny + synchronous. #}
+  {% comment %} Apply the saved/system theme before Tailwind & first paint, so there's no
+     flash of the wrong theme. Kept intentionally tiny + synchronous. {% endcomment %}
   <script>
     (function () {
       var saved = localStorage.getItem('theme');
@@ -44,12 +44,13 @@
     };
   </script>
 
-  {# Semantic colour tokens — light values, then dark-mode overrides.
+  {% comment %} Semantic colour tokens — light values, then dark-mode overrides.
      Every value is an "R G B" triple (no hex) so both Tailwind's
      rgb(var(--x) / <alpha-value>) utilities AND the plain-CSS rules below
-     can apply opacity. No pure black/white anywhere, per spec (section 6). #}
+     can apply opacity. No pure black/white anywhere, per spec (section 6). {% endcomment %}
   <style>
     :root {
+      color-scheme: light;
       --color-brand: 61 205 88;         /* #3DCD58 */
       --color-brand-dark: 26 122 46;    /* #1A7A2E — a readable accent tone on light surfaces */
       --color-canvas: 245 246 247;      /* #F5F6F7 */
@@ -63,6 +64,7 @@
       --color-info: 59 130 246;         /* #3B82F6 */
     }
     html.dark {
+      color-scheme: dark;
       --color-brand: 74 222 128;        /* softened — avoids a neon glare on dark surfaces */
       --color-brand-dark: 134 239 172;  /* a readable accent tone on DARK surfaces (lighter, not darker) */
       --color-canvas: 18 18 18;         /* #121212 — dark, never pure black */
@@ -209,11 +211,11 @@
         {% else %}
           <div class="rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shrink-0 shadow-sm"
                :class="sidebarOpen ? 'w-16 h-16' : 'w-12 h-12'">
-            <span class="text-white font-extrabold text-3xl leading-none">E</span>
+            <span class="text-white font-extrabold text-3xl leading-none">O</span>
           </div>
         {% endif %}
         <div class="min-w-0 leading-tight" x-show="sidebarOpen">
-          <p class="text-sm font-semibold text-ink truncate">EcoStruxure <span class="text-brand-dark">Light</span></p>
+          <p class="text-sm font-semibold text-ink truncate">OSPI <span class="text-brand-dark">Light</span></p>
           <p class="text-[10px] text-ink-muted -mt-0.5">PoC management</p>
         </div>
       </div>
@@ -307,8 +309,8 @@
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
-          {# Theme toggle — defaults to the system preference (see the inline
-             script in <head>), then remembers whatever the user picks. #}
+          {% comment %} Theme toggle — defaults to the system preference (see the inline
+             script in <head>), then remembers whatever the user picks. {% endcomment %}
           <button type="button"
                   x-data="{ dark: document.documentElement.classList.contains('dark') }"
                   @click="dark = !dark; document.documentElement.classList.toggle('dark', dark); localStorage.setItem('theme', dark ? 'dark' : 'light');"

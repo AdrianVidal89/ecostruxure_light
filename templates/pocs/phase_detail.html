@@ -169,6 +169,7 @@
             <i data-lucide="{% if child.children.exists %}folder{% else %}file{% endif %}" class="w-4 h-4 text-ink-muted"></i>
             <span class="font-medium text-ink flex-1 truncate">{{ child.name }}</span>
             {% if child.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info" title="Report available"></i>{% endif %}
+            {% if child.subtree_has_tasks %}<i data-lucide="list-checks" class="w-3.5 h-3.5 text-brand-dark" title="Has tasks (including sub-phases)"></i>{% endif %}
             <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
               {% if child.status == 'completed' %}bg-brand/10 text-brand-dark
               {% elif child.status == 'in_progress' %}bg-info/10 text-info
@@ -330,9 +331,9 @@
           </span>
         </button>
 
-        {# ----- Option 2: Generate directly — content comes from the tests (Test phases) or the sections above (Documentation / Functional Analysis). -----
+        {% comment %} ----- Option 2: Generate directly — content comes from the tests (Test phases) or the sections above (Documentation / Functional Analysis). -----
              Any POC member may generate/download it (reaching this page already implies membership — see POCMemberRequiredMixin); this used to be
-             gated to `can_edit` (lead/admin only), which wrongly blocked non-lead members from getting the same report a lead could produce. #}
+             gated to `can_edit` (lead/admin only), which wrongly blocked non-lead members from getting the same report a lead could produce. {% endcomment %}
         {% if is_reportable %}
           <form method="post"
                 action="{% if is_test %}{% url 'reports:phase_generate' phase.pk %}{% else %}{% url 'reports:phase_documents' phase.pk %}{% endif %}"

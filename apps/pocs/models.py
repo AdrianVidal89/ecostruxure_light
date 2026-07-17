@@ -761,6 +761,16 @@ class Phase(models.Model):
     def subtree_tests(self):
         return Test.objects.filter(phase_id__in=self.descendant_ids())
 
+    @property
+    def subtree_has_tasks(self):
+        """True if this phase or any of its sub-phases (any depth) has a task.
+
+        Used to surface a "has tasks" indicator on collapsed tree rows, so a
+        lead browsing e.g. "Engineering" doesn't have to expand every
+        sub-phase to discover one has tasks buried in it.
+        """
+        return Task.objects.filter(phase_id__in=self.descendant_ids()).exists()
+
     def ancestors(self):
         """This phase's parent chain, nearest first — freshly re-fetched from
         the DB (unlike ``self.parent``, which may be a stale in-memory copy

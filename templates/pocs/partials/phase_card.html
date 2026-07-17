@@ -28,6 +28,11 @@ each with a coloured status dot. Editors get the click-to-set status control.
             <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
           </span>
         {% endif %}
+        {% if node.subtree_has_tasks %}
+          <span class="inline-flex items-center gap-1 text-xs text-brand-dark" title="Has tasks (including sub-phases)">
+            <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+          </span>
+        {% endif %}
         {% if children %}
           <span class="text-xs text-ink-muted">{{ children|length }} sub-phase{{ children|length|pluralize }}</span>
         {% endif %}
@@ -64,6 +69,7 @@ each with a coloured status dot. Editors get the click-to-set status control.
                class="flex-1 min-w-0 flex items-center gap-2 text-sm font-medium text-ink group-hover:text-brand-dark">
               <span class="truncate">{{ child.name }}</span>
               {% if child.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info shrink-0" title="Report available"></i>{% endif %}
+              {% if child.subtree_has_tasks %}<i data-lucide="list-checks" class="w-3.5 h-3.5 text-brand-dark shrink-0" title="Has tasks (including sub-phases)"></i>{% endif %}
               {% if child.children.exists %}<span class="text-xs text-ink-muted shrink-0">· {{ child.children.count }} sub</span>{% endif %}
             </a>
             {% if is_admin or is_lead_member %}
@@ -84,6 +90,7 @@ each with a coloured status dot. Editors get the click-to-set status control.
                        class="flex-1 min-w-0 flex items-center gap-2 text-xs font-medium text-ink group-hover:text-brand-dark">
                       <span class="truncate">{{ grandchild.name }}</span>
                       {% if grandchild.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info shrink-0" title="Report available"></i>{% endif %}
+                      {% if grandchild.subtree_has_tasks %}<i data-lucide="list-checks" class="w-3.5 h-3.5 text-brand-dark shrink-0" title="Has tasks (including sub-phases)"></i>{% endif %}
                     </a>
                     {% if is_admin or is_lead_member %}
                       {% include "pocs/partials/phase_status_control.html" with phase=grandchild editable=True %}

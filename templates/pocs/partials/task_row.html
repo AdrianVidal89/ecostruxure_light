@@ -135,8 +135,8 @@ status control and notes editor; everyone else sees read-only.
     {% endif %}
   </div>
 
-  {# Sub-tasks — listed as their own indented rows in the Gantt tree above;
-     this is just the "add" action, kept here since it's an edit on THIS task. #}
+  {% comment %} Sub-tasks — listed as their own indented rows in the Gantt tree above;
+     this is just the "add" action, kept here since it's an edit on THIS task. {% endcomment %}
   {% if can_lead %}
     <div class="mt-3 pt-3 border-t border-line">
       <a href="{% url 'pocs:task_create' task.phase_id %}?parent={{ task.id }}"

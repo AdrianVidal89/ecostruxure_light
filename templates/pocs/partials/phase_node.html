@@ -14,6 +14,12 @@ into children. Management actions live on the phase detail page.
       </span>
     {% endif %}
 
+    {% if node.subtree_has_tasks %}
+      <span class="inline-flex items-center gap-1 text-xs text-brand-dark" title="Has tasks">
+        <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+      </span>
+    {% endif %}
+
     <span class="ml-auto">
       {% if is_admin or is_lead_member %}
         {% include "pocs/partials/phase_status_control.html" with phase=node editable=True %}

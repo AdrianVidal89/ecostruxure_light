@@ -3038,10 +3038,31 @@ class TasksView(LoginRequiredMixin, View):
             for root in gantt["top_level"]:
                 pid = root.phase_id
                 if pid not in phases_by_id:
-                    phases_by_id[pid] = {"phase": root.phase, "roots": []}
+                    phases_by_id[pid] = {"phase": root.phase, "roots": [], "children": []}
                     phase_order.append(pid)
                 phases_by_id[pid]["roots"].append(root)
-            group["phases"] = [phases_by_id[pid] for pid in phase_order]
+
+            # Nest each phase's section under the nearest ancestor phase that
+            # also has tasks in this view, so e.g. a "Design" sub-phase's
+            # tasks appear as a sub-section of its parent "Engineering"
+            # section instead of an unrelated sibling — mirrors the phase
+            # tree itself instead of a flat, order-of-appearance list.
+            top_level_phases = []
+            for pid in phase_order:
+                entry = phases_by_id[pid]
+                parent_entry = next(
+                    (
+                        phases_by_id[ancestor.id]
+                        for ancestor in entry["phase"].ancestors()
+                        if ancestor.id in phases_by_id
+                    ),
+                    None,
+                )
+                if parent_entry:
+                    parent_entry["children"].append(entry)
+                else:
+                    top_level_phases.append(entry)
+            group["phases"] = top_level_phases
 
         ctx = {
             "groups": groups,
