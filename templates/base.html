@@ -139,6 +139,17 @@
       box-shadow: 0 0 10px rgb(var(--color-brand) / .5);
       transition: width .35s ease;
     }
+    .progress-fill-info   { background: linear-gradient(90deg, rgb(var(--color-info)), rgb(var(--color-info) / .75));   box-shadow: 0 0 10px rgb(var(--color-info) / .5); }
+    .progress-fill-danger { background: linear-gradient(90deg, rgb(var(--color-danger)), rgb(var(--color-danger) / .75)); box-shadow: 0 0 10px rgb(var(--color-danger) / .5); }
+
+    /* Gantt task/duration bars — same solid-colour + glow language as the
+       status dots above. Unlike .progress-track (correctly invisible at 0%,
+       an overall-percent bar), a task's date-span bar must stay visible even
+       at 0% complete, so the whole span carries the colour+glow, not just
+       the completed-fraction fill. */
+    .gantt-bar-brand  { background: rgb(var(--color-brand) / .55);  box-shadow: 0 0 8px rgb(var(--color-brand) / .5); }
+    .gantt-bar-info   { background: rgb(var(--color-info) / .55);   box-shadow: 0 0 8px rgb(var(--color-info) / .5); }
+    .gantt-bar-danger { background: rgb(var(--color-danger) / .55); box-shadow: 0 0 8px rgb(var(--color-danger) / .5); }
 
     /* A soft neon glow utility for active/selected surfaces. */
     .neon-glow { box-shadow: 0 0 0 1px rgb(var(--color-brand) / .35), 0 0 14px rgb(var(--color-brand) / .16); }

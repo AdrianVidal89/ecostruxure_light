@@ -102,7 +102,7 @@ from .models import (
     UseCase,
 )
 from .audit import record_audit
-from .gantt import build_task_gantt, gantt_summary
+from .gantt import build_phase_task_tree, build_task_gantt, gantt_summary
 from .state_machine import can_transition_task, task_allowed_statuses
 
 User = get_user_model()
@@ -438,10 +438,23 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["all_phases_approved"] = poc.all_phases_approved
         # Testing roadmap: one row per Test-phase, tests plotted chronologically.
         ctx["test_timeline"] = poc.test_timeline()
-        # Concise Tasks widget shown between Details and the Map in Overview.
-        ctx["poc_tasks"] = order_tasks(
-            Task.objects.filter(phase__poc=poc).select_related("phase", "assigned_to")
+        # Tasks widget shown between Details and the Map in Overview — same
+        # Gantt/tree tree-builder as the dedicated Tasks tab (build_phase_task_tree),
+        # so both render identically instead of this being a simpler flat list.
+        today = timezone.localdate()
+        poc_tasks = list(
+            order_tasks(
+                Task.objects.filter(phase__poc=poc).select_related("phase", "assigned_to")
+            )
         )
+        for t in poc_tasks:
+            t.can_lead = can_lead
+            t.can_execute = can_lead or t.assigned_to_id == self.request.user.id
+        poc_task_gantt, poc_task_phases = build_phase_task_tree(poc_tasks, today)
+        ctx["poc_task_gantt"] = poc_task_gantt
+        ctx["poc_task_phases"] = poc_task_phases
+        ctx["poc_task_count"] = len(poc_tasks)
+        ctx["task_status_choices"] = Task.Status.choices
         # Audit log is visible to admins and POC leads only.
         if can_lead:
             ctx["audit_logs"] = _poc_audit_logs(poc)
@@ -1883,6 +1896,14 @@ class RequirementDetailView(POCMemberRequiredMixin, DetailView):
         return ctx
 
 
+def _requirement_preview_ctx(request, req):
+    return {
+        "req": req,
+        "can_manage": user_can_lead_poc(request.user, req.poc) and not req.poc.is_closed,
+        "gravity_choices": Requirement.Gravity.choices,
+    }
+
+
 def requirement_preview(request, pk):
     """Read-only fragment for the "eye" preview popup (used when linking)."""
     if not request.user.is_authenticated:
@@ -1890,7 +1911,36 @@ def requirement_preview(request, pk):
     req = get_object_or_404(Requirement, pk=pk)
     if not user_is_poc_member(request.user, req.poc):
         raise PermissionDenied
-    return render(request, "pocs/partials/requirement_preview.html", {"req": req})
+    return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req))
+
+
+@require_POST
+def requirement_set_gravity(request, pk):
+    """Quick "Imposes (MVP)" change from the preview popup.
+
+    Same effect as the full edit form (modified_by/modified_date stamp,
+    audited as "requirement_updated") but inline, mirroring
+    ``usecase_set_status`` — no navigation away from wherever the popup was
+    opened.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    req = get_object_or_404(Requirement, pk=pk)
+    if not user_can_lead_poc(request.user, req.poc):
+        raise PermissionDenied
+    if req.poc.is_closed:
+        raise PermissionDenied("This POC is closed and locked for editing.")
+    new_gravity = request.POST.get("req_gravity", "")
+    if new_gravity in dict(Requirement.Gravity.choices) and new_gravity != req.req_gravity:
+        old_gravity = req.req_gravity
+        req.req_gravity = new_gravity
+        req.modified_by = request.user
+        req.save(update_fields=["req_gravity", "modified_by", "modified_date"])
+        record_audit(
+            req, "requirement_updated", request.user,
+            {"req_gravity": {"before": old_gravity, "after": new_gravity}},
+        )
+    return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req))
 
 
 def _usecase_preview_ctx(request, uc):
@@ -3031,37 +3081,8 @@ class TasksView(LoginRequiredMixin, View):
             current["tasks"].append(t)
 
         for group in groups:
-            gantt = build_task_gantt(group["tasks"], today)
+            gantt, top_level_phases = build_phase_task_tree(group["tasks"], today)
             group["gantt"] = gantt
-            phases_by_id = {}
-            phase_order = []
-            for root in gantt["top_level"]:
-                pid = root.phase_id
-                if pid not in phases_by_id:
-                    phases_by_id[pid] = {"phase": root.phase, "roots": [], "children": []}
-                    phase_order.append(pid)
-                phases_by_id[pid]["roots"].append(root)
-
-            # Nest each phase's section under the nearest ancestor phase that
-            # also has tasks in this view, so e.g. a "Design" sub-phase's
-            # tasks appear as a sub-section of its parent "Engineering"
-            # section instead of an unrelated sibling — mirrors the phase
-            # tree itself instead of a flat, order-of-appearance list.
-            top_level_phases = []
-            for pid in phase_order:
-                entry = phases_by_id[pid]
-                parent_entry = next(
-                    (
-                        phases_by_id[ancestor.id]
-                        for ancestor in entry["phase"].ancestors()
-                        if ancestor.id in phases_by_id
-                    ),
-                    None,
-                )
-                if parent_entry:
-                    parent_entry["children"].append(entry)
-                else:
-                    top_level_phases.append(entry)
             group["phases"] = top_level_phases
 
         ctx = {
@@ -3069,6 +3090,7 @@ class TasksView(LoginRequiredMixin, View):
             "manager": manager,
             "filter": flt,
             "total": len(tasks),
+            "task_status_choices": Task.Status.choices,
         }
         if user.is_admin:
             ctx["users"] = User.objects.filter(is_active=True).order_by(

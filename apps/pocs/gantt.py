@@ -122,6 +122,46 @@ def build_task_gantt(tasks, today=None):
     }
 
 
+def build_phase_task_tree(tasks, today=None):
+    """One POC's worth of tasks -> (gantt, top_level_phases).
+
+    ``top_level_phases`` is a list of ``{"phase", "roots", "children"}``
+    entries: ``roots`` are that phase's own root Gantt rows, ``children`` are
+    nested entries of the same shape for sub-phases that also hold tasks (so
+    a "Design" sub-phase's tasks nest under its parent "Engineering" entry
+    instead of listing as an unrelated sibling section). Used by both the
+    dedicated Tasks view and the POC Overview tab's tasks widget, so both
+    render the exact same tree + Gantt bars.
+    """
+    gantt = build_task_gantt(tasks, today)
+    phases_by_id = {}
+    phase_order = []
+    for root in gantt["top_level"]:
+        pid = root.phase_id
+        if pid not in phases_by_id:
+            phases_by_id[pid] = {"phase": root.phase, "roots": [], "children": []}
+            phase_order.append(pid)
+        phases_by_id[pid]["roots"].append(root)
+
+    top_level_phases = []
+    for pid in phase_order:
+        entry = phases_by_id[pid]
+        parent_entry = next(
+            (
+                phases_by_id[ancestor.id]
+                for ancestor in entry["phase"].ancestors()
+                if ancestor.id in phases_by_id
+            ),
+            None,
+        )
+        if parent_entry:
+            parent_entry["children"].append(entry)
+        else:
+            top_level_phases.append(entry)
+
+    return gantt, top_level_phases
+
+
 def gantt_summary(top_level):
     """Flatten a Gantt tree's roots into (total, completed, start, end) — a
     phase-level at-a-glance summary without opening the phase's own page."""

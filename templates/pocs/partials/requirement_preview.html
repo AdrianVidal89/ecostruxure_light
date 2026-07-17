@@ -6,7 +6,19 @@
     </p>
     <h3 class="text-lg font-semibold text-ink break-words">{{ req.sub_system|default:"Requirement" }}</h3>
     <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
-      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
+      {% if can_manage %}
+        <select name="req_gravity"
+                hx-post="{% url 'pocs:requirement_set_gravity' req.pk %}"
+                hx-target="#entity-preview-body" hx-swap="innerHTML"
+                title="Quick change"
+                class="rounded-full border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40">
+          {% for value, label in gravity_choices %}
+            <option value="{{ value }}" {% if req.req_gravity == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
+      {% endif %}
       <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_operation_display }}</span>
       <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_functional_display }}</span>
       <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_category_display }}</span>

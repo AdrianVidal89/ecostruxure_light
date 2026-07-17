@@ -18,7 +18,7 @@
       <h1 class="text-2xl font-semibold text-ink break-words">{{ usecase.title }}</h1>
       <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
         <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ usecase.get_priority_display }}</span>
-        <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
+        <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% elif usecase.status == 'rejected' %}bg-danger/10 text-danger{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
         {% if usecase.is_approved %}
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
         {% endif %}

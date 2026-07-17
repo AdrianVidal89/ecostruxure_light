@@ -1,30 +1,24 @@
 {% comment %}
-Concise Tasks widget for the POC Overview tab (between Details and the Map).
-Context: poc_tasks (order_tasks() queryset — due date, completed last).
+Tasks widget for the POC Overview tab (between Details and the Map). Reuses
+the exact same Gantt/tree partials as the dedicated Tasks tab (tasks.html) —
+task_phase_group.html -> task_gantt.html -> task_gantt_row.html — so both
+render identically instead of this being a simplified stand-in. Context:
+poc_task_phases (build_phase_task_tree's top-level entries), poc_task_gantt
+(the shared per-POC Gantt/axis dict), poc_task_count, task_status_choices.
 {% endcomment %}
 <div class="bg-surface border border-line rounded-xl p-6">
   <h2 class="font-medium text-ink mb-3 flex items-center gap-2">
     <i data-lucide="list-checks" class="w-4 h-4"></i> Tasks
-    <span class="text-ink-muted font-normal">({{ poc_tasks|length }})</span>
+    <span class="text-ink-muted font-normal">({{ poc_task_count }})</span>
+    {% if poc_task_count %}
+      <a href="{% url 'pocs:tasks' %}" class="ml-auto text-xs font-medium text-brand-dark hover:underline">Open Tasks tab</a>
+    {% endif %}
   </h2>
-  {% if poc_tasks %}
-    <div class="divide-y divide-line max-h-80 overflow-y-auto">
-      {% for task in poc_tasks %}
-        <div class="flex items-center gap-3 py-2.5">
-          <div class="min-w-0 flex-1">
-            <p class="text-sm font-medium text-ink truncate">{{ task.title }}</p>
-            <a href="{% url 'pocs:phase_detail' task.phase_id %}"
-               class="text-xs text-ink-muted hover:text-brand-dark hover:underline truncate inline-block max-w-full">
-              {{ task.phase.name }}
-            </a>
-          </div>
-          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
-            {% if task.status == 'completed' %}bg-brand/10 text-brand-dark
-            {% elif task.status == 'in_progress' %}bg-info/10 text-info
-            {% elif task.status == 'blocked' %}bg-warning/10 text-warning
-            {% else %}bg-line text-ink-muted{% endif %}">
-            {{ task.get_status_display }}
-          </span>
+  {% if poc_task_phases %}
+    <div class="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
+      {% for entry in poc_task_phases %}
+        <div class="pl-2">
+          {% include "pocs/partials/task_phase_group.html" with entry=entry gantt=poc_task_gantt %}
         </div>
       {% endfor %}
     </div>
