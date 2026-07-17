@@ -133,20 +133,40 @@ def _add_paragraph(doc, block: dict):
     _render_runs(p, block.get("children", []))
 
 
+# Word has no native SVG support in the add_picture path, so an SVG is
+# rasterized to PNG at generation time (never in the editor, which just shows
+# it via a plain <img> — browsers render SVG natively). The render is capped
+# to a fixed pixel width rather than a zoom multiplier, so a pathological
+# SVG that declares a huge canvas can't blow up memory/time.
+_SVG_RASTER_WIDTH_PX = 1600
+
+
+def _svg_to_png_bytes(svg_path: str) -> bytes:
+    import resvg_py
+
+    png = resvg_py.svg_to_bytes(
+        svg_path=svg_path, width=_SVG_RASTER_WIDTH_PX, background="#FFFFFF"
+    )
+    return bytes(png)
+
+
 def _add_image(doc, block: dict, image_resolver):
     """Embed an image (resolved to a local path) or fall back to its alt text."""
     url = block.get("url", "")
     path = image_resolver(url) if (image_resolver and url) else None
     if path:
         try:
-            picture = doc.add_picture(path)
+            if path.lower().endswith(".svg"):
+                picture = doc.add_picture(BytesIO(_svg_to_png_bytes(path)))
+            else:
+                picture = doc.add_picture(path)
             # Downscale only if it overflows the page; never upscale small images.
             if picture.width > _MAX_IMAGE_WIDTH:
                 ratio = _MAX_IMAGE_WIDTH / picture.width
                 picture.width = _MAX_IMAGE_WIDTH
                 picture.height = int(picture.height * ratio)
             return
-        except Exception:  # noqa: BLE001 — unreadable image → alt-text fallback
+        except Exception:  # noqa: BLE001 — unreadable/unconvertible image → alt-text fallback
             pass
     alt = block.get("alt") or url
     if alt:

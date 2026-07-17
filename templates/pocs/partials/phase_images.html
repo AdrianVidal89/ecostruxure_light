@@ -45,7 +45,7 @@ the button can flash "Copied!".
   {% if can_edit %}
     <form method="post" action="{% url 'pocs:image_upload' phase.pk %}" enctype="multipart/form-data" class="space-y-3">
       {% csrf_token %}
-      {% include "components/filedrop.html" with field=image_form.image hint="PNG / JPG / GIF / WEBP." %}
+      {% include "components/filedrop.html" with field=image_form.image hint="PNG / JPG / GIF / WEBP / SVG." %}
       <div class="flex items-center gap-2">
         {{ image_form.caption }}
         <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft shrink-0">

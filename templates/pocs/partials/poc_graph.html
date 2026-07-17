@@ -6,18 +6,13 @@ click a node to read it (opens the same preview used elsewhere, or the test's
 row on its phase page). Context: poc.
 {% endcomment %}
 <div class="bg-surface border border-line rounded-xl p-4"
-     x-data="{ previewOpen: false, previewHtml: '',
-       openPreview(url) {
-         this.previewHtml = '';
-         this.previewOpen = true;
-         fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
-       } }"
+     x-data
      x-init="
        $nextTick(() => {
          const g = initPocGraph($refs.graphHost, '{% url 'pocs:poc_graph_data' poc.pk %}');
          g.onClick(function (node) {
            if (node.type === 'poc') return;
-           if (node.url) { openPreview(node.url); return; }
+           if (node.url) { openEntityPreview(node.url, node.detailUrl || null, node.detailLabel || null); return; }
          });
          $refs.resetBtn.addEventListener('click', () => g.resetView());
        })
@@ -46,18 +41,4 @@ row on its phase page). Context: poc.
   </div>
   <p class="text-xs text-ink-muted mb-2">POC → Use Cases → Requirements → Tests. Scroll to zoom, drag the background to pan, drag a node to move it, click a node to read it.</p>
   <div x-ref="graphHost" class="rounded-lg border border-line bg-canvas/40 overflow-hidden"></div>
-
-  {# Preview popup — same pattern as the Use Cases & Requirements tab. #}
-  <div x-show="previewOpen" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
-       @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
-    <div class="bg-surface rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
-      <div class="flex justify-end mb-2">
-        <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-      <div x-html="previewHtml"></div>
-    </div>
-  </div>
 </div>

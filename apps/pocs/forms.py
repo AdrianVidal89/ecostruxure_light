@@ -342,11 +342,14 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
 
     class Meta:
         model = Task
-        fields = ("title", "description", "assigned_to", "status", "due_date")
+        fields = ("title", "description", "assigned_to", "status", "start_date", "due_date")
         widgets = {
             "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={"rows": 6}),  # EasyMDE mount
             "status": forms.Select(attrs={"class": INPUT_CLASS}),
+            "start_date": forms.DateInput(
+                attrs={"type": "date", "class": INPUT_CLASS}, format="%Y-%m-%d"
+            ),
             "due_date": forms.DateInput(
                 attrs={"type": "date", "class": INPUT_CLASS}, format="%Y-%m-%d"
             ),
@@ -363,6 +366,13 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
                 .distinct()
                 .order_by("first_name", "username")
             )
+
+    def clean(self):
+        cleaned = super().clean()
+        start, due = cleaned.get("start_date"), cleaned.get("due_date")
+        if start and due and start > due:
+            self.add_error("start_date", "Start date can't be after the due date.")
+        return cleaned
 
 
 def _poc_member_queryset(poc):

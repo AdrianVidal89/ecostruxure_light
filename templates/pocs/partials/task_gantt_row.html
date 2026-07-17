@@ -1,0 +1,78 @@
+{% comment %}
+Recursive Gantt/tree row — one row per Task; its sub-tasks render as
+indented sibling rows immediately below, collapsible via the chevron, so a
+task and its sub-task are distinguishable by hierarchy (indentation + a
+"summary" bar) rather than looking like the same kind of row.
+
+A task with sub-tasks is a "summary" row: title shows the aggregate %, and
+its bar spans the earliest sub-task start to the latest sub-task end (never
+its own start_date/due_date). One primary action per row (click the title
+to expand the full execute/notes panel below) instead of several competing
+buttons.
+
+Context: task (annotated by apps.pocs.gantt.build_task_gantt — child_list,
+is_summary, gantt_start/end/progress, pct_start/pct_width, is_overdue),
+depth (int, default 0), gantt (the axis dict), can_lead, task_status_choices,
+bulk_enabled.
+{% endcomment %}
+<div x-data="{ open: true, detailOpen: false }">
+  <div class="flex items-stretch border-b border-line hover:bg-canvas/40 transition-soft">
+    {# ---------- Left: tree ---------- #}
+    <div class="flex items-center gap-2 py-2.5 pr-3 min-w-0 shrink-0" style="width: 44%; padding-left: {{ depth|add:1 }}rem;">
+      {% if task.child_list %}
+        <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink">
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-soft" :class="!open && '-rotate-90'"></i>
+        </button>
+      {% else %}
+        <span class="w-3.5 shrink-0"></span>
+      {% endif %}
+      <span class="dot shrink-0
+        {% if task.status == 'completed' %}dot-completed{% elif task.status == 'in_progress' %}dot-progress{% elif task.status == 'blocked' %}dot-blocked{% else %}dot-pending{% endif %}"></span>
+      <button type="button" @click="detailOpen = !detailOpen" class="min-w-0 text-left">
+        <p class="text-sm truncate {% if task.is_summary %}font-semibold{% else %}font-medium{% endif %} text-ink">
+          {{ task.title }}
+        </p>
+        <p class="text-xs text-ink-muted truncate">
+          {% if task.is_summary %}
+            {{ task.gantt_progress }}% · {{ task.child_list|length }} sub-task{{ task.child_list|length|pluralize }}
+          {% elif task.assigned_to %}{{ task.assigned_to.get_full_name|default:task.assigned_to.username }}
+          {% else %}Unassigned{% endif %}
+        </p>
+      </button>
+    </div>
+
+    {# ---------- Right: Gantt bar ---------- #}
+    <div class="relative flex-1 py-2.5 pr-4 min-w-0">
+      {% if gantt.has_dates %}
+        <div class="relative h-2.5 mt-2.5 rounded-full bg-canvas">
+          {% if gantt.today_pct is not None %}
+            <div class="absolute -top-1 -bottom-1 w-px bg-ink/25" style="left: {{ gantt.today_pct }}%;"></div>
+          {% endif %}
+          {% if task.pct_start is not None %}
+            <div class="progress-track absolute top-0 bottom-0 rounded-full overflow-hidden
+                {% if task.is_overdue %}bg-danger/25{% elif task.is_summary %}bg-info/20{% else %}bg-brand/20{% endif %}"
+                 style="left: {{ task.pct_start }}%; width: {{ task.pct_width }}%;"
+                 title="{{ task.title }} · {{ task.gantt_start|date:'Y-m-d' }} → {{ task.gantt_end|date:'Y-m-d' }} · {{ task.gantt_progress }}%">
+              <div class="progress-fill h-full {% if task.is_overdue %}!bg-danger{% elif task.is_summary %}!bg-info{% endif %}"
+                   style="width: {{ task.gantt_progress }}%;"></div>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- Expanded detail — the full execute/notes/edit panel ---------- #}
+  <div x-show="detailOpen" x-cloak class="pb-3 pt-1" style="padding-left: {{ depth|add:1 }}rem;">
+    {% include "pocs/partials/task_row.html" %}
+  </div>
+
+  {# ---------- Sub-tasks ---------- #}
+  {% if task.child_list %}
+    <div x-show="open" x-cloak>
+      {% for child in task.child_list %}
+        {% include "pocs/partials/task_gantt_row.html" with task=child depth=depth|add:1 %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

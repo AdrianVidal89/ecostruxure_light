@@ -102,6 +102,7 @@ from .models import (
     UseCase,
 )
 from .audit import record_audit
+from .gantt import build_task_gantt, gantt_summary
 from .state_machine import can_transition_task, task_allowed_statuses
 
 User = get_user_model()
@@ -842,7 +843,7 @@ def phase_reorder(request, pk):
 
 
 # ---------------------------------------------------------------------------
-# Task ordering & timeline (spec Fase 7)
+# Task ordering (spec Fase 7); the Gantt/tree itself lives in .gantt (section 5)
 # ---------------------------------------------------------------------------
 def order_tasks(qs):
     """Default task ordering: by due date, with completed tasks always last.
@@ -860,41 +861,6 @@ def order_tasks(qs):
     )
 
 
-def build_task_timeline(tasks, today):
-    """Position a phase's tasks on a due-date axis, flagging late/ahead work.
-
-    Returns a dict the template renders: each dated task gets a ``pos`` percent
-    and a class — ``ahead`` (done on/before due), ``late`` (done after due),
-    ``overdue`` (open & past due) or ``upcoming`` (open & future). Tasks with no
-    due date are returned separately.
-    """
-    dated = [t for t in tasks if t.due_date]
-    no_date = [t for t in tasks if not t.due_date]
-    if not dated:
-        return {"has_dates": False, "items": [], "no_date": no_date, "today_pos": None}
-
-    anchors = [t.due_date for t in dated] + [today]
-    lo, hi = min(anchors), max(anchors)
-    span = (hi - lo).days or 1
-
-    items = []
-    for t in dated:
-        if t.status == Task.Status.COMPLETED:
-            done = t.completed_at.date() if t.completed_at else t.due_date
-            cls = "late" if done > t.due_date else "ahead"
-        else:
-            cls = "overdue" if t.due_date < today else "upcoming"
-        items.append(
-            {"task": t, "pos": round((t.due_date - lo).days / span * 100, 2), "cls": cls}
-        )
-    return {
-        "has_dates": True,
-        "items": items,
-        "no_date": no_date,
-        "today_pos": round((today - lo).days / span * 100, 2),
-        "start": lo,
-        "end": hi,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -951,27 +917,18 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
             can_edit and phase.can_have_children and not phase.tests.exists()
         )
 
-        # Tasks render on every phase — ordered by due date, completed last.
-        # Sub-tasks (task.parent set) are nested under their parent's row
-        # rather than listed again at the top level.
+        # Tasks render on every phase — the tree+Gantt hybrid nests sub-tasks
+        # under their parent's row (spec section 5) rather than listing them
+        # again at the top level.
         today = timezone.localdate()
         all_tasks = list(order_tasks(phase.tasks.select_related("assigned_to")))
-        by_id = {t.id: t for t in all_tasks}
         for task in all_tasks:
+            task.can_lead = can_edit
             task.can_execute = can_edit or task.assigned_to_id == user.id
             task.allowed_statuses = task_allowed_statuses(task.status)
-            task.is_overdue = bool(
-                task.due_date
-                and task.due_date < today
-                and task.status != Task.Status.COMPLETED
-            )
-            task.child_list = []
-        for task in all_tasks:
-            if task.parent_id and task.parent_id in by_id:
-                by_id[task.parent_id].child_list.append(task)
-        tasks = [t for t in all_tasks if not t.parent_id]
-        ctx["tasks"] = tasks
-        ctx["task_timeline"] = build_task_timeline(all_tasks, today)
+        gantt = build_task_gantt(all_tasks, today)
+        ctx["tasks"] = gantt["top_level"]
+        ctx["gantt"] = gantt
 
         # A template is downloadable from ANY phase (any kind): the phase's own
         # if attached, otherwise the global default.
@@ -1168,8 +1125,10 @@ class TaskDeleteView(_ItemEditMixin, DeleteView):
 
 
 def _annotate_task_tree(task, can_edit, user_id):
-    """Annotate a task (can_execute/allowed_statuses) and recursively its
-    sub-tasks, attaching each level as ``.child_list`` for template rendering."""
+    """Annotate a task (can_lead/can_execute/allowed_statuses) and recursively
+    its sub-tasks, attaching each level as ``.child_list`` for template
+    rendering."""
+    task.can_lead = can_edit
     task.can_execute = can_edit or task.assigned_to_id == user_id
     task.allowed_statuses = task_allowed_statuses(task.status)
     task.child_list = list(task.subtasks.select_related("assigned_to"))
@@ -1934,6 +1893,14 @@ def requirement_preview(request, pk):
     return render(request, "pocs/partials/requirement_preview.html", {"req": req})
 
 
+def _usecase_preview_ctx(request, uc):
+    return {
+        "usecase": uc,
+        "can_manage": user_can_lead_poc(request.user, uc.poc) and not uc.poc.is_closed,
+        "status_choices": UseCase.Status.choices,
+    }
+
+
 def usecase_preview(request, pk):
     """Read-only fragment for the "eye" preview popup (used when linking)."""
     if not request.user.is_authenticated:
@@ -1941,7 +1908,35 @@ def usecase_preview(request, pk):
     uc = get_object_or_404(UseCase, pk=pk)
     if not user_is_poc_member(request.user, uc.poc):
         raise PermissionDenied
-    return render(request, "pocs/partials/usecase_preview.html", {"usecase": uc})
+    return render(request, "pocs/partials/usecase_preview.html", _usecase_preview_ctx(request, uc))
+
+
+@require_POST
+def usecase_set_status(request, pk):
+    """Quick status change from the preview popup.
+
+    Same effect as the full edit form (POCLeadRequiredMixin-equivalent gate,
+    modified_by/modified_date stamp, audited as "usecase_updated") but inline
+    — no navigation away from wherever the popup was opened.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    uc = get_object_or_404(UseCase, pk=pk)
+    if not user_can_lead_poc(request.user, uc.poc):
+        raise PermissionDenied
+    if uc.poc.is_closed:
+        raise PermissionDenied("This POC is closed and locked for editing.")
+    new_status = request.POST.get("status", "")
+    if new_status in dict(UseCase.Status.choices) and new_status != uc.status:
+        old_status = uc.status
+        uc.status = new_status
+        uc.modified_by = request.user
+        uc.save(update_fields=["status", "modified_by", "modified_date"])
+        record_audit(
+            uc, "usecase_updated", request.user,
+            {"status": {"before": old_status, "after": new_status}},
+        )
+    return render(request, "pocs/partials/usecase_preview.html", _usecase_preview_ctx(request, uc))
 
 
 def test_preview(request, pk):
@@ -1983,7 +1978,8 @@ def poc_graph_data(request, pk):
     for uc in use_cases:
         nodes.append(
             {"id": f"uc-{uc.id}", "type": "usecase", "label": uc.title,
-             "status": uc.graph_status(), "url": reverse("pocs:usecase_preview", args=[uc.id])}
+             "status": uc.graph_status(), "url": reverse("pocs:usecase_preview", args=[uc.id]),
+             "detailUrl": reverse("pocs:usecase_detail", args=[uc.id]), "detailLabel": "Go to Use Case"}
         )
         edges.append({"source": "poc", "target": f"uc-{uc.id}"})
         for req in uc.requirements.all():
@@ -1994,7 +1990,8 @@ def poc_graph_data(request, pk):
     for req in requirements:
         nodes.append(
             {"id": f"req-{req.id}", "type": "requirement", "label": req.code,
-             "status": req.graph_status(), "url": reverse("pocs:requirement_preview", args=[req.id])}
+             "status": req.graph_status(), "url": reverse("pocs:requirement_preview", args=[req.id]),
+             "detailUrl": reverse("pocs:requirement_detail", args=[req.id]), "detailLabel": "Go to Requirement"}
         )
         if req.id not in linked_req_ids:
             # Orphan requirement (no use case yet) — still shown, wired to the POC.
@@ -2006,7 +2003,9 @@ def poc_graph_data(request, pk):
     for t in all_tests:
         nodes.append(
             {"id": f"test-{t.id}", "type": "test", "label": t.test_code or t.title,
-             "status": t.graph_status(), "url": reverse("pocs:test_preview", args=[t.id])}
+             "status": t.graph_status(), "url": reverse("pocs:test_preview", args=[t.id]),
+             "detailUrl": f"{reverse('pocs:phase_detail', args=[t.phase_id])}#test-{t.id}",
+             "detailLabel": "Open in phase"}
         )
         if t.id not in linked_test_ids:
             # Orphan test (no requirement linked yet) — still shown, wired to the POC.
@@ -2503,9 +2502,9 @@ class POCImageUploadView(POCLeadRequiredMixin, CreateView):
     def form_invalid(self, form):
         if self._is_ajax:
             return JsonResponse(
-                {"error": "Upload failed — use a PNG/JPG/GIF/WEBP image."}, status=400
+                {"error": "Upload failed — use a PNG/JPG/GIF/WEBP/SVG image."}, status=400
             )
-        messages.error(self.request, "Upload failed — use a PNG/JPG/GIF/WEBP image.")
+        messages.error(self.request, "Upload failed — use a PNG/JPG/GIF/WEBP/SVG image.")
         return redirect("pocs:close", pk=self.poc.pk)
 
 
@@ -2542,9 +2541,9 @@ class PhaseImageUploadView(_PhaseEditCreateMixin, CreateView):
     def form_invalid(self, form):
         if self._is_ajax:
             return JsonResponse(
-                {"error": "Upload failed — use a PNG/JPG/GIF/WEBP image."}, status=400
+                {"error": "Upload failed — use a PNG/JPG/GIF/WEBP/SVG image."}, status=400
             )
-        messages.error(self.request, "Upload failed — use a PNG/JPG/GIF/WEBP image.")
+        messages.error(self.request, "Upload failed — use a PNG/JPG/GIF/WEBP/SVG image.")
         return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
 
 
@@ -2955,9 +2954,11 @@ class FAStepDeleteView(AdminRequiredMixin, DeleteView):
 class TasksView(LoginRequiredMixin, View):
     """Tasks grouped by POC.
 
-    * Manager (admin / POC lead): every task in the POCs they can see, with the
-      assignee shown, plus "pending" / "overdue" filters.
-    * Team member: only the tasks assigned to them.
+    Any POC member (lead, admin, or plain member) sees every task in the
+    POCs they belong to, with the assignee shown, plus "pending" / "overdue"
+    filters — this is read-only visibility, it does not change who may
+    edit/execute a given task (see ``task.can_execute``). A user with no POC
+    membership at all only sees tasks directly assigned to them.
     """
 
     template_name = "pocs/tasks.html"
@@ -2969,18 +2970,24 @@ class TasksView(LoginRequiredMixin, View):
         today = timezone.localdate()
         qs = Task.objects.select_related("phase__poc", "assigned_to")
 
+        lead_poc_ids = set(
+            POCMembership.objects.filter(
+                user=user, role_in_poc=POCMembership.Role.LEAD
+            ).values_list("poc_id", flat=True)
+        )
         if user.is_admin:
             manager = True
         else:
-            # Manager view for the POCs this user leads; for POCs where they are
-            # only a member they see just the tasks assigned to them.
-            lead_poc_ids = list(
-                POCMembership.objects.filter(
-                    user=user, role_in_poc=POCMembership.Role.LEAD
-                ).values_list("poc_id", flat=True)
+            # Any POC member can VIEW every task in the POCs they belong to
+            # (read-only — this does not change who can edit/execute a task,
+            # see task.can_execute/task.can_lead elsewhere); ``assigned_to`` is
+            # kept as a fallback for a task assigned to someone outside the
+            # POC's membership list.
+            member_poc_ids = list(
+                POCMembership.objects.filter(user=user).values_list("poc_id", flat=True)
             )
-            qs = qs.filter(Q(phase__poc_id__in=lead_poc_ids) | Q(assigned_to=user))
-            manager = bool(lead_poc_ids)
+            qs = qs.filter(Q(phase__poc_id__in=member_poc_ids) | Q(assigned_to=user))
+            manager = bool(member_poc_ids)
         qs = qs.distinct()
 
         flt = request.GET.get("f", "")
@@ -2996,7 +3003,7 @@ class TasksView(LoginRequiredMixin, View):
 
         # Grouped by POC; within each, by due date with completed tasks last.
         tasks = list(
-            qs.order_by(
+            qs.select_related("phase").order_by(
                 "phase__poc__name",
                 Case(
                     When(status=Task.Status.COMPLETED, then=1),
@@ -3007,24 +3014,40 @@ class TasksView(LoginRequiredMixin, View):
                 "id",
             )
         )
+        for t in tasks:
+            t.can_lead = user.is_admin or t.phase.poc_id in lead_poc_ids
+            t.can_execute = t.can_lead or t.assigned_to_id == user.id
+
+        # One shared date axis per POC (a task and its sub-task must never
+        # read as the same kind of row — spec section 5); phases are then
+        # sub-headers within that one Gantt so timelines stay comparable
+        # across a POC's phases.
         groups, current = [], None
         for t in tasks:
-            t.is_overdue = bool(
-                t.due_date and t.due_date < today and t.status != Task.Status.COMPLETED
-            )
             poc = t.phase.poc
             if current is None or current["poc"].id != poc.id:
                 current = {"poc": poc, "tasks": []}
                 groups.append(current)
             current["tasks"].append(t)
 
+        for group in groups:
+            gantt = build_task_gantt(group["tasks"], today)
+            group["gantt"] = gantt
+            phases_by_id = {}
+            phase_order = []
+            for root in gantt["top_level"]:
+                pid = root.phase_id
+                if pid not in phases_by_id:
+                    phases_by_id[pid] = {"phase": root.phase, "roots": []}
+                    phase_order.append(pid)
+                phases_by_id[pid]["roots"].append(root)
+            group["phases"] = [phases_by_id[pid] for pid in phase_order]
+
         ctx = {
             "groups": groups,
             "manager": manager,
             "filter": flt,
             "total": len(tasks),
-            # A single timeline across all the tasks in view (spec Fase 7).
-            "task_timeline": build_task_timeline(tasks, today),
         }
         if user.is_admin:
             ctx["users"] = User.objects.filter(is_active=True).order_by(
@@ -3038,9 +3061,9 @@ class TasksView(LoginRequiredMixin, View):
 class TestsView(LoginRequiredMixin, View):
     """Tests grouped by POC — a quick view of what's still pending (spec 4a).
 
-    Mirrors :class:`TasksView`: admins/leads see every test in the POCs they can
-    manage (with the assignee shown); a plain member sees only tests assigned to
-    them. "Pending" filters to tests that aren't settled yet.
+    Mirrors :class:`TasksView`: any POC member sees every test in the POCs
+    they belong to (read-only, with the assignee shown). "Pending" filters
+    to tests that aren't settled yet.
     """
 
     template_name = "pocs/tests_overview.html"
@@ -3054,13 +3077,13 @@ class TestsView(LoginRequiredMixin, View):
         if user.is_admin:
             manager = True
         else:
-            lead_poc_ids = list(
-                POCMembership.objects.filter(
-                    user=user, role_in_poc=POCMembership.Role.LEAD
-                ).values_list("poc_id", flat=True)
+            # Any POC member can VIEW every test in the POCs they belong to
+            # (read-only — see the comment in TasksView.get for the same fix).
+            member_poc_ids = list(
+                POCMembership.objects.filter(user=user).values_list("poc_id", flat=True)
             )
-            qs = qs.filter(Q(phase__poc_id__in=lead_poc_ids) | Q(assigned_to=user))
-            manager = bool(lead_poc_ids)
+            qs = qs.filter(Q(phase__poc_id__in=member_poc_ids) | Q(assigned_to=user))
+            manager = bool(member_poc_ids)
         qs = qs.distinct()
 
         flt = request.GET.get("f", "")

@@ -15,12 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto space-y-6" x-data="{ previewOpen: false, previewHtml: '',
-       openPreview(url) {
-         this.previewHtml = '';
-         this.previewOpen = true;
-         fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
-       } }">
+<div class="max-w-3xl mx-auto space-y-6">
   <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
 
   <div class="bg-surface border border-line rounded-xl p-6">
@@ -48,7 +43,7 @@
                       {{ cb.tag }}
                       <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
                       <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
-                              @click="openPreview('{% url 'pocs:usecase_preview' cb.data.value %}')" title="View">
+                              onclick="openEntityPreview('{% url 'pocs:usecase_preview' cb.data.value %}', '{% url 'pocs:usecase_detail' cb.data.value %}', 'Go to Use Case')" title="View">
                         <i data-lucide="eye" class="w-4 h-4"></i>
                       </button>
                     </div>
@@ -71,7 +66,7 @@
                       {{ cb.tag }}
                       <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
                       <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
-                              @click="openPreview('{% url 'pocs:requirement_preview' cb.data.value %}')" title="View">
+                              onclick="openEntityPreview('{% url 'pocs:requirement_preview' cb.data.value %}', '{% url 'pocs:requirement_detail' cb.data.value %}', 'Go to Requirement')" title="View">
                         <i data-lucide="eye" class="w-4 h-4"></i>
                       </button>
                     </div>
@@ -133,20 +128,6 @@
         <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
       </div>
     </form>
-  </div>
-
-  {# Preview popup — fetches a read-only fragment for the linked item. #}
-  <div x-show="previewOpen" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
-       @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
-    <div class="bg-surface rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
-      <div class="flex justify-end mb-2">
-        <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-      <div x-html="previewHtml"></div>
-    </div>
   </div>
 </div>
 {% endblock %}

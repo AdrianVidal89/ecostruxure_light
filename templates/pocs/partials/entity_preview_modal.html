@@ -1,0 +1,22 @@
+{% comment %}
+Single shared preview popup — the only copy of this modal shell in the whole
+app (included once, in base.html). Every link/chip that references a Use
+Case, Requirement, Test or section calls window.openEntityPreview(previewUrl,
+detailUrl, label) (see static/js/entity_preview.js); the fragment is fetched
+via htmx into #entity-preview-body, and "Go to …" navigates exactly like a
+direct visit to that entity's own page.
+{% endcomment %}
+<div id="entity-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+     onclick="if (event.target === this) closeEntityPreview();">
+  <div class="bg-surface-elevated rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" onclick="event.stopPropagation();">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <a id="entity-preview-go" href="#" class="hidden inline-flex items-center gap-1.5 text-sm font-medium text-brand-dark hover:underline">
+        <i data-lucide="arrow-right" class="w-4 h-4"></i> <span data-go-label>Go to item</span>
+      </a>
+      <button type="button" onclick="closeEntityPreview();" class="ml-auto p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <div id="entity-preview-body"></div>
+  </div>
+</div>

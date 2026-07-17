@@ -193,10 +193,6 @@
         </a>
       {% endif %}
     </div>
-    {# Timeline always visible above the task list (spec Fase 7) #}
-    {% if tasks %}
-      {% include "pocs/partials/task_timeline.html" %}
-    {% endif %}
     {% if bulk_enabled and tasks %}
       {% comment %}
         Bulk "autoasignar progreso": set one status on several tasks at once.
@@ -215,15 +211,7 @@
         <span class="text-xs text-ink-muted">(invalid transitions are skipped)</span>
       </form>
     {% endif %}
-    <div class="space-y-3">
-      {% for task in tasks %}
-        {% include "pocs/partials/task_row.html" %}
-      {% empty %}
-        <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
-          No tasks yet.{% if can_add_task %} Use “Add task” to create one.{% endif %}
-        </div>
-      {% endfor %}
-    </div>
+    {% include "pocs/partials/task_gantt.html" with roots=tasks %}
   </section>
 
   {% if is_leaf and is_test %}
@@ -255,13 +243,7 @@
 
   {% if is_leaf and not is_test %}
     {# ---------- Sections: Markdown documents (Functional Analysis structure, or a Documentation phase's own sections) ---------- #}
-    <section class="space-y-3"
-             x-data="{ previewOpen: false, previewHtml: '',
-               openPreview(url) {
-                 this.previewHtml = '';
-                 this.previewOpen = true;
-                 fetch(url).then(r => r.text()).then(html => { this.previewHtml = html; this.$nextTick(() => window.lucide && lucide.createIcons()); });
-               } }">
+    <section class="space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="font-medium text-ink flex items-center gap-2">
           <i data-lucide="list-tree" class="w-4 h-4"></i>
@@ -279,7 +261,7 @@
       <div class="bg-surface border border-line rounded-xl divide-y divide-line">
         {% for document in documents %}
           {% if document.is_locked_section %}
-            <button type="button" @click="openPreview('{% url 'pocs:fa_section_preview' document.pk %}')"
+            <button type="button" onclick="openEntityPreview('{% url 'pocs:fa_section_preview' document.pk %}', '{% url 'pocs:document_edit' document.pk %}', 'Edit section')"
                     class="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-canvas/50">
               <span class="min-w-0 flex items-center gap-2">
                 {% if document.section_kind == 'use_cases' %}<i data-lucide="layers" class="w-4 h-4 text-info shrink-0"></i>
@@ -302,7 +284,7 @@
                 {% if not document.content %}<span class="text-xs text-ink-muted shrink-0">Empty</span>{% endif %}
               </a>
               <div class="flex items-center gap-1 shrink-0">
-                <button type="button" @click="openPreview('{% url 'pocs:fa_section_preview' document.pk %}')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                <button type="button" onclick="openEntityPreview('{% url 'pocs:fa_section_preview' document.pk %}', '{% url 'pocs:document_edit' document.pk %}', 'Edit section')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
                 <a href="{% url 'pocs:document_edit' document.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
                 {% if can_edit %}
                   <form method="post" action="{% url 'pocs:document_delete' document.pk %}" onsubmit="return confirm('Delete “{{ document.title|escapejs }}”?');" class="contents">
@@ -324,19 +306,6 @@
         {% endfor %}
       </div>
 
-      {# Preview popup for locked (Use Cases/Requirements) sections. #}
-      <div x-show="previewOpen" x-cloak
-           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
-           @click.self="previewOpen = false" @keydown.escape.window="previewOpen = false">
-        <div class="bg-surface rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" @click.stop>
-          <div class="flex justify-end mb-2">
-            <button type="button" @click="previewOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
-              <i data-lucide="x" class="w-4 h-4"></i>
-            </button>
-          </div>
-          <div x-html="previewHtml"></div>
-        </div>
-      </div>
     </section>
   {% endif %}
 
@@ -361,8 +330,10 @@
           </span>
         </button>
 
-        {# ----- Option 2: Generate directly — content comes from the tests (Test phases) or the sections above (Documentation / Functional Analysis). ----- #}
-        {% if can_edit and is_reportable %}
+        {# ----- Option 2: Generate directly — content comes from the tests (Test phases) or the sections above (Documentation / Functional Analysis). -----
+             Any POC member may generate/download it (reaching this page already implies membership — see POCMemberRequiredMixin); this used to be
+             gated to `can_edit` (lead/admin only), which wrongly blocked non-lead members from getting the same report a lead could produce. #}
+        {% if is_reportable %}
           <form method="post"
                 action="{% if is_test %}{% url 'reports:phase_generate' phase.pk %}{% else %}{% url 'reports:phase_documents' phase.pk %}{% endif %}"
                 class="contents">
@@ -388,9 +359,7 @@
             </span>
             <span class="min-w-0">
               <span class="block font-semibold text-ink">Generate report</span>
-              <span class="block text-sm text-ink-muted mt-0.5">
-                {% if not can_edit %}Only editors can generate the report.{% else %}No .docx template available yet.{% endif %}
-              </span>
+              <span class="block text-sm text-ink-muted mt-0.5">No .docx template available yet.</span>
             </span>
           </div>
         {% endif %}
@@ -427,7 +396,7 @@
 
       {# ----- Attach report modal ----- #}
       <div x-show="attachOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div @click.outside="attachOpen = false" class="bg-surface rounded-xl border border-line shadow-lg p-6 max-w-lg w-full space-y-3">
+        <div @click.outside="attachOpen = false" class="bg-surface-elevated rounded-xl border border-line shadow-lg p-6 max-w-lg w-full space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="font-medium text-ink flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4"></i> Attach a report</h3>
             <button type="button" @click="attachOpen = false" class="text-ink-muted hover:text-ink"><i data-lucide="x" class="w-4 h-4"></i></button>

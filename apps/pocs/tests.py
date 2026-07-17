@@ -403,10 +403,20 @@ class TasksViewTests(TestCase):
             due_date=timezone.localdate() - timedelta(days=3), status="in_progress",
         )
 
-    def test_member_sees_only_assigned(self):
+    def test_member_sees_every_task_in_their_poc(self):
+        # Section 3 fix: read-only visibility for any POC member, not just
+        # tasks assigned directly to them.
         self.client.force_login(self.member)
         resp = self.client.get(reverse("pocs:tasks"))
         self.assertContains(resp, "Mine")
+        self.assertContains(resp, "Others task")
+
+    def test_non_member_does_not_see_tasks_of_other_pocs(self):
+        outsider = User.objects.create_user(
+            "g_outsider", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.client.force_login(outsider)
+        resp = self.client.get(reverse("pocs:tasks"))
         self.assertNotContains(resp, "Others task")
 
     def test_admin_is_manager_sees_all(self):
@@ -573,6 +583,7 @@ class RolePermissionTests(TestCase):
 # Phase kinds: blueprint inheritance + documentation report generation
 # ---------------------------------------------------------------------------
 import base64
+import os
 import tempfile
 from io import BytesIO
 
@@ -1451,8 +1462,8 @@ class Fase6ClosureTests(TestCase):
         self.assertIn("pending", md.lower())
 
 
-class Fase7TaskOrderingTimelineTests(TestCase):
-    """Fase 7: due-date ordering (completed last) + task timeline classes."""
+class Fase7TaskOrderingTests(TestCase):
+    """Fase 7: due-date ordering (completed last)."""
 
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -1472,27 +1483,86 @@ class Fase7TaskOrderingTimelineTests(TestCase):
         # soon (earliest due) → late → nodate (null last) → done (completed last)
         self.assertEqual(ordered, [soon, late, nodate, done])
 
-    def test_timeline_classifies_tasks(self):
-        from apps.pocs.views import build_task_timeline
-        today = timezone.localdate()
-        overdue = Task.objects.create(phase=self.phase, title="od", due_date=today - timedelta(days=2))
-        upcoming = Task.objects.create(phase=self.phase, title="up", due_date=today + timedelta(days=3))
-        ahead = Task.objects.create(phase=self.phase, title="ah", due_date=today + timedelta(days=1), status="completed")
-        # completed 'ahead' has completed_at now (<= due) → ahead
-        tl = build_task_timeline([overdue, upcoming, ahead], today)
-        cls = {i["task"].title: i["cls"] for i in tl["items"]}
-        self.assertEqual(cls["od"], "overdue")
-        self.assertEqual(cls["up"], "upcoming")
-        self.assertEqual(cls["ah"], "ahead")
-        self.assertTrue(tl["has_dates"])
 
-    def test_timeline_late_completion(self):
-        from apps.pocs.views import build_task_timeline
+class TaskGanttTests(TestCase):
+    """Section 5: the tree+Gantt hybrid — a summary (parent) row aggregates
+    its sub-tasks' dates/progress instead of showing its own, and every row
+    (dated or not) still appears in the tree."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "gt_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="GT POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+
+    def test_leaf_task_uses_its_own_dates(self):
+        from apps.pocs.gantt import build_task_gantt
         today = timezone.localdate()
-        t = Task.objects.create(phase=self.phase, title="l", due_date=today - timedelta(days=1), status="completed")
-        # completed_at is now (> due date yesterday) → late
-        tl = build_task_timeline([t], today)
-        self.assertEqual(tl["items"][0]["cls"], "late")
+        t = Task.objects.create(
+            phase=self.phase, title="Solo", start_date=today, due_date=today + timedelta(days=3)
+        )
+        gantt = build_task_gantt([t], today)
+        self.assertTrue(gantt["has_dates"])
+        row = gantt["top_level"][0]
+        self.assertFalse(row.is_summary)
+        self.assertEqual(row.gantt_start, today)
+        self.assertEqual(row.gantt_end, today + timedelta(days=3))
+        self.assertEqual(row.gantt_progress, 0)
+
+    def test_summary_task_aggregates_subtasks(self):
+        from apps.pocs.gantt import build_task_gantt
+        today = timezone.localdate()
+        parent = Task.objects.create(
+            phase=self.phase, title="Parent",
+            start_date=today + timedelta(days=10), due_date=today + timedelta(days=10),
+        )
+        Task.objects.create(
+            phase=self.phase, title="Sub1", parent=parent,
+            start_date=today, due_date=today + timedelta(days=2), status="completed",
+        )
+        Task.objects.create(
+            phase=self.phase, title="Sub2", parent=parent,
+            start_date=today + timedelta(days=1), due_date=today + timedelta(days=5),
+        )
+        tasks = list(Task.objects.filter(phase=self.phase))
+        gantt = build_task_gantt(tasks, today)
+        self.assertEqual(len(gantt["top_level"]), 1)
+        parent_row = gantt["top_level"][0]
+        self.assertTrue(parent_row.is_summary)
+        # Spans the earliest sub-task start to the latest sub-task end —
+        # NOT the parent's own (irrelevant) start/due date.
+        self.assertEqual(parent_row.gantt_start, today)
+        self.assertEqual(parent_row.gantt_end, today + timedelta(days=5))
+        self.assertEqual(parent_row.gantt_progress, 50)  # 1 of 2 sub-tasks done
+        self.assertEqual(len(parent_row.child_list), 2)
+
+    def test_undated_tasks_still_appear_without_a_bar(self):
+        from apps.pocs.gantt import build_task_gantt
+        t = Task.objects.create(phase=self.phase, title="No dates")
+        gantt = build_task_gantt([t], timezone.localdate())
+        self.assertFalse(gantt["has_dates"])
+        self.assertEqual(gantt["top_level"], [t])
+        self.assertIsNone(t.pct_start)
+
+    def test_gantt_summary_flattens_counts_and_range(self):
+        from apps.pocs.gantt import build_task_gantt, gantt_summary
+        today = timezone.localdate()
+        Task.objects.create(
+            phase=self.phase, title="A", start_date=today, due_date=today + timedelta(days=1),
+            status="completed",
+        )
+        Task.objects.create(
+            phase=self.phase, title="B", start_date=today + timedelta(days=2),
+            due_date=today + timedelta(days=4),
+        )
+        tasks = list(Task.objects.filter(phase=self.phase))
+        gantt = build_task_gantt(tasks, today)
+        summary = gantt_summary(gantt["top_level"])
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["completed"], 1)
+        self.assertEqual(summary["start"], today)
+        self.assertEqual(summary["end"], today + timedelta(days=4))
 
 
 class Fase8BlueprintTests(TestCase):
@@ -2127,3 +2197,298 @@ class CommentFeedbackTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         comment.refresh_from_db()
         self.assertEqual(comment.status, "open")
+
+
+class EntityPreviewAndQuickStatusTests(TestCase):
+    """Section 0 (shared preview modal) + Section 1 (quick UseCase status
+    change from the popup): cross-reference chips render as clickable
+    previews, and usecase_set_status behaves like the full edit form."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "ep_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.lead = User.objects.create_user(
+            "ep_lead", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.member = User.objects.create_user(
+            "ep_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="EP POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.lead, role_in_poc="lead")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.uc = UseCase.objects.create(poc=self.poc, title="UC", created_by=self.admin)
+        self.uc.requirements.add(self.req)
+
+    def test_usecase_preview_links_requirement_as_clickable_chip(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]))
+        self.assertContains(resp, "openEntityPreview(")
+        self.assertContains(resp, self.req.code)
+
+    def test_requirement_preview_links_usecase_as_clickable_chip(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:requirement_preview", args=[self.req.pk]))
+        self.assertContains(resp, "openEntityPreview(")
+        self.assertContains(resp, self.uc.code)
+
+    def test_member_preview_has_no_status_editor(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]))
+        self.assertNotContains(resp, "usecase_set_status")
+
+    def test_lead_preview_has_status_editor(self):
+        self.client.force_login(self.lead)
+        resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]))
+        self.assertContains(resp, reverse("pocs:usecase_set_status", args=[self.uc.pk]))
+
+    def test_lead_can_quick_change_status(self):
+        from apps.pocs.models import AuditLog
+
+        self.client.force_login(self.lead)
+        resp = self.client.post(
+            reverse("pocs:usecase_set_status", args=[self.uc.pk]),
+            {"status": "active"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.uc.refresh_from_db()
+        self.assertEqual(self.uc.status, "active")
+        self.assertEqual(self.uc.modified_by, self.lead)
+        self.assertTrue(
+            AuditLog.objects.filter(poc=self.poc, action="usecase_updated").exists()
+        )
+
+    def test_member_cannot_quick_change_status(self):
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:usecase_set_status", args=[self.uc.pk]),
+            {"status": "active"},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.uc.refresh_from_db()
+        self.assertEqual(self.uc.status, "draft")
+
+    def test_quick_status_blocked_when_poc_closed(self):
+        self.poc.closure_date = timezone.now().date()
+        self.poc.closed_at = timezone.now()
+        self.poc.closed_by = self.admin
+        self.poc.save()
+        self.client.force_login(self.lead)
+        resp = self.client.post(
+            reverse("pocs:usecase_set_status", args=[self.uc.pk]),
+            {"status": "active"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class NonLeadReportGenerationTests(TestCase):
+    """Section 2 fix: a non-lead POC member must be able to generate/download
+    the SAME full Functional Analysis report a lead would get — the
+    "Generate report" action was previously hidden from them (can_edit-gated
+    in phase_detail.html) even though the view/generation code itself never
+    filtered content by role, so download for a non-lead came back empty
+    (nothing had ever been generated for them to download)."""
+
+    def setUp(self):
+        from apps.reports.models import ReportSettings
+
+        self.admin = User.objects.create_user(
+            "nl_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "nl_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="NL POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="FA", order=1, kind=PhaseKind.FUNCTIONAL_ANALYSIS
+        )
+        FunctionalAnalysisStep.objects.create(title="Step One", order=1)
+        settings_row = ReportSettings.load()
+        settings_row.default_template.save(
+            "default.docx", SimpleUploadedFile("default.docx", _minimal_docx_bytes()), save=True
+        )
+
+    def test_non_lead_member_sees_generate_button(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Generate report")
+
+    def test_non_lead_member_generates_full_report(self):
+        from docx import Document
+
+        from apps.reports.models import GeneratedReport
+
+        self.client.force_login(self.member)
+        resp = self.client.post(reverse("reports:phase_documents", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+        report = GeneratedReport.objects.filter(phase=self.phase).latest("requested_at")
+        self.assertEqual(report.status, GeneratedReport.Status.READY, report.error_message)
+        self.assertTrue(report.output_file)
+
+        report.output_file.open("rb")
+        try:
+            doc = Document(BytesIO(report.output_file.read()))
+        finally:
+            report.output_file.close()
+        full_text = "\n".join(p.text for p in doc.paragraphs)
+        self.assertIn("Step One", full_text)
+
+        # Downloading it back as the same non-lead member works and is not empty.
+        dl = self.client.get(reverse("reports:download", args=[report.pk]))
+        self.assertEqual(dl.status_code, 200)
+        self.assertGreater(len(b"".join(dl.streaming_content)), 0)
+
+
+_MINIMAL_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60">
+<rect x="5" y="5" width="50" height="30" fill="green"/>
+<text x="10" y="50" font-size="10">chart</text>
+</svg>"""
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class SvgReportEmbedTests(TestCase):
+    """Section 4: SVG can be attached/embedded like any other image, and the
+    generated .docx converts it to a raster image (Word has no native SVG
+    support) instead of silently dropping it or breaking generation."""
+
+    def setUp(self):
+        from apps.reports.models import ReportSettings
+
+        self.admin = User.objects.create_user(
+            "svg_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="SVG POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="Docs", order=1, kind=PhaseKind.DOCUMENTATION
+        )
+        settings_row = ReportSettings.load()
+        settings_row.default_template.save(
+            "default.docx", SimpleUploadedFile("default.docx", _minimal_docx_bytes()), save=True
+        )
+        self.image = PhaseImage.objects.create(
+            phase=self.phase,
+            image=SimpleUploadedFile("chart.svg", _MINIMAL_SVG, content_type="image/svg+xml"),
+        )
+        PhaseDocument.objects.create(
+            phase=self.phase,
+            title="Section 1",
+            content=f"Some text\n\n{self.image.markdown_snippet}\n\nMore text",
+            order=1,
+        )
+
+    def test_svg_upload_passes_model_validation(self):
+        self.image.full_clean()  # raises ValidationError if .svg were rejected
+
+    def test_report_rasterizes_svg_to_embedded_image(self):
+        from docx import Document
+
+        from apps.reports.generation import generate_phase_report_from_documents
+        from apps.reports.models import GeneratedReport
+
+        report = generate_phase_report_from_documents(self.phase, self.admin)
+        self.assertEqual(
+            report.status, GeneratedReport.Status.READY, report.error_message
+        )
+        report.output_file.open("rb")
+        try:
+            doc = Document(BytesIO(report.output_file.read()))
+        finally:
+            report.output_file.close()
+        # Converted (not dropped, not left as literal "[image: ...]" alt text).
+        self.assertGreaterEqual(len(doc.inline_shapes), 1)
+        full_text = "\n".join(p.text for p in doc.paragraphs)
+        self.assertNotIn("[image:", full_text)
+
+    def test_broken_svg_falls_back_to_alt_text_without_crashing(self):
+        from apps.reports.converter.builder import build_docx
+
+        blocks = [
+            {"type": "paragraph", "children": [{"text": "before"}]},
+            {"type": "image", "url": "/media/phase_images/broken.svg", "alt": "broken chart"},
+            {"type": "paragraph", "children": [{"text": "after"}]},
+        ]
+        broken_path = os.path.join(tempfile.mkdtemp(), "broken.svg")
+        with open(broken_path, "wb") as f:
+            f.write(b"not actually an svg file")
+
+        out = build_docx(blocks, image_resolver=lambda url: broken_path)
+        self.assertTrue(out)  # generation completed, didn't raise
+
+
+class TaskGanttRenderTests(TestCase):
+    """Section 5: phase_detail and the global Tasks page render the tree+Gantt
+    without duplicating a sub-task (the bug being fixed — a sub-task used to
+    also appear as its own top-level entry on the global Tasks page)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "gr_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "gr_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="GR POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.parent = Task.objects.create(phase=self.phase, title="Parent Task Alpha")
+        self.sub = Task.objects.create(
+            phase=self.phase, title="Sub Task Bravo", parent=self.parent
+        )
+
+    def test_phase_detail_renders_subtask_once(self):
+        # Each task's detail panel (id="task-<id>") is rendered exactly once —
+        # the old bug rendered a sub-task a second time as its own top-level
+        # entry alongside its nested copy.
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertEqual(body.count(f'id="task-{self.sub.pk}"'), 1)
+        self.assertEqual(body.count(f'id="task-{self.parent.pk}"'), 1)
+
+    def test_global_tasks_page_shows_hierarchy_not_duplicate(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tasks"))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertEqual(body.count(f'id="task-{self.sub.pk}"'), 1)
+        self.assertEqual(body.count(f'id="task-{self.parent.pk}"'), 1)
+
+    def test_phase_card_shows_own_task_summary(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:detail", args=[self.poc.pk]) + "?tab=phases")
+        self.assertContains(resp, "0/2 tasks")
+
+
+class DarkModeSmokeTests(TestCase):
+    """Section 6: theme toggle + semantic tokens are present and wired up on
+    both the authenticated app shell and the (separately-headed) login page."""
+
+    def test_login_page_has_theme_toggle_and_tokens(self):
+        resp = self.client.get(reverse("accounts:login"))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn("theme-toggle", body)
+        self.assertIn("html.dark", body)
+        self.assertIn("prefers-color-scheme", body)
+
+    def test_app_shell_has_theme_toggle_and_tokens(self):
+        admin = User.objects.create_user(
+            "dm_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.client.force_login(admin)
+        resp = self.client.get(reverse("core:dashboard"))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn("html.dark", body)
+        self.assertIn("localStorage.setItem('theme'", body)
+        self.assertIn("bg-surface-elevated", body)

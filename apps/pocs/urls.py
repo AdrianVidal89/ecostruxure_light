@@ -137,6 +137,11 @@ urlpatterns = [
         name="usecase_preview",
     ),
     path(
+        "use-cases/<int:pk>/set-status/",
+        views.usecase_set_status,
+        name="usecase_set_status",
+    ),
+    path(
         "use-cases/<int:pk>/edit/",
         views.UseCaseUpdateView.as_view(),
         name="usecase_edit",

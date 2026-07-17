@@ -44,9 +44,12 @@
     {% if test.requirements.exists %}
       <div class="flex flex-wrap gap-1.5">
         {% for r in test.requirements.all %}
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink">
+          <button type="button"
+                  onclick="openEntityPreview('{% url 'pocs:requirement_preview' r.pk %}', '{% url 'pocs:requirement_detail' r.pk %}', 'Go to Requirement')"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+                  title="Click to preview">
             <i data-lucide="link" class="w-3 h-3"></i>{{ r.code }}
-          </span>
+          </button>
         {% endfor %}
       </div>
     {% else %}

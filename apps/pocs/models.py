@@ -905,6 +905,19 @@ class Phase(models.Model):
         passed = self.tests.filter(result__in=Test.PASSING_RESULTS).count()
         return round(passed / executed * 100)
 
+    def own_task_summary(self):
+        """Task count/completed/date-range for THIS phase's own tasks (not
+        sub-phases) — lets the Phases tab card show it at a glance, without
+        opening the phase's own page (spec section 5)."""
+        tasks = list(self.tasks.all())
+        dates = [d for t in tasks for d in (t.start_date, t.due_date) if d]
+        return {
+            "total": len(tasks),
+            "completed": sum(1 for t in tasks if t.status == Task.Status.COMPLETED),
+            "start": min(dates) if dates else None,
+            "end": max(dates) if dates else None,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Task
@@ -938,6 +951,9 @@ class Task(models.Model):
     )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    start_date = models.DateField(
+        null=True, blank=True, help_text="Planned start — shown as the Gantt bar's left edge."
     )
     due_date = models.DateField(null=True, blank=True)
     notes = models.TextField(
@@ -1643,9 +1659,9 @@ class PhaseImage(models.Model):
     image = models.FileField(
         upload_to="phase_images/%Y/%m/",
         validators=[
-            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp"])
+            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp", "svg"])
         ],
-        help_text="PNG/JPG/GIF/WEBP.",
+        help_text="PNG/JPG/GIF/WEBP/SVG.",
     )
     caption = models.CharField(max_length=255, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
@@ -1676,9 +1692,9 @@ class POCImage(models.Model):
     image = models.FileField(
         upload_to="poc_images/%Y/%m/",
         validators=[
-            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp"])
+            FileExtensionValidator(["png", "jpg", "jpeg", "gif", "webp", "svg"])
         ],
-        help_text="PNG/JPG/GIF/WEBP.",
+        help_text="PNG/JPG/GIF/WEBP/SVG.",
     )
     caption = models.CharField(max_length=255, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)

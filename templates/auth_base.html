@@ -6,27 +6,79 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
+  {# Apply the saved/system theme before Tailwind & first paint (see base.html — same mechanism). #}
+  <script>
+    (function () {
+      var saved = localStorage.getItem('theme');
+      var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
+
   {# Tailwind + Schneider palette (served locally — CDNs are blocked). #}
   <script src="{% static 'vendor/tailwind.js' %}"></script>
   <script>
     tailwind.config = {
       theme: { extend: {
         colors: {
-          brand:   { DEFAULT: '#3DCD58', dark: '#1A7A2E' },
-          canvas:  '#F5F6F7', surface: '#FFFFFF',
-          ink:     { DEFAULT: '#1A1A1A', muted: '#6B7280' },
-          line:    '#E5E7EB', danger: '#EF4444', warning: '#F97316', info: '#3B82F6',
+          brand:   { DEFAULT: 'rgb(var(--color-brand) / <alpha-value>)', dark: 'rgb(var(--color-brand-dark) / <alpha-value>)' },
+          canvas:  'rgb(var(--color-canvas) / <alpha-value>)',
+          surface: 'rgb(var(--color-surface) / <alpha-value>)',
+          'surface-elevated': 'rgb(var(--color-surface-elevated) / <alpha-value>)',
+          ink:     { DEFAULT: 'rgb(var(--color-ink) / <alpha-value>)', muted: 'rgb(var(--color-ink-muted) / <alpha-value>)' },
+          line:    'rgb(var(--color-line) / <alpha-value>)',
+          danger:  'rgb(var(--color-danger) / <alpha-value>)',
+          warning: 'rgb(var(--color-warning) / <alpha-value>)',
+          info:    'rgb(var(--color-info) / <alpha-value>)',
         },
         fontFamily: { sans: ['Inter', 'system-ui', 'Segoe UI', 'sans-serif'] },
       }},
     };
   </script>
   <script src="{% static 'vendor/lucide.min.js' %}"></script>
-  <style>.transition-soft { transition: all .18s ease; }</style>
+  <style>
+    /* Same token values as base.html — kept in sync manually since this is a
+       separate <head> (the login page renders before any app chrome). */
+    :root {
+      --color-brand: 61 205 88; --color-brand-dark: 26 122 46;
+      --color-canvas: 245 246 247; --color-surface: 255 255 255; --color-surface-elevated: 255 255 255;
+      --color-ink: 26 26 26; --color-ink-muted: 75 85 99; --color-line: 229 231 235;
+      --color-danger: 239 68 68; --color-warning: 249 115 22; --color-info: 59 130 246;
+    }
+    html.dark {
+      --color-brand: 74 222 128; --color-brand-dark: 134 239 172;
+      --color-canvas: 18 18 18; --color-surface: 30 30 30; --color-surface-elevated: 38 38 38;
+      --color-ink: 224 224 224; --color-ink-muted: 156 163 175; --color-line: 110 110 120;
+      --color-danger: 248 113 113; --color-warning: 251 191 36; --color-info: 96 165 250;
+    }
+    [x-cloak] { display: none !important; }
+    .transition-soft { transition: all .18s ease; }
+  </style>
   {% block extra_head %}{% endblock %}
 </head>
 
 <body class="h-full bg-canvas text-ink font-sans antialiased flex items-center justify-center p-4">
+  {# Theme toggle — top-right corner. Plain JS (this lean auth page doesn't
+     load Alpine — same mechanism as the main app header, just without it). #}
+  <button type="button" id="theme-toggle" onclick="
+      var d = !document.documentElement.classList.contains('dark');
+      document.documentElement.classList.toggle('dark', d);
+      localStorage.setItem('theme', d ? 'dark' : 'light');
+      document.getElementById('theme-toggle-moon').classList.toggle('hidden', d);
+      document.getElementById('theme-toggle-sun').classList.toggle('hidden', !d);
+    "
+    class="fixed top-4 right-4 p-2 rounded-lg text-ink-muted hover:bg-surface transition-soft"
+    title="Toggle light/dark theme">
+    <i id="theme-toggle-moon" data-lucide="moon" class="w-5 h-5"></i>
+    <i id="theme-toggle-sun" data-lucide="sun" class="w-5 h-5 hidden"></i>
+  </button>
+  <script>
+    if (document.documentElement.classList.contains('dark')) {
+      document.getElementById('theme-toggle-moon').classList.add('hidden');
+      document.getElementById('theme-toggle-sun').classList.remove('hidden');
+    }
+  </script>
+
   <div class="w-full max-w-sm">
     {# Brand header #}
     <div class="flex flex-col items-center gap-3 mb-8">

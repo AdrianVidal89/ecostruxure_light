@@ -50,7 +50,7 @@
         {% for error in form.description.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="{{ form.assigned_to.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Assigned to</label>
           {{ form.assigned_to }}
@@ -58,6 +58,13 @@
         <div>
           <label for="{{ form.status.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Status</label>
           {{ form.status }}
+        </div>
+        <div>
+          <label for="{{ form.start_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            Start date <span class="text-ink-muted font-normal">(Gantt bar's left edge)</span>
+          </label>
+          {{ form.start_date }}
+          {% for error in form.start_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
         </div>
         <div>
           <label for="{{ form.due_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Due date</label>

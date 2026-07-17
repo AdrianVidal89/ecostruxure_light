@@ -32,39 +32,20 @@
     <span class="text-xs text-ink-muted ml-auto">{{ total }} task{{ total|pluralize }}</span>
   </div>
 
-  {# Timeline across all tasks in view — always shown on top (spec Fase 7) #}
-  {% if total %}
-    <div>
-      <h2 class="font-medium text-ink mb-2 flex items-center gap-2"><i data-lucide="gantt-chart" class="w-4 h-4"></i> Timeline</h2>
-      {% include "pocs/partials/task_timeline.html" with show_context=True %}
-    </div>
-  {% endif %}
-
   {% for group in groups %}
-    <div>
-      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark mb-2">
+    <div class="space-y-3">
+      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
         <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
         <span class="text-xs text-ink-muted">({{ group.tasks|length }})</span>
       </a>
-      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
-        {% for task in group.tasks %}
-          <div class="flex items-center gap-3 p-4">
-            <a href="{% url 'pocs:phase_detail' task.phase.pk %}" class="min-w-0 flex-1">
-              <p class="font-medium text-ink truncate">{{ task.title }}</p>
-              <p class="text-xs text-ink-muted truncate">
-                {{ task.phase.name }}
-                {% if manager %} · {% if task.assigned_to %}{{ task.assigned_to.get_full_name|default:task.assigned_to.username }}{% else %}Unassigned{% endif %}{% endif %}
-                {% if task.due_date %} · <span class="{% if task.is_overdue %}text-danger font-medium{% endif %}">due {{ task.due_date }}{% if task.is_overdue %} (overdue){% endif %}</span>{% endif %}
-              </p>
-            </a>
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
-              {% if task.status == 'completed' %}bg-brand/10 text-brand-dark
-              {% elif task.status == 'in_progress' %}bg-info/10 text-info
-              {% elif task.status == 'blocked' %}bg-warning/10 text-warning
-              {% else %}bg-line text-ink-muted{% endif %}">{{ task.get_status_display }}</span>
-          </div>
-        {% endfor %}
-      </div>
+      {% for entry in group.phases %}
+        <div class="pl-2">
+          <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
+            <a href="{% url 'pocs:phase_detail' entry.phase.pk %}" class="hover:text-ink hover:underline">{{ entry.phase.name }}</a>
+          </p>
+          {% include "pocs/partials/task_gantt.html" with gantt=group.gantt roots=entry.roots %}
+        </div>
+      {% endfor %}
     </div>
   {% empty %}
     <div class="bg-surface border border-line rounded-xl p-12 text-center">

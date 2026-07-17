@@ -1,0 +1,28 @@
+{% comment %}
+Tree + Gantt hybrid (spec section 5): axis header (date range + today
+marker) followed by the recursive rows. Context: gantt (build_task_gantt's
+dict), roots (the top-level tasks to render — usually gantt.top_level, but
+tasks.html passes a per-phase subset of it), can_lead, task_status_choices,
+bulk_enabled.
+{% endcomment %}
+<div>
+  {% if gantt.has_dates %}
+    <div class="flex items-center text-xs text-ink-muted mb-1">
+      <span style="width: 44%;"></span>
+      <span class="flex-1 flex items-center justify-between pr-4">
+        <span>{{ gantt.start|date:"Y-m-d" }}</span>
+        <span class="inline-flex items-center gap-1"><i data-lucide="circle" class="w-2 h-2"></i> Today</span>
+        <span>{{ gantt.end|date:"Y-m-d" }}</span>
+      </span>
+    </div>
+  {% endif %}
+  <div class="rounded-xl border border-line bg-surface overflow-hidden">
+    {% for task in roots %}
+      {% include "pocs/partials/task_gantt_row.html" with task=task depth=0 %}
+    {% empty %}
+      <div class="p-8 text-center text-sm text-ink-muted">
+        No tasks yet.{% if can_add_task %} Use “Add task” to create one.{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>

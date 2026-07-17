@@ -31,6 +31,15 @@ each with a coloured status dot. Editors get the click-to-set status control.
         {% if children %}
           <span class="text-xs text-ink-muted">{{ children|length }} sub-phase{{ children|length|pluralize }}</span>
         {% endif %}
+        {% with task_summary=node.own_task_summary %}
+          {% if task_summary.total %}
+            <span class="inline-flex items-center gap-1 text-xs text-ink-muted" title="Own tasks">
+              <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+              {{ task_summary.completed }}/{{ task_summary.total }} tasks
+              {% if task_summary.start %}· {{ task_summary.start|date:"M j" }} – {{ task_summary.end|date:"M j" }}{% endif %}
+            </span>
+          {% endif %}
+        {% endwith %}
       </div>
     </div>
     <div class="text-right shrink-0 w-14">
