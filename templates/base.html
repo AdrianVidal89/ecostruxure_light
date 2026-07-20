@@ -387,6 +387,10 @@
   {# Shared read-only preview popup for Use Case / Requirement / Test / section links (see static/js/entity_preview.js). #}
   {% include "pocs/partials/entity_preview_modal.html" %}
   <script src="{% static 'js/entity_preview.js' %}"></script>
+
+  {# Shared "view large without leaving the tool" popup for uploaded PDFs/SVGs (see static/js/file_preview.js). #}
+  {% include "components/file_preview_modal.html" %}
+  <script src="{% static 'js/file_preview.js' %}"></script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

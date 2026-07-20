@@ -983,6 +983,19 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    requirements = models.ManyToManyField(
+        "Requirement",
+        related_name="tasks",
+        blank=True,
+        help_text="Requirement(s) this task implements.",
+    )
+    use_cases = models.ManyToManyField(
+        "UseCase",
+        related_name="tasks",
+        blank=True,
+        help_text="Use case(s) this task implements.",
+    )
+
     class Meta:
         ordering = ["id"]
 

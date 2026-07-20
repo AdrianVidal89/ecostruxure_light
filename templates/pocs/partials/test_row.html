@@ -175,9 +175,10 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
       {% if test.display_evidence_files or test.display_evidence_url %}
         <div class="flex flex-wrap items-center gap-3 mt-2 text-xs">
           {% for ev in test.display_evidence_files %}
-            <a href="{{ ev.file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">
+            <button type="button" onclick="openFilePreview('{{ ev.file.url }}', '{{ ev.file.name|slice:'-40:'|escapejs }}')"
+                    class="inline-flex items-center gap-1 text-info hover:underline">
               <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> {{ ev.file.name|slice:"-40:" }}
-            </a>
+            </button>
           {% endfor %}
           {% if test.display_evidence_url %}
             <a href="{{ test.display_evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline">

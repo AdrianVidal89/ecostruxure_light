@@ -99,6 +99,27 @@ status control and notes editor; everyone else sees read-only.
     </div>
   {% endif %}
 
+  {% if task.requirements.exists or task.use_cases.exists %}
+    <div class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-line">
+      {% for req in task.requirements.all %}
+        <button type="button"
+                onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+                title="Click to preview">
+          <i data-lucide="link" class="w-3 h-3"></i>{{ req.code }}
+        </button>
+      {% endfor %}
+      {% for uc in task.use_cases.all %}
+        <button type="button"
+                onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+                title="Click to preview">
+          <i data-lucide="link" class="w-3 h-3"></i>{{ uc.code }}
+        </button>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {# Notes (Markdown) — editable by the assignee/lead #}
   <div class="mt-3 pt-3 border-t border-line">
     <div class="flex items-center justify-between">

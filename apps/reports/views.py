@@ -193,10 +193,14 @@ def report_download(request, pk):
 
     if not report.output_file:
         raise Http404("This report has no output file.")
+    filename = report.output_file.name.rsplit("/", 1)[-1]
+    # ?inline=1 lets the in-tool PDF preview modal embed this file instead of
+    # downloading it — only meaningful for a browser-renderable type (PDF).
+    inline = request.GET.get("inline") == "1" and filename.lower().endswith(".pdf")
     return FileResponse(
         report.output_file.open("rb"),
-        as_attachment=True,
-        filename=report.output_file.name.rsplit("/", 1)[-1],
+        as_attachment=not inline,
+        filename=filename,
     )
 
 

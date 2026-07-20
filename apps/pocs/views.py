@@ -934,7 +934,13 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         # under their parent's row (spec section 5) rather than listing them
         # again at the top level.
         today = timezone.localdate()
-        all_tasks = list(order_tasks(phase.tasks.select_related("assigned_to")))
+        all_tasks = list(
+            order_tasks(
+                phase.tasks.select_related("assigned_to").prefetch_related(
+                    "requirements", "use_cases"
+                )
+            )
+        )
         for task in all_tasks:
             task.can_lead = can_edit
             task.can_execute = can_edit or task.assigned_to_id == user.id
@@ -1855,6 +1861,9 @@ class UseCaseDetailView(POCMemberRequiredMixin, DetailView):
     template_name = "pocs/usecase_detail.html"
     context_object_name = "usecase"
 
+    def get_queryset(self):
+        return super().get_queryset().prefetch_related("tasks")
+
     def get_poc(self):
         if not hasattr(self, "_poc"):
             self._poc = get_object_or_404(UseCase, pk=self.kwargs["pk"]).poc
@@ -1880,6 +1889,9 @@ class RequirementDetailView(POCMemberRequiredMixin, DetailView):
     model = Requirement
     template_name = "pocs/requirement_detail.html"
     context_object_name = "req"
+
+    def get_queryset(self):
+        return super().get_queryset().prefetch_related("tasks")
 
     def get_poc(self):
         if not hasattr(self, "_poc"):

@@ -44,7 +44,8 @@ Approve / Reject decision form. Context: validation, form (optional, for errors)
   {% if validation.evidence_files.all or validation.evidence_url %}
     <div class="flex flex-wrap items-center gap-3 text-xs">
       {% for ev in validation.evidence_files.all %}
-        <a href="{{ ev.file.url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline"><i data-lucide="paperclip" class="w-3.5 h-3.5"></i> {{ ev.file.name|slice:"-40:" }}</a>
+        <button type="button" onclick="openFilePreview('{{ ev.file.url }}', '{{ ev.file.name|slice:'-40:'|escapejs }}')"
+                class="inline-flex items-center gap-1 text-info hover:underline"><i data-lucide="paperclip" class="w-3.5 h-3.5"></i> {{ ev.file.name|slice:"-40:" }}</button>
       {% endfor %}
       {% if validation.evidence_url %}
         <a href="{{ validation.evidence_url }}" target="_blank" class="inline-flex items-center gap-1 text-info hover:underline"><i data-lucide="link" class="w-3.5 h-3.5"></i> Evidence link</a>

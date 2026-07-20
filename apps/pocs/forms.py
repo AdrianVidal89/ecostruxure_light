@@ -340,9 +340,31 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
 
     non_blank_fields = ("title",)
 
+    requirements = RequirementChoiceField(
+        queryset=Requirement.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Requirement(s) this task implements.",
+    )
+    use_cases = forms.ModelMultipleChoiceField(
+        queryset=UseCase.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Use case(s) this task implements.",
+    )
+
     class Meta:
         model = Task
-        fields = ("title", "description", "assigned_to", "status", "start_date", "due_date")
+        fields = (
+            "title",
+            "description",
+            "assigned_to",
+            "status",
+            "start_date",
+            "due_date",
+            "requirements",
+            "use_cases",
+        )
         widgets = {
             "title": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={"rows": 6}),  # EasyMDE mount
@@ -366,6 +388,8 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
                 .distinct()
                 .order_by("first_name", "username")
             )
+            self.fields["requirements"].queryset = poc.requirements.all()
+            self.fields["use_cases"].queryset = poc.use_cases.all()
 
     def clean(self):
         cleaned = super().clean()

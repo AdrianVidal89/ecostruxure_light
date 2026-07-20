@@ -378,6 +378,13 @@
                   <p class="text-sm font-medium text-ink truncate">{{ r.title }}</p>
                   <p class="text-xs text-ink-muted">{{ r.requested_at|date:"Y-m-d H:i" }}{% if r.requested_by %} · {{ r.requested_by.username }}{% endif %}</p>
                 </div>
+                {% if r.output_file.name|lower|slice:"-4:" == ".pdf" %}
+                  <button type="button"
+                          onclick="openFilePreview('{% url 'reports:download' r.pk %}?inline=1', '{{ r.title|escapejs }}')"
+                          class="inline-flex items-center gap-1 text-xs font-medium text-info hover:underline shrink-0">
+                    <i data-lucide="eye" class="w-3.5 h-3.5"></i> View
+                  </button>
+                {% endif %}
                 <a href="{% url 'reports:download' r.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-info hover:underline shrink-0">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i> Download
                 </a>

@@ -73,6 +73,41 @@
         </div>
       </div>
 
+      {% if form.requirements.field.queryset.exists or form.use_cases.field.queryset.exists %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-ink mb-1">Requirements <span class="text-ink-muted font-normal">(optional)</span></label>
+            {% if form.requirements.field.queryset.exists %}
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                {% for cb in form.requirements %}
+                  <div class="flex items-center gap-2 text-sm py-0.5">
+                    {{ cb.tag }}
+                    <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-sm text-ink-muted">No requirements yet.</p>
+            {% endif %}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-ink mb-1">Use cases <span class="text-ink-muted font-normal">(optional)</span></label>
+            {% if form.use_cases.field.queryset.exists %}
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                {% for cb in form.use_cases %}
+                  <div class="flex items-center gap-2 text-sm py-0.5">
+                    {{ cb.tag }}
+                    <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-sm text-ink-muted">No use cases yet.</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
       <div class="flex items-center gap-3 pt-2">
         <button type="submit"
                 class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
