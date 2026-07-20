@@ -450,6 +450,7 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         for t in poc_tasks:
             t.can_lead = can_lead
             t.can_execute = can_lead or t.assigned_to_id == self.request.user.id
+            t.allowed_statuses = task_allowed_statuses(t.status)
         poc_task_gantt, poc_task_phases = build_phase_task_tree(poc_tasks, today)
         ctx["poc_task_gantt"] = poc_task_gantt
         ctx["poc_task_phases"] = poc_task_phases
@@ -3079,6 +3080,7 @@ class TasksView(LoginRequiredMixin, View):
         for t in tasks:
             t.can_lead = user.is_admin or t.phase.poc_id in lead_poc_ids
             t.can_execute = t.can_lead or t.assigned_to_id == user.id
+            t.allowed_statuses = task_allowed_statuses(t.status)
 
         # One shared date axis per POC (a task and its sub-task must never
         # read as the same kind of row — spec section 5); phases are then

@@ -1076,7 +1076,10 @@ class POCCloseForm(forms.Form):
 class PhaseReportUploadForm(forms.Form):
     """Attach a finished report file to a phase (kept as-is for download)."""
 
-    ALLOWED_EXTS = ("docx", "pdf", "doc", "odt", "xlsx", "pptx", "md", "txt", "zip")
+    ALLOWED_EXTS = (
+        "docx", "pdf", "doc", "odt", "xlsx", "pptx", "md", "txt", "zip",
+        "svg", "png", "jpg", "jpeg", "gif", "webp",
+    )
 
     report_file = forms.FileField(
         widget=forms.ClearableFileInput(attrs={"class": "hidden"})

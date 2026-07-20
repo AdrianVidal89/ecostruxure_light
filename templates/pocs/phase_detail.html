@@ -378,7 +378,7 @@
                   <p class="text-sm font-medium text-ink truncate">{{ r.title }}</p>
                   <p class="text-xs text-ink-muted">{{ r.requested_at|date:"Y-m-d H:i" }}{% if r.requested_by %} · {{ r.requested_by.username }}{% endif %}</p>
                 </div>
-                {% if r.output_file.name|lower|slice:"-4:" == ".pdf" %}
+                {% if r.is_previewable %}
                   <button type="button"
                           onclick="openFilePreview('{% url 'reports:download' r.pk %}?inline=1', '{{ r.title|escapejs }}')"
                           class="inline-flex items-center gap-1 text-xs font-medium text-info hover:underline shrink-0">

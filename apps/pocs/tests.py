@@ -431,6 +431,33 @@ class TasksViewTests(TestCase):
         self.assertContains(resp, "Late one")
         self.assertNotContains(resp, ">Mine<")  # the non-overdue assigned task hidden
 
+    def test_status_dropdown_is_populated(self):
+        # Regression: TasksView annotated can_lead/can_execute but never
+        # allowed_statuses, so task_row.html's status <select> (which only
+        # renders an <option> for values in task.allowed_statuses) rendered
+        # with zero options here — even though the identical row worked fine
+        # from the phase-detail page, which does set allowed_statuses.
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tasks"))
+        self.assertContains(resp, '<option value="in_progress"')
+
+
+class POCOverviewTasksWidgetTests(TestCase):
+    """POC Overview tab's Tasks widget (between Details and the Map)."""
+
+    def test_status_dropdown_is_populated(self):
+        # Same root cause/fix as TasksViewTests.test_status_dropdown_is_populated,
+        # in the POCDetailView code path instead of TasksView.
+        admin = User.objects.create_user(
+            "widget_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        poc = POC.objects.create(name="Widget POC", created_by=admin, status="active")
+        phase = Phase.objects.create(poc=poc, name="P", order=1)
+        Task.objects.create(phase=phase, title="Widget task")
+        self.client.force_login(admin)
+        resp = self.client.get(reverse("pocs:detail", args=[poc.pk]))
+        self.assertContains(resp, '<option value="in_progress"')
+
 
 class POCCsvImportTests(TestCase):
     """Importing the newer 'PoC List' CSV schema (synonyms, DD/MM/YYYY, HTML)."""
@@ -787,6 +814,26 @@ class PhaseReportUploadTests(TestCase):
         )
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(GeneratedReport.objects.filter(phase=self.phase).exists())
+
+    def test_image_upload_accepted_and_offers_preview(self):
+        # Screenshots (SVG/PNG/JPEG/JPG) are valid evidence for an attached
+        # report, not just office-document formats — and once attached, a
+        # previewable file (image or PDF) should offer an in-tool "View".
+        from apps.reports.models import GeneratedReport
+
+        png_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+            "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        resp = self.client.post(
+            reverse("reports:phase_upload", args=[self.phase.pk]),
+            {"report_file": SimpleUploadedFile("screenshot.png", png_bytes)},
+        )
+        self.assertEqual(resp.status_code, 302)
+        report = GeneratedReport.objects.get(phase=self.phase)
+        self.assertTrue(report.is_previewable)
+        detail = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertContains(detail, "openFilePreview(")
 
     def test_test_phase_shows_tests_and_both_report_options(self):
         # A Test leaf phase exposes tests plus both report options (upload and

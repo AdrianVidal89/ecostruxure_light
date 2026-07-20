@@ -77,6 +77,11 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+# SAMEORIGIN (Django's own default is DENY): the in-tool file-preview modal
+# embeds PDFs/reports from this same app in an <iframe> — DENY blocks that
+# framing too, even though it's same-origin, breaking PDF preview entirely.
+X_FRAME_OPTIONS = "SAMEORIGIN"
+
 ROOT_URLCONF = "config.urls"
 
 # ---------------------------------------------------------------------------
