@@ -59,16 +59,21 @@
     <div>
       <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked requirements</p>
       {% if usecase.requirements.exists %}
-        <div class="flex flex-wrap gap-1.5">
+        <ul class="divide-y divide-line border border-line rounded-lg overflow-hidden" id="linked-requirements" data-usecase-pk="{{ usecase.pk }}">
           {% for req in usecase.requirements.all %}
-            <button type="button"
-                    onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
-                    title="{{ req.get_req_gravity_display }} — click to preview">
-              <i data-lucide="link" class="w-3 h-3"></i>{{ req.code }}{% if req.sub_system %} · {{ req.sub_system }}{% endif %}
-            </button>
+            <li>
+              <button type="button"
+                      data-req-pk="{{ req.pk }}"
+                      onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}?next={{ request.path|urlencode }}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement'); markRequirementVisited({{ usecase.pk }}, {{ req.pk }});"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-ink hover:bg-canvas transition-soft">
+                <i data-lucide="link" class="w-3.5 h-3.5 shrink-0 text-ink-muted"></i>
+                <span class="font-mono text-xs text-ink-muted shrink-0">{{ req.code }}</span>
+                <span class="truncate">{% if req.sub_system %}{{ req.sub_system }}{% else %}—{% endif %}</span>
+                <span class="ml-auto text-xs text-ink-muted shrink-0">{{ req.get_req_gravity_display }}</span>
+              </button>
+            </li>
           {% endfor %}
-        </div>
+        </ul>
       {% else %}
         <p class="text-sm text-ink-muted italic">No linked requirements.</p>
       {% endif %}
@@ -108,4 +113,48 @@
 
   {% include "pocs/partials/comment_thread.html" with target=usecase target_kind=comment_target %}
 </div>
+{% endblock %}
+
+{% block extra_body %}
+  <script>
+    // Tracks which linked requirements have been opened from this Use Case
+    // page, purely as a visual work-session aid (dims the row). Scoped to
+    // this use case and kept in sessionStorage so it clears itself when the
+    // tab/browser closes — no server-side "read" state exists anywhere else
+    // in the app, and none is needed here either.
+    (function () {
+      function storageKey(usecasePk) { return 'visited_reqs:' + usecasePk; }
+
+      function visitedSet(usecasePk) {
+        try {
+          return new Set(JSON.parse(sessionStorage.getItem(storageKey(usecasePk)) || '[]'));
+        } catch (e) {
+          return new Set();
+        }
+      }
+
+      window.markRequirementVisited = function (usecasePk, reqPk) {
+        var visited = visitedSet(usecasePk);
+        visited.add(reqPk);
+        sessionStorage.setItem(storageKey(usecasePk), JSON.stringify(Array.from(visited)));
+        applyVisitedStyles(usecasePk);
+      };
+
+      function applyVisitedStyles(usecasePk) {
+        var list = document.getElementById('linked-requirements');
+        if (!list) return;
+        var visited = visitedSet(usecasePk);
+        list.querySelectorAll('[data-req-pk]').forEach(function (btn) {
+          var isVisited = visited.has(Number(btn.dataset.reqPk));
+          btn.classList.toggle('bg-canvas', isVisited);
+          btn.classList.toggle('text-ink-muted', isVisited);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var list = document.getElementById('linked-requirements');
+        if (list) applyVisitedStyles(Number(list.dataset.usecasePk));
+      });
+    })();
+  </script>
 {% endblock %}

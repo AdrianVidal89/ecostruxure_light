@@ -17,6 +17,12 @@ delete form is shown whenever can_delete is set by the including template.
        class="inline-flex items-center gap-1 text-sm font-medium text-info hover:underline">
       <i data-lucide="download" class="w-4 h-4"></i> Download
     </a>
+    {% if report.kind == 'phase' or report.kind == 'final' %}
+      <a href="{% url 'reports:download' report.pk %}?format=md"
+         class="inline-flex items-center gap-1 text-sm font-medium text-info hover:underline">
+        <i data-lucide="file-text" class="w-4 h-4"></i> Download .md
+      </a>
+    {% endif %}
   {% elif report.status == 'error' %}
     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-danger/10 text-danger"
           title="{{ report.error_message }}">Error</span>

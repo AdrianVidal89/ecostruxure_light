@@ -93,10 +93,20 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         # Stats (admin) follow the current selection.
         if is_admin:
+            from apps.pocs.models import Requirement
+
+            # pending_validation mirrors Requirement.is_validated (a Python
+            # property, not annotatable — see its docstring): a requirement
+            # with no linked tests, or any linked test not settled
+            # passed/skipped, counts as pending. prefetch_related avoids an
+            # N+1 query per requirement while evaluating it in Python.
+            requirements = Requirement.objects.filter(poc__in=pocs).prefetch_related("tests")
             ctx["stats"] = {
                 "total": pocs.count(),
                 "active": pocs.filter(status=POC.Status.ACTIVE).count(),
                 "completed": pocs.filter(status=POC.Status.COMPLETED).count(),
+                "unassigned_to_test": requirements.filter(tests__isnull=True).distinct().count(),
+                "pending_validation": sum(1 for r in requirements if not r.is_validated),
             }
 
         # No pagination — every matching POC is shown in one continuous scroll.

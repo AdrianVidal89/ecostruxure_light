@@ -26,6 +26,7 @@ from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import (
     CreateView,
@@ -1789,6 +1790,11 @@ class _SpecUpdateMixin(LoginRequiredMixin):
         return kwargs
 
     def get_success_url(self):
+        next_url = self.request.GET.get("next")
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()
+        ):
+            return next_url
         return f"{reverse('pocs:detail', args=[self.poc.pk])}?tab=specs"
 
     def form_valid(self, form):
@@ -1902,39 +1908,84 @@ class RequirementDetailView(POCMemberRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["poc"] = self.poc
-        ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc)
+        ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc) and not self.poc.is_closed
         ctx["comments"] = self.object.comments.select_related("author", "resolved_by")
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "requirement"
+        ctx.update(_requirement_classification_ctx(self.request, self.object))
+        ctx.update(_requirement_lifecycle_ctx(self.request, self.object))
+        ctx.update(_requirement_title_ctx(self.request, self.object, field_ctx="detail"))
         return ctx
 
 
-def _requirement_preview_ctx(request, req):
+def _requirement_classification_ctx(request, req):
     return {
         "req": req,
         "can_manage": user_can_lead_poc(request.user, req.poc) and not req.poc.is_closed,
-        "gravity_choices": Requirement.Gravity.choices,
+        "gravity_choices": Requirement.field_choices(req.poc, "req_gravity"),
+        "operation_choices": Requirement.field_choices(req.poc, "req_operation"),
+        "category_choices": Requirement.field_choices(req.poc, "req_category"),
     }
 
 
+def _requirement_lifecycle_ctx(request, req):
+    return {
+        "req": req,
+        "can_manage": user_can_lead_poc(request.user, req.poc) and not req.poc.is_closed,
+        "lifecycle_choices": Requirement.field_choices(req.poc, "life_cycle_phase"),
+    }
+
+
+def _requirement_title_ctx(request, req, field_ctx="preview"):
+    is_page_title = field_ctx == "detail"
+    return {
+        "req": req,
+        "can_manage": user_can_lead_poc(request.user, req.poc) and not req.poc.is_closed,
+        "field_ctx": field_ctx,
+        "is_page_title": is_page_title,
+        "heading_class": "text-2xl font-semibold text-ink" if is_page_title else "text-lg font-semibold text-ink",
+    }
+
+
+def _requirement_preview_ctx(request, req, next_url=None):
+    if next_url and not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = None
+    ctx = {"req": req, "can_manage": user_can_lead_poc(request.user, req.poc) and not req.poc.is_closed, "next_url": next_url}
+    ctx.update(_requirement_classification_ctx(request, req))
+    ctx.update(_requirement_lifecycle_ctx(request, req))
+    ctx.update(_requirement_title_ctx(request, req, field_ctx="preview"))
+    return ctx
+
+
 def requirement_preview(request, pk):
-    """Read-only fragment for the "eye" preview popup (used when linking)."""
+    """Read-only fragment for the "eye" preview popup (used when linking).
+
+    Accepts ``?next=<url>`` (e.g. the Use Case page it was opened from) so
+    the "Edit" button can carry it through to the full edit form and return
+    there on save instead of the POC specs tab (see _SpecUpdateMixin.get_success_url).
+    """
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     req = get_object_or_404(Requirement, pk=pk)
     if not user_is_poc_member(request.user, req.poc):
         raise PermissionDenied
-    return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req))
+    return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req, next_url=request.GET.get("next")))
 
 
 @require_POST
 def requirement_set_gravity(request, pk):
-    """Quick "Imposes (MVP)" change from the preview popup.
+    """Quick gravity change from the classification row (preview popup or
+    requirement detail page).
 
     Same effect as the full edit form (modified_by/modified_date stamp,
     audited as "requirement_updated") but inline, mirroring
-    ``usecase_set_status`` — no navigation away from wherever the popup was
-    opened.
+    ``usecase_set_status`` — no navigation away from wherever the row was
+    shown. Validated against ``Requirement.field_choices`` (predefined +
+    POC-custom ``RequirementFieldOption`` values) rather than the fixed
+    ``Gravity`` enum, so a custom value like "High" stays selectable instead
+    of silently falling back to the first predefined option in the dropdown.
     """
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
@@ -1944,7 +1995,7 @@ def requirement_set_gravity(request, pk):
     if req.poc.is_closed:
         raise PermissionDenied("This POC is closed and locked for editing.")
     new_gravity = request.POST.get("req_gravity", "")
-    if new_gravity in dict(Requirement.Gravity.choices) and new_gravity != req.req_gravity:
+    if new_gravity in dict(Requirement.field_choices(req.poc, "req_gravity")) and new_gravity != req.req_gravity:
         old_gravity = req.req_gravity
         req.req_gravity = new_gravity
         req.modified_by = request.user
@@ -1953,7 +2004,54 @@ def requirement_set_gravity(request, pk):
             req, "requirement_updated", request.user,
             {"req_gravity": {"before": old_gravity, "after": new_gravity}},
         )
-    return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req))
+    return render(request, "pocs/partials/requirement_classification.html", _requirement_classification_ctx(request, req))
+
+
+_REQUIREMENT_CHOICE_FIELDS = {"req_operation", "req_category", "life_cycle_phase"}
+_REQUIREMENT_TEXT_FIELDS = {"sub_system"}
+
+
+@require_POST
+def requirement_set_field(request, pk, field):
+    """Generic quick-edit for requirement classification/lifecycle/title fields.
+
+    Covers req_operation, req_category, life_cycle_phase (validated against
+    Requirement.field_choices, same as requirement_set_gravity) and
+    sub_system (free text — it doubles as the requirement's title). Reused
+    by both the preview popup and the requirement detail page: each field
+    group re-renders only its own fragment (classification row / lifecycle
+    block / title), self-swapped via htmx outerHTML, so a save reflects
+    immediately without a full page/modal reload.
+    """
+    if field not in _REQUIREMENT_CHOICE_FIELDS | _REQUIREMENT_TEXT_FIELDS:
+        raise Http404
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    req = get_object_or_404(Requirement, pk=pk)
+    if not user_can_lead_poc(request.user, req.poc):
+        raise PermissionDenied
+    if req.poc.is_closed:
+        raise PermissionDenied("This POC is closed and locked for editing.")
+    new_value = request.POST.get("value", "").strip()
+    if field in _REQUIREMENT_TEXT_FIELDS:
+        valid = len(new_value) <= 255
+    else:
+        valid = new_value in dict(Requirement.field_choices(req.poc, field))
+    if valid and new_value != getattr(req, field):
+        old_value = getattr(req, field)
+        setattr(req, field, new_value)
+        req.modified_by = request.user
+        req.save(update_fields=[field, "modified_by", "modified_date"])
+        record_audit(
+            req, "requirement_updated", request.user,
+            {field: {"before": old_value, "after": new_value}},
+        )
+    if field == "life_cycle_phase":
+        return render(request, "pocs/partials/requirement_lifecycle.html", _requirement_lifecycle_ctx(request, req))
+    if field == "sub_system":
+        field_ctx = request.GET.get("ctx", "preview")
+        return render(request, "pocs/partials/requirement_title.html", _requirement_title_ctx(request, req, field_ctx=field_ctx))
+    return render(request, "pocs/partials/requirement_classification.html", _requirement_classification_ctx(request, req))
 
 
 def _usecase_preview_ctx(request, uc):

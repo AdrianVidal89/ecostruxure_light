@@ -1,0 +1,24 @@
+{% comment %}
+Lifecycle status block, shared by requirement_preview.html and
+requirement_detail.html. Self-swaps (outerHTML) via requirement_set_field.
+Context: req, can_manage, lifecycle_choices.
+{% endcomment %}
+{% if req.life_cycle_phase or can_manage %}
+  <div id="req-lifecycle-{{ req.pk }}">
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Lifecycle status</p>
+    {% if can_manage %}
+      <select name="value"
+              hx-post="{% url 'pocs:requirement_set_field' req.pk 'life_cycle_phase' %}"
+              hx-target="#req-lifecycle-{{ req.pk }}" hx-swap="outerHTML"
+              title="Quick change"
+              class="rounded-lg border border-line bg-canvas px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/40">
+        <option value="">—</option>
+        {% for value, label in lifecycle_choices %}
+          <option value="{{ value }}" {% if req.life_cycle_phase == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <p class="text-sm text-ink">{{ req.get_life_cycle_phase_display }}</p>
+    {% endif %}
+  </div>
+{% endif %}

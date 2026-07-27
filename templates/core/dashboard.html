@@ -41,6 +41,14 @@
         <p class="text-sm text-ink-muted">Completed</p>
         <p class="text-3xl font-semibold text-info mt-2">{{ stats.completed }}</p>
       </div>
+      <div class="bg-surface border border-line rounded-xl p-5">
+        <p class="text-sm text-ink-muted">Requirements without a test</p>
+        <p class="text-3xl font-semibold text-warning mt-2">{{ stats.unassigned_to_test }}</p>
+      </div>
+      <div class="bg-surface border border-line rounded-xl p-5">
+        <p class="text-sm text-ink-muted">Requirements pending validation</p>
+        <p class="text-3xl font-semibold text-warning mt-2">{{ stats.pending_validation }}</p>
+      </div>
     </div>
   {% endif %}
 

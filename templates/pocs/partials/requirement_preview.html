@@ -4,44 +4,16 @@
     <p class="text-xs font-mono text-ink-muted">
       {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
     </p>
-    <h3 class="text-lg font-semibold text-ink break-words">{{ req.sub_system|default:"Requirement" }}</h3>
-    <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
-      {% if can_manage %}
-        <select name="req_gravity"
-                hx-post="{% url 'pocs:requirement_set_gravity' req.pk %}"
-                hx-target="#entity-preview-body" hx-swap="innerHTML"
-                title="Quick change"
-                class="rounded-full border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40">
-          {% for value, label in gravity_choices %}
-            <option value="{{ value }}" {% if req.req_gravity == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      {% else %}
-        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
-      {% endif %}
-      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_operation_display }}</span>
-      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_functional_display }}</span>
-      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_category_display }}</span>
-      {% if req.is_validated %}
-        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Validated</span>
-      {% else %}
-        <span class="px-2 py-0.5 rounded-full bg-line text-ink-muted">Pending</span>
-      {% endif %}
-      {% if req.has_open_comment %}
-        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
-      {% endif %}
-    </div>
-    <a href="{% url 'pocs:requirement_detail' req.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
-      <i data-lucide="message-square-text" class="w-3.5 h-3.5"></i> View full page &amp; comments
-    </a>
+    {% include "pocs/partials/requirement_title.html" %}
+    {% include "pocs/partials/requirement_classification.html" %}
+    {% if can_manage %}
+      <a href="{% url 'pocs:requirement_edit' req.pk %}{% if next_url %}?next={{ next_url|urlencode }}{% endif %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+        <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Edit
+      </a>
+    {% endif %}
   </div>
 
-  {% if req.life_cycle_phase %}
-    <div>
-      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Lifecycle status</p>
-      <p class="text-sm text-ink">{{ req.get_life_cycle_phase_display }}</p>
-    </div>
-  {% endif %}
+  {% include "pocs/partials/requirement_lifecycle.html" %}
 
   {% if req.description %}
     <div>

@@ -17,21 +17,8 @@
       <p class="text-xs font-mono text-ink-muted">
         {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
       </p>
-      <h1 class="text-2xl font-semibold text-ink break-words">{{ req.sub_system|default:"Requirement" }}</h1>
-      <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
-        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
-        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_operation_display }}</span>
-        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_functional_display }}</span>
-        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_category_display }}</span>
-        {% if req.is_validated %}
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Validated</span>
-        {% else %}
-          <span class="px-2 py-0.5 rounded-full bg-line text-ink-muted">Pending</span>
-        {% endif %}
-        {% if req.has_open_comment %}
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
-        {% endif %}
-      </div>
+      {% include "pocs/partials/requirement_title.html" %}
+      {% include "pocs/partials/requirement_classification.html" %}
     </div>
     <div class="flex items-center gap-2 shrink-0">
       <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Back">
@@ -52,12 +39,7 @@
   </div>
 
   <div class="bg-surface border border-line rounded-xl p-6 space-y-6 {% if req.has_open_comment %}ring-2 ring-warning/40{% endif %}">
-    {% if req.life_cycle_phase %}
-      <div>
-        <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Lifecycle status</p>
-        <p class="text-sm text-ink">{{ req.get_life_cycle_phase_display }}</p>
-      </div>
-    {% endif %}
+    {% include "pocs/partials/requirement_lifecycle.html" %}
 
     <div>
       <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>

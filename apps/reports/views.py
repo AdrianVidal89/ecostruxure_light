@@ -12,7 +12,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
 from django.core.files.base import ContentFile
 from django.core.exceptions import PermissionDenied
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_POST
@@ -20,7 +20,7 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 
 from apps.core.mixins import AdminRequiredMixin
 from apps.pocs.audit import record_audit
-from apps.pocs.models import Phase, POCMembership
+from apps.pocs.models import Phase, PhaseKind, POCMembership
 
 from .forms import CustomReportForm, ReportSettingsForm, ReportTypeForm
 from .generation import generate_custom_report, generate_phase_report
@@ -177,6 +177,29 @@ def phase_report_generate(request, phase_pk):
 # ---------------------------------------------------------------------------
 # Download (permission-checked)
 # ---------------------------------------------------------------------------
+def _report_markdown(report):
+    """Rebuild a generated report's Markdown source on demand.
+
+    Mirrors whichever build_*_markdown function produced its .docx (see
+    generation.py) — phase/final reports are assembled straight from current
+    POC data, not stored separately, so this reflects the DB's current state
+    rather than the frozen output_file. Not available for custom/uploaded
+    reports (built from an arbitrary uploaded source, not from POC data). The
+    Final report's Conclusions text is never persisted anywhere (only baked
+    into its .docx at generation time), so it's not reproduced here either.
+    """
+    from .generation import build_final_report_markdown, build_phase_body_markdown, build_phase_documents_markdown
+
+    if report.kind == GeneratedReport.Kind.FINAL:
+        return build_final_report_markdown(report.poc) if report.poc_id else None
+    if report.kind == GeneratedReport.Kind.PHASE and report.phase_id:
+        phase = report.phase
+        if phase.kind == PhaseKind.TEST:
+            return build_phase_body_markdown(phase)
+        return build_phase_documents_markdown(phase)
+    return None
+
+
 def report_download(request, pk):
     """Stream a generated report's output, enforcing access rules."""
     if not request.user.is_authenticated:
@@ -194,6 +217,16 @@ def report_download(request, pk):
     if not report.output_file:
         raise Http404("This report has no output file.")
     filename = report.output_file.name.rsplit("/", 1)[-1]
+
+    if request.GET.get("format") == "md":
+        markdown = _report_markdown(report)
+        if markdown is None:
+            raise Http404("Markdown export is not available for this report.")
+        base = filename.rsplit(".", 1)[0] if "." in filename else filename
+        response = HttpResponse(markdown, content_type="text/markdown; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{base}.md"'
+        return response
+
     # ?inline=1 lets the in-tool preview modal embed this file (iframe for
     # PDF, <img> for images) instead of downloading it — only meaningful for
     # a browser-renderable type.

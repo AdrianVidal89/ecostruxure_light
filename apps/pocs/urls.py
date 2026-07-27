@@ -97,6 +97,11 @@ urlpatterns = [
         name="requirement_set_gravity",
     ),
     path(
+        "requirements/<int:pk>/set-field/<str:field>/",
+        views.requirement_set_field,
+        name="requirement_set_field",
+    ),
+    path(
         "requirements/<int:pk>/",
         views.RequirementDetailView.as_view(),
         name="requirement_detail",

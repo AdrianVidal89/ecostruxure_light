@@ -29,9 +29,6 @@
       {% endif %}
       {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
     </div>
-    <a href="{% url 'pocs:usecase_detail' usecase.pk %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
-      <i data-lucide="message-square-text" class="w-3.5 h-3.5"></i> View full page &amp; comments
-    </a>
   </div>
 
   <div>
