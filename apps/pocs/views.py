@@ -497,7 +497,7 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
             value for label, value in ctx["poc_details"] if label != "Status"
         )
         generated_reports = list(
-            poc.generated_reports.select_related("phase", "requested_by")[:50]
+            poc.generated_reports.select_related("phase", "requested_by", "report_type")[:50]
         )
         # A report can be removed by an admin, the POC lead, or its requester —
         # EXCEPT the sealed final report, which only an admin may remove (Fase 6).
@@ -511,9 +511,32 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
                     or report.requested_by_id == self.request.user.id
                 )
         ctx["generated_reports"] = generated_reports
+        # Group reports by where they came from (the phase they were generated
+        # for, or the custom ReportType used) instead of one flat "folder" —
+        # falls back to the kind label (Final/Uploaded/Custom) when neither applies.
+        report_groups = {}
+        for report in generated_reports:
+            if report.phase_id:
+                label = report.phase.name
+            elif report.report_type_id:
+                label = report.report_type.name
+            else:
+                label = report.get_kind_display()
+            report_groups.setdefault(label, []).append(report)
+        ctx["generated_report_groups"] = sorted(
+            report_groups.items(), key=lambda kv: kv[0].lower()
+        )
         # Requirements & Use Cases tab (spec Fase 4a). Prefetch tests so the
         # derived is_validated / is_approved don't trigger per-row queries.
-        ctx["requirements"] = poc.requirements.prefetch_related("use_cases", "tests")
+        requirements_qs = poc.requirements.prefetch_related("use_cases", "tests")
+        ctx["requirements"] = requirements_qs
+        # Shown to POC leads/admins only (can_manage, set below): how many
+        # requirements still have no test linked at all. Uses the prefetch
+        # cache above (r.tests.all() doesn't re-query) instead of a separate
+        # count() query.
+        ctx["requirements_without_test_count"] = sum(
+            1 for r in requirements_qs if not r.tests.all()
+        )
         ctx["use_cases"] = poc.use_cases.prefetch_related("requirements__tests")
         ctx["can_manage"] = can_lead
         # Filter dropdown options for the Requirements table (client-side, spec 4a).

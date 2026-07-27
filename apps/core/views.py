@@ -105,7 +105,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "total": pocs.count(),
                 "active": pocs.filter(status=POC.Status.ACTIVE).count(),
                 "completed": pocs.filter(status=POC.Status.COMPLETED).count(),
-                "unassigned_to_test": requirements.filter(tests__isnull=True).distinct().count(),
                 "pending_validation": sum(1 for r in requirements if not r.is_validated),
             }
 

@@ -1,3 +1,4 @@
+{% load core_extras %}
 {% comment %}
 Comments / feedback accordion for a Requirement or Use Case.
 Context: target (the UseCase/Requirement instance), target_kind ("usecase" or
@@ -26,7 +27,7 @@ central "Comments" page, pocs:comments) — this thread is read/append only.
           <span class="font-medium text-ink">{{ c.author.get_full_name|default:c.author.username }}</span>
           <span>{{ c.created_at|date:"Y-m-d H:i" }}</span>
         </div>
-        <p class="text-ink mt-1 whitespace-pre-wrap">{{ c.text|urlize }}</p>
+        <p class="text-ink mt-1 whitespace-pre-wrap">{{ c.text|linkify }}</p>
         <div class="mt-2 flex items-center gap-2">
           {% if c.status == 'open' %}
             <span class="px-2 py-0.5 rounded-full text-xs bg-warning/10 text-warning">Open</span>
@@ -40,7 +41,7 @@ central "Comments" page, pocs:comments) — this thread is read/append only.
           <div class="mt-2 pt-2 border-t border-line/60 text-xs text-ink-muted">
             {{ c.get_status_display }} by <span class="text-ink font-medium">{{ c.resolved_by.get_full_name|default:c.resolved_by.username }}</span>
             {% if c.resolved_at %}· {{ c.resolved_at|date:"Y-m-d H:i" }}{% endif %}
-            {% if c.resolution_note %}<p class="text-ink mt-1 whitespace-pre-wrap">{{ c.resolution_note|urlize }}</p>{% endif %}
+            {% if c.resolution_note %}<p class="text-ink mt-1 whitespace-pre-wrap">{{ c.resolution_note|linkify }}</p>{% endif %}
           </div>
         {% endif %}
       </div>

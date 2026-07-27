@@ -6,11 +6,16 @@ is escaped (``safe_mode="escape"``) so user-authored Markdown cannot inject
 markup — important because Tasks/Tests/POC descriptions are user content.
 """
 
+import re
+
 import markdown2
 from django import template
+from django.utils.html import urlize as django_urlize
 from django.utils.safestring import mark_safe
 
 register = template.Library()
+
+_URLIZED_LINK_RE = re.compile(r'<a href="([^"]*)"([^>]*)>(.*?)</a>')
 
 _MARKDOWN_EXTRAS = [
     "fenced-code-blocks",
@@ -38,6 +43,28 @@ def get_item(mapping, key):
         return mapping.get(int(key))
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+@register.filter(name="linkify")
+def linkify(value):
+    """Like the builtin ``urlize``, but the link reads as a link: blue,
+    underlined, with a small link icon right before it (comment text is
+    plain, not Markdown, so bare URLs otherwise render as plain text).
+    """
+    if not value:
+        return ""
+    html = django_urlize(str(value), autoescape=True)
+
+    def _style_link(match):
+        href, text = match.group(1), match.group(3)
+        return (
+            '<i data-lucide="link" class="inline-block w-3.5 h-3.5 align-text-bottom mr-0.5 text-brand-dark"></i>'
+            f'<a href="{href}" class="text-brand-dark underline hover:text-brand" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{text}</a>"
+        )
+
+    return mark_safe(_URLIZED_LINK_RE.sub(_style_link, html))
 
 
 @register.filter(name="markdownify")
