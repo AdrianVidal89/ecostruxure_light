@@ -381,6 +381,15 @@
     renderIcons();
     document.body.addEventListener('htmx:afterSwap', renderIcons);
   </script>
+  {# Quick-edits (htmx) update the current page only. Without this, using the
+     browser's Back button after such an edit can restore a stale snapshot
+     from bfcache instead of re-fetching the page, so the change appears
+     missing until a manual refresh. #}
+  <script>
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) window.location.reload();
+    });
+  </script>
   {# Drag-and-drop file selection (avoids the blocked native file dialog). #}
   <script src="{% static 'js/filedrop.js' %}"></script>
 

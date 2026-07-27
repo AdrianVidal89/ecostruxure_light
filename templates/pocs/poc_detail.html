@@ -428,8 +428,6 @@
       </div>
 
       {% if can_manage and requirements %}
-        {# POC-lead/admin-only drill-downs: click either pill to see WHICH
-           requirements are pending/assigned, not just a bare count. #}
         <div class="flex flex-wrap gap-3">
           <button type="button" @click="pendingReqModalOpen = true"
                   class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-soft
