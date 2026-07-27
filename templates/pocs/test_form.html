@@ -34,6 +34,13 @@
         </div>
       {% endif %}
 
+      {% if preselected_requirement_count %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-brand/10 border border-brand/20 text-brand-dark flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+          {{ preselected_requirement_count }} requirement{{ preselected_requirement_count|pluralize }} pre-selected below — check the Requirements list to confirm.
+        </div>
+      {% endif %}
+
       <div>
         <label for="{{ form.title.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
           Title <span class="text-danger">*</span>

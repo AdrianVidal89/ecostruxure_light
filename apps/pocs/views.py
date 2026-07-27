@@ -530,12 +530,29 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         # derived is_validated / is_approved don't trigger per-row queries.
         requirements_qs = poc.requirements.prefetch_related("use_cases", "tests")
         ctx["requirements"] = requirements_qs
-        # Shown to POC leads/admins only (can_manage, set below): how many
-        # requirements still have no test linked at all. Uses the prefetch
-        # cache above (r.tests.all() doesn't re-query) instead of a separate
-        # count() query.
-        ctx["requirements_without_test_count"] = sum(
-            1 for r in requirements_qs if not r.tests.all()
+        # Shown to POC leads/admins only (can_manage, set below): drill-down
+        # lists behind the two "Requirements" stat pills — which requirements
+        # still need a test (with a picker to assign one), and which already
+        # have one (with an eye preview on both sides). Built from the
+        # prefetch cache above (r.tests.all() doesn't re-query).
+        requirements_without_test = []
+        requirements_with_test = []
+        for r in requirements_qs:
+            linked_tests = list(r.tests.all())
+            if linked_tests:
+                for t in linked_tests:
+                    requirements_with_test.append((r, t))
+            else:
+                requirements_without_test.append(r)
+        ctx["requirements_without_test"] = requirements_without_test
+        ctx["requirements_without_test_count"] = len(requirements_without_test)
+        ctx["requirements_with_test"] = requirements_with_test
+        ctx["requirements_with_test_count"] = len(requirements_qs) - len(requirements_without_test)
+        # Leaf Test-kind phases are the only valid targets for a new test
+        # (mirrors TestCreateView.dispatch) — offered as the "which phase"
+        # picker in the "Assign test" flow.
+        ctx["test_target_phases"] = list(
+            poc.phases.filter(kind=PhaseKind.TEST, children__isnull=True)
         )
         ctx["use_cases"] = poc.use_cases.prefetch_related("requirements__tests")
         ctx["can_manage"] = can_lead
@@ -1339,11 +1356,30 @@ class TestCreateView(LoginRequiredMixin, CreateView):
         kwargs["poc"] = self.poc
         return kwargs
 
+    def get_initial(self):
+        # Pre-check requirements passed from the "Assign test" flow on the
+        # Requirements panel (?requirements=<id>&requirements=<id>...) — only
+        # keep ids that actually belong to this POC.
+        initial = super().get_initial()
+        raw_ids = self.request.GET.getlist("requirements")
+        if raw_ids:
+            valid_ids = list(
+                self.poc.requirements.filter(
+                    pk__in=[i for i in raw_ids if i.isdigit()]
+                ).values_list("pk", flat=True)
+            )
+            if valid_ids:
+                initial["requirements"] = valid_ids
+        return initial
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["phase"] = self.phase
         ctx["poc"] = self.poc
         ctx["title"] = "Add test"
+        ctx["preselected_requirement_count"] = len(
+            self.get_initial().get("requirements", [])
+        )
         return ctx
 
     def form_valid(self, form):
