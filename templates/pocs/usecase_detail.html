@@ -84,7 +84,8 @@
       {% if usecase.tasks.exists %}
         <div class="flex flex-wrap gap-1.5">
           {% for t in usecase.tasks.all %}
-            <a href="{% url 'pocs:phase_detail' t.phase_id %}#task-{{ t.id }}"
+            {# Tasks now live only in the dedicated workspace (spec item 4). #}
+            <a href="{% url 'pocs:tasks' %}#task-{{ t.id }}"
                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
                title="{{ t.get_status_display }}">
               <i data-lucide="check-square" class="w-3 h-3"></i>{{ t.title }}

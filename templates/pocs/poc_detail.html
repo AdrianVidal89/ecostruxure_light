@@ -182,8 +182,8 @@
       </div>
     {% endif %}
 
-    {# Concise Tasks widget for this POC (name + phase + status colour). #}
-    {% include "pocs/partials/poc_tasks_widget.html" %}
+    {# Tasks are no longer shown here — minimalism: they only live in the
+       dedicated Tasks workspace (pocs:tasks), spec item 4. #}
 
     {# Obsidian-style map: POC -> Use Cases -> Requirements -> Tests. #}
     {% include "pocs/partials/poc_graph.html" %}

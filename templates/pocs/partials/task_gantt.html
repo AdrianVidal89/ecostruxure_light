@@ -3,7 +3,7 @@ Tree + Gantt hybrid (spec section 5): axis header (date range + today
 marker) followed by the recursive rows. Context: gantt (build_task_gantt's
 dict), roots (the top-level tasks to render — usually gantt.top_level, but
 tasks.html passes a per-phase subset of it), can_lead, task_status_choices,
-bulk_enabled.
+can_add_task (optional — shows the "Add task" hint in the empty state).
 {% endcomment %}
 <div>
   {% if gantt.has_dates %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% comment %}
+Full-page detail for one Test (spec item 5 — "Acceso Flexible a Vistas de
+Detalle"). Reachable from the general Tests overview and from the phase page
+(partials/test_row.html header). Reuses partials/test_row.html for the body
+so execution/notes/parameters editing behaves identically to the phase page.
+{% endcomment %}
+
+{% block title %}{% if test.test_code %}{{ test.test_code }} — {% endif %}{{ test.title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'core:dashboard' %}" class="hover:text-ink">Dashboard</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[9rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[8rem]">{{ phase.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium truncate max-w-[9rem]">{{ test.test_code|default:"Test" }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  {% url 'pocs:phase_detail' phase.pk as back_url %}
+  {% include "pocs/partials/back_button.html" with url=back_url label=phase.name plain=True %}
+
+  <div>
+    <h1 class="text-2xl font-semibold text-ink break-words">
+      {% if test.test_code %}<span class="text-ink-muted font-mono text-lg mr-2">{{ test.test_code }}</span>{% endif %}{{ test.title }}
+    </h1>
+    <p class="text-ink-muted mt-1 text-sm">Full detail for this test — execution, parameters and linked requirements.</p>
+  </div>
+
+  {% include "pocs/partials/test_row.html" %}
+</div>
+{% endblock %}

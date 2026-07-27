@@ -1,8 +1,11 @@
 {% load core_extras %}
 {% comment %}
 Single test row (#test-<id>). Re-rendered by HTMX after inline execution saves.
-Context: test (with .can_execute, .can_validate), can_lead, test_execution_choices,
-test_result_choices, poc_requirements, exec_form (only set when a save failed).
+Also reused, unmodified, as the body of the standalone test_detail.html page
+(spec item 5) — the "Open full page" link is harmless there too (a permalink
+to the page you're already on). Context: test (with .can_execute,
+.can_validate), can_lead, test_execution_choices, test_result_choices,
+poc_requirements, exec_form (only set when a save failed).
 {% endcomment %}
 <div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
      x-data="{ showDef: false, recordOpen: {% if exec_form %}true{% else %}false{% endif %},
@@ -60,8 +63,11 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
       {% endif %}
     </div>
 
-    {% if can_lead %}
-      <div class="flex items-center gap-1 shrink-0">
+    <div class="flex items-center gap-1 shrink-0">
+      <a href="{% url 'pocs:test_detail' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Open full page">
+        <i data-lucide="maximize-2" class="w-4 h-4"></i>
+      </a>
+      {% if can_lead %}
         <a href="{% url 'pocs:test_edit' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit">
           <i data-lucide="pencil" class="w-4 h-4"></i>
         </a>
@@ -71,8 +77,8 @@ test_result_choices, poc_requirements, exec_form (only set when a save failed).
             <i data-lucide="trash-2" class="w-4 h-4"></i>
           </button>
         </form>
-      </div>
-    {% endif %}
+      {% endif %}
+    </div>
   </div>
 
   {# Definition (collapsible) #}

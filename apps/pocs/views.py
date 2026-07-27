@@ -439,24 +439,8 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["all_phases_approved"] = poc.all_phases_approved
         # Testing roadmap: one row per Test-phase, tests plotted chronologically.
         ctx["test_timeline"] = poc.test_timeline()
-        # Tasks widget shown between Details and the Map in Overview — same
-        # Gantt/tree tree-builder as the dedicated Tasks tab (build_phase_task_tree),
-        # so both render identically instead of this being a simpler flat list.
-        today = timezone.localdate()
-        poc_tasks = list(
-            order_tasks(
-                Task.objects.filter(phase__poc=poc).select_related("phase", "assigned_to")
-            )
-        )
-        for t in poc_tasks:
-            t.can_lead = can_lead
-            t.can_execute = can_lead or t.assigned_to_id == self.request.user.id
-            t.allowed_statuses = task_allowed_statuses(t.status)
-        poc_task_gantt, poc_task_phases = build_phase_task_tree(poc_tasks, today)
-        ctx["poc_task_gantt"] = poc_task_gantt
-        ctx["poc_task_phases"] = poc_task_phases
-        ctx["poc_task_count"] = len(poc_tasks)
-        ctx["task_status_choices"] = Task.Status.choices
+        # Tasks are no longer shown on the Overview tab — minimalism: they
+        # only live in the dedicated Tasks workspace (pocs:tasks), spec item 4.
         # Audit log is visible to admins and POC leads only.
         if can_lead:
             ctx["audit_logs"] = _poc_audit_logs(poc)
@@ -962,8 +946,6 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["is_functional_analysis"] = phase.is_functional_analysis
         ctx["is_documentation"] = phase.is_documentation
         ctx["is_test"] = phase.is_test
-        # Tasks can now be added to ANY phase (parent or leaf).
-        ctx["can_add_task"] = can_edit
         # Tests stay on leaf Test phases; any POC member may add one.
         ctx["can_add_test"] = is_leaf and phase.is_test
         # A phase may carry tasks and still gain sub-phases; only the presence of
@@ -971,25 +953,8 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["can_add_subphase"] = (
             can_edit and phase.can_have_children and not phase.tests.exists()
         )
-
-        # Tasks render on every phase — the tree+Gantt hybrid nests sub-tasks
-        # under their parent's row (spec section 5) rather than listing them
-        # again at the top level.
-        today = timezone.localdate()
-        all_tasks = list(
-            order_tasks(
-                phase.tasks.select_related("assigned_to").prefetch_related(
-                    "requirements", "use_cases"
-                )
-            )
-        )
-        for task in all_tasks:
-            task.can_lead = can_edit
-            task.can_execute = can_edit or task.assigned_to_id == user.id
-            task.allowed_statuses = task_allowed_statuses(task.status)
-        gantt = build_task_gantt(all_tasks, today)
-        ctx["tasks"] = gantt["top_level"]
-        ctx["gantt"] = gantt
+        # Tasks are no longer displayed here — minimalism: they only live in
+        # the dedicated Tasks workspace (`pocs:tasks`), spec item 4.
 
         # A template is downloadable from ANY phase (any kind): the phase's own
         # if attached, otherwise the global default.
@@ -1032,11 +997,7 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
             )
 
         ctx["poc"] = phase.poc
-        ctx["can_lead"] = can_edit  # task/test rows use can_lead for CRUD controls
-        # The per-row bulk-select checkbox only makes sense where the bulk form
-        # is rendered: a leaf Test phase the user can edit.
-        ctx["bulk_enabled"] = bool(can_edit and phase.is_test and is_leaf)
-        ctx["task_status_choices"] = Task.Status.choices
+        ctx["can_lead"] = can_edit  # test rows use can_lead for CRUD controls
         ctx["test_execution_choices"] = Test.ExecutionStatus.choices
         ctx["test_result_choices"] = Test.Result.choices
         return ctx
@@ -2171,6 +2132,43 @@ def test_preview(request, pk):
     return render(request, "pocs/partials/test_preview.html", {"test": test})
 
 
+class TestDetailView(POCMemberRequiredMixin, DetailView):
+    """Full-page, read-only-by-default view of one Test (spec item 5) — the
+    "I want the full picture" destination, reachable from both the tests
+    overview and the phase page. Reuses ``partials/test_row.html`` (the exact
+    execute/notes/parameters panel already shown inline on the phase page),
+    so there is one implementation of "everything about this test", not two.
+    """
+
+    model = Test
+    template_name = "pocs/test_detail.html"
+    context_object_name = "test"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(
+            "phase__poc", "assigned_to"
+        ).prefetch_related("requirements", "validations", "parameters")
+
+    def get_poc(self):
+        if not hasattr(self, "_poc"):
+            self._poc = get_object_or_404(Test, pk=self.kwargs["pk"]).phase.poc
+        return self._poc
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        test = self.object
+        user = self.request.user
+        can_edit = user_can_edit_phase(user, test.phase)
+        test.can_execute = can_edit or test.assigned_to_id == user.id
+        test.can_validate = user_can_validate_test(user, test)
+        ctx["poc"] = self.poc
+        ctx["phase"] = test.phase
+        ctx["can_lead"] = can_edit
+        ctx["test_execution_choices"] = Test.ExecutionStatus.choices
+        ctx["test_result_choices"] = Test.Result.choices
+        return ctx
+
+
 def poc_graph_data(request, pk):
     """JSON graph for the Overview "map" view: POC -> Use Cases -> Requirements
     -> Tests, coloured by each node's ``graph_status()``.
@@ -3256,6 +3254,18 @@ class TasksView(LoginRequiredMixin, View):
             group["gantt"] = gantt
             group["phases"] = top_level_phases
 
+        # "Add task" now lives only here (spec item 4 — tasks are removed from
+        # the phase page); annotate every folder with whether this user may
+        # add one, same edit-rights rule as everywhere else (can_edit).
+        def _annotate_folder(entry):
+            entry["can_add_task"] = user.is_admin or entry["phase"].poc_id in lead_poc_ids
+            for child in entry["children"]:
+                _annotate_folder(child)
+
+        for group in groups:
+            for entry in group["phases"]:
+                _annotate_folder(entry)
+
         ctx = {
             "groups": groups,
             "manager": manager,
@@ -3300,30 +3310,57 @@ class TestsView(LoginRequiredMixin, View):
             manager = bool(member_poc_ids)
         qs = qs.distinct()
 
+        assignee_filter = request.GET.get("u", "").strip()
+        if user.is_admin and assignee_filter:
+            qs = qs.filter(assigned_to_id=assignee_filter)
+
+        # Stat tiles (spec item 7) reflect this user's/assignee's full scope,
+        # independent of the "Pending"/"Awaiting" quick filter applied below —
+        # otherwise the tiles would just mirror whatever filter is selected.
+        scoped_tests = list(qs)
+        stats = {
+            "total": len(scoped_tests),
+            "passed": sum(1 for t in scoped_tests if t.result in Test.PASSING_RESULTS),
+            "pending": sum(
+                1 for t in scoped_tests if t.execution_status not in Test.SETTLED_EXECUTION
+            ),
+            "awaiting": sum(1 for t in scoped_tests if t.pending_validation),
+        }
+
         flt = request.GET.get("f", "")
         if flt == "pending":
             qs = qs.exclude(execution_status__in=Test.SETTLED_EXECUTION)
         elif flt == "awaiting":
             qs = qs.filter(validations__status=TestValidation.Decision.PENDING).distinct()
 
-        assignee_filter = request.GET.get("u", "").strip()
-        if user.is_admin and assignee_filter:
-            qs = qs.filter(assigned_to_id=assignee_filter)
-
         tests = list(qs.order_by("phase__poc__name", "phase__order", "id"))
         groups, current = [], None
         for t in tests:
             poc = t.phase.poc
             if current is None or current["poc"].id != poc.id:
-                current = {"poc": poc, "tests": []}
+                current = {"poc": poc, "tests": [], "phases": []}
                 groups.append(current)
             current["tests"].append(t)
+
+        # Sub-group by Phase within each POC (spec item 6 — Gestalt grouping
+        # by similarity, mirroring the recursive Phase grouping already used
+        # for Tasks). Tests are ordered by phase__order above, so same-phase
+        # runs are contiguous.
+        for group in groups:
+            phase_groups, current_phase = [], None
+            for t in group["tests"]:
+                if current_phase is None or current_phase["phase"].id != t.phase_id:
+                    current_phase = {"phase": t.phase, "tests": []}
+                    phase_groups.append(current_phase)
+                current_phase["tests"].append(t)
+            group["phases"] = phase_groups
 
         ctx = {
             "groups": groups,
             "manager": manager,
             "filter": flt,
             "total": len(tests),
+            "stats": stats,
         }
         if user.is_admin:
             ctx["users"] = User.objects.filter(is_active=True).order_by(

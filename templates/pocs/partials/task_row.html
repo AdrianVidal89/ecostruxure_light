@@ -44,11 +44,6 @@ status control and notes editor; everyone else sees read-only.
 
     {# Status control / badge #}
     <div class="shrink-0 flex items-center gap-2">
-      {% if can_lead and bulk_enabled %}
-        {# Bulk-select checkbox (ties to the phase's bulk form). #}
-        <input type="checkbox" name="task_ids" value="{{ task.id }}" form="task-bulk"
-               class="h-4 w-4 rounded border-line text-brand focus:ring-brand/40" title="Select for bulk update">
-      {% endif %}
       {% if can_execute %}
         {% comment %}
           Always shows the current status as selected, plus only the valid next

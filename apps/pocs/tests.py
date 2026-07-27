@@ -155,11 +155,14 @@ class RobustnessTests(TestCase):
         self.assertEqual(form.cleaned_data["title"], "Survey")
 
     def test_phase_renders_with_unassigned_task_and_empty_date(self):
+        # Tasks moved out of the phase page into the dedicated Tasks
+        # workspace (spec item 4) — exercise the same null-assignee/empty-date
+        # render path there instead.
         Task.objects.create(
             phase=self.phase, title="X", assigned_to=None, due_date=None
         )
         self.client.force_login(self.admin)
-        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        resp = self.client.get(reverse("pocs:tasks"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Unassigned")
 
@@ -443,20 +446,23 @@ class TasksViewTests(TestCase):
 
 
 class POCOverviewTasksWidgetTests(TestCase):
-    """POC Overview tab's Tasks widget (between Details and the Map)."""
+    """POC Overview tab no longer shows a Tasks widget (spec item 4 —
+    minimalism: tasks only live in the dedicated Tasks workspace)."""
 
-    def test_status_dropdown_is_populated(self):
-        # Same root cause/fix as TasksViewTests.test_status_dropdown_is_populated,
-        # in the POCDetailView code path instead of TasksView.
+    def test_overview_no_longer_shows_task_widget(self):
         admin = User.objects.create_user(
             "widget_admin", password="x", is_active=True, role=User.Role.ADMIN
         )
         poc = POC.objects.create(name="Widget POC", created_by=admin, status="active")
         phase = Phase.objects.create(poc=poc, name="P", order=1)
-        Task.objects.create(phase=phase, title="Widget task")
+        task = Task.objects.create(phase=phase, title="Widget task")
         self.client.force_login(admin)
         resp = self.client.get(reverse("pocs:detail", args=[poc.pk]))
-        self.assertContains(resp, '<option value="in_progress"')
+        # Assert against the task row's own markup, not its title text — the
+        # Audit Log tab on this same page legitimately mentions the task's
+        # title in its "created ... Widget task" entry, which is unrelated
+        # to the removed widget and must keep working.
+        self.assertNotContains(resp, f'id="task-{task.id}"')
 
 
 class POCCsvImportTests(TestCase):
@@ -922,11 +928,19 @@ class TaskOnAnyPhaseTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(self.parent.tasks.filter(title="Parent task").exists())
 
-    def test_parent_phase_detail_shows_tasks_section(self):
+    def test_parent_phase_detail_no_longer_shows_tasks(self):
+        # Tasks are removed from the phase page (spec item 4 — minimalism);
+        # "Add task" now lives only in the dedicated Tasks workspace.
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.parent.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Sub-phases")
+        self.assertNotContains(resp, "Add task")
+
+    def test_add_task_lives_in_tasks_workspace(self):
+        self.parent.tasks.create(title="Workspace-visible task")
+        resp = self.client.get(reverse("pocs:tasks"))
         self.assertContains(resp, "Add task")
+        self.assertContains(resp, "Workspace-visible task")
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -1299,6 +1313,62 @@ class Fase4Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "T")
 
+    def test_tests_overview_groups_by_phase_and_shows_stats(self):
+        # Spec items 6 + 7: Phase sub-grouping and stat tiles.
+        other_phase = Phase.objects.create(poc=self.poc, name="Other Phase", order=2)
+        Test.objects.create(phase=other_phase, title="T2", result="passed")
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tests_overview"))
+        self.assertEqual(resp.status_code, 200)
+        # Each phase gets its own sub-heading, linking to that phase's page.
+        self.assertContains(resp, reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertContains(resp, reverse("pocs:phase_detail", args=[other_phase.pk]))
+        self.assertContains(resp, other_phase.name)
+        self.assertContains(resp, "Pass rate")
+
+    def test_tests_overview_links_to_test_detail_page(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tests_overview"))
+        self.assertContains(resp, reverse("pocs:test_detail", args=[self.test.pk]))
+
+
+class TestDetailPageTests(TestCase):
+    """Spec item 5: a real, standalone full-page detail view for one Test."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "td_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "td_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.outsider = User.objects.create_user(
+            "td_outsider", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="TD POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="TD Phase", order=1)
+        self.test = Test.objects.create(
+            phase=self.phase, title="Full picture test", assigned_to=self.member
+        )
+
+    def test_member_sees_full_detail(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:test_detail", args=[self.test.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Full picture test")
+        self.assertContains(resp, self.phase.name)
+
+    def test_non_member_is_forbidden(self):
+        self.client.force_login(self.outsider)
+        resp = self.client.get(reverse("pocs:test_detail", args=[self.test.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_phase_test_row_links_to_full_page(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertContains(resp, reverse("pocs:test_detail", args=[self.test.pk]))
+
 
 class Fase4DerivedApprovalTests(TestCase):
     """User rule: requirement validated when all its tests pass/skip; a use case
@@ -1507,6 +1577,53 @@ class Fase6ClosureTests(TestCase):
         self.assertIn("Conclusion text", md)
         # The phase has an unfinished test → flagged pending.
         self.assertIn("pending", md.lower())
+
+
+class TestReportMarkdownTests(TestCase):
+    """Spec items 2 + 3: ID+Title chapter headings, Parameters integrity."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "trm_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="TRM POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="Unit Testing", order=1, kind=PhaseKind.TEST
+        )
+
+    def test_heading_includes_id_and_title(self):
+        from apps.reports.generation import build_phase_body_markdown
+
+        Test.objects.create(phase=self.phase, title="Login works", test_code="UT-001")
+        md = build_phase_body_markdown(self.phase)
+        self.assertIn("UT-001", md)
+        self.assertIn("UT-001 — Login works", md)
+
+    def test_parameters_heading_shown_even_when_empty(self):
+        from apps.reports.generation import build_phase_body_markdown
+
+        Test.objects.create(phase=self.phase, title="No params test")
+        md = build_phase_body_markdown(self.phase)
+        self.assertIn("**Parameters:**", md)
+        self.assertIn("No parameters defined", md)
+
+    def test_parameters_table_shown_when_present(self):
+        from apps.pocs.models import TestParameter
+        from apps.reports.generation import build_phase_body_markdown
+
+        t = Test.objects.create(phase=self.phase, title="Params test")
+        TestParameter.objects.create(test=t, name="Voltage", value="230V")
+        md = build_phase_body_markdown(self.phase)
+        self.assertIn("| Voltage | 230V |", md)
+
+    def test_expected_result_and_target_date_always_shown(self):
+        from apps.reports.generation import build_phase_body_markdown
+
+        Test.objects.create(phase=self.phase, title="No expected result")
+        md = build_phase_body_markdown(self.phase)
+        self.assertIn("**Expected result:**", md)
+        self.assertIn("_Not defined._", md)
+        self.assertIn("**Target date:**", md)
 
 
 class Fase7TaskOrderingTests(TestCase):
@@ -2491,16 +2608,16 @@ class TaskGanttRenderTests(TestCase):
             phase=self.phase, title="Sub Task Bravo", parent=self.parent
         )
 
-    def test_phase_detail_renders_subtask_once(self):
-        # Each task's detail panel (id="task-<id>") is rendered exactly once —
-        # the old bug rendered a sub-task a second time as its own top-level
-        # entry alongside its nested copy.
+    def test_phase_detail_no_longer_renders_tasks(self):
+        # Tasks are removed from the phase page (spec item 4 — minimalism);
+        # the duplicate-render regression guard now lives on the Tasks
+        # workspace (see test_global_tasks_page_shows_hierarchy_not_duplicate).
         self.client.force_login(self.admin)
         resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
         self.assertEqual(resp.status_code, 200)
         body = resp.content.decode()
-        self.assertEqual(body.count(f'id="task-{self.sub.pk}"'), 1)
-        self.assertEqual(body.count(f'id="task-{self.parent.pk}"'), 1)
+        self.assertNotIn(f'id="task-{self.sub.pk}"', body)
+        self.assertNotIn(f'id="task-{self.parent.pk}"', body)
 
     def test_global_tasks_page_shows_hierarchy_not_duplicate(self):
         self.client.force_login(self.member)

@@ -180,41 +180,6 @@
     </section>
   {% endif %}
 
-  {# ---------- Tasks — addable on ANY phase (parent or leaf) ---------- #}
-  <section class="space-y-3 rounded-xl border border-info/30 bg-info/5 p-4">
-    <div class="flex items-center justify-between">
-      <h2 class="font-medium text-ink flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-info shrink-0"></span>
-        Tasks <span class="text-ink-muted font-normal">({{ tasks|length }})</span>
-      </h2>
-      {% if can_add_task %}
-        <a href="{% url 'pocs:task_create' phase.pk %}"
-           class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
-          <i data-lucide="plus" class="w-4 h-4"></i> Add task
-        </a>
-      {% endif %}
-    </div>
-    {% if bulk_enabled and tasks %}
-      {% comment %}
-        Bulk "autoasignar progreso": set one status on several tasks at once.
-        The per-row checkboxes (in task_row) submit to this form via form="task-bulk".
-      {% endcomment %}
-      <form method="post" action="{% url 'pocs:task_bulk_status' phase.pk %}" id="task-bulk"
-            class="flex flex-wrap items-center gap-2 bg-canvas border border-line rounded-lg px-3 py-2 text-sm">
-        {% csrf_token %}
-        <span class="text-ink-muted">Bulk update selected →</span>
-        <select name="status" class="rounded-lg border border-line px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
-          {% for value, label in task_status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-        </select>
-        <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
-          <i data-lucide="check-check" class="w-3.5 h-3.5"></i> Apply
-        </button>
-        <span class="text-xs text-ink-muted">(invalid transitions are skipped)</span>
-      </form>
-    {% endif %}
-    {% include "pocs/partials/task_gantt.html" with roots=tasks %}
-  </section>
-
   {% if is_leaf and is_test %}
     {# ---------- Tests (leaf Test phases) ---------- #}
     <section class="space-y-3 rounded-xl border border-brand/30 bg-brand/5 p-4">

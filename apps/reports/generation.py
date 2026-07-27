@@ -182,15 +182,33 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
         lines += [f"{h2} {node.name}", ""]
         for t in node_tests:
             token = _test_token(t)
-            lines += [f"{h3} {t.title}", "", f"**Result:** {token}", ""]
+            # ID + Title in every chapter heading (never title alone), so a
+            # reader can always trace a chapter back to its test.
+            heading = f"{t.test_code} — {t.title}" if t.test_code else t.title
+            lines += [f"{h3} {heading}", "", f"**Result:** {token}", ""]
+            lines += [f"**Target date:** {t.target_date or '—'}", ""]
             if t.description:
                 lines += ["**Description:**", "", t.description, ""]
+            # Parameters — always show the heading (even when empty) so the
+            # report never silently omits this decision-relevant section;
+            # the reader should never have to wonder if data is missing or
+            # just not rendered.
             params = list(t.parameters.all())
+            lines += ["**Parameters:**", ""]
             if params:
-                lines += ["**Parameters:**", "", "| Name | Value |", "| --- | --- |"]
+                lines += ["| Name | Value |", "| --- | --- |"]
                 for p in params:
                     lines.append(f"| {_cell(p.name)} | {_cell(p.value)} |")
                 lines.append("")
+            else:
+                lines += ["_No parameters defined for this test._", ""]
+            # Expected result — kept adjacent to Parameters (both are inputs
+            # the reader needs to judge the run), same "always show" rule.
+            lines += ["**Expected result:**", ""]
+            if t.expected_result:
+                lines += [t.expected_result, ""]
+            else:
+                lines += ["_Not defined._", ""]
             reqs = list(t.requirements.all())
             if reqs:
                 lines += ["**Functional requirements:**", ""]
@@ -200,8 +218,6 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
                 lines.append("")
             if t.acceptance_criteria:
                 lines += ["**Acceptance criteria:**", "", t.acceptance_criteria, ""]
-            if t.expected_result:
-                lines += ["**Expected result:**", "", t.expected_result, ""]
             if t.actual_result:
                 lines += ["**Actual result:**", "", t.actual_result, ""]
             for ev in t.evidence_files.all():

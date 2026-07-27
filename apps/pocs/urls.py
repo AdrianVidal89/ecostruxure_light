@@ -267,6 +267,7 @@ urlpatterns = [
     ),
     path("tests/<int:test_pk>/edit/", views.TestUpdateView.as_view(), name="test_edit"),
     path("tests/<int:pk>/preview/", views.test_preview, name="test_preview"),
+    path("tests/<int:pk>/", views.TestDetailView.as_view(), name="test_detail"),
     path(
         "tests/<int:test_pk>/delete/",
         views.TestDeleteView.as_view(),
