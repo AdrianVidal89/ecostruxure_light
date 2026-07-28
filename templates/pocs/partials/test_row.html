@@ -7,7 +7,9 @@ you're already on). Context: test (with .can_execute, .can_validate),
 can_lead, test_execution_choices, test_result_choices, poc_requirements,
 exec_form (only set when a save failed), expanded (True on test_detail.html —
 opens the Description/Acceptance/Expected block immediately instead of
-collapsed, since that page's whole point is "show me everything").
+collapsed, since that page's whole point is "show me everything"), can_reorder
+(shows the drag handle — spec item 10; only meaningful in a list, so gated on
+``not expanded`` too).
 
 view-transition-name: only stamped on THIS root when NOT ``expanded`` (i.e.
 when included from a list — phase_detail.html/tests_overview.html), because
@@ -16,11 +18,17 @@ elements sharing one view-transition-name on the same document is invalid
 (spec item 3 — "zoom" effect between the tests list and the detail page).
 {% endcomment %}
 <div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
+     data-test-id="{{ test.id }}"
      {% if not expanded %}style="view-transition-name: test-{{ test.id }}"{% endif %}
      x-data="{ showDef: {% if expanded %}true{% else %}false{% endif %}, recordOpen: {% if exec_form %}true{% else %}false{% endif %} }">
 
   {# Header #}
   <div class="flex items-start gap-3">
+    {% if can_reorder and not expanded %}
+      <button type="button" class="drag-handle cursor-grab active:cursor-grabbing text-ink-muted hover:text-ink shrink-0 mt-0.5" title="Drag to reorder — also renumbers the test code">
+        <i data-lucide="grip-vertical" class="w-4 h-4"></i>
+      </button>
+    {% endif %}
     <div class="min-w-0 flex-1">
       <p class="font-medium text-ink">
         {% if test.test_code %}<span class="text-xs font-mono text-ink-muted mr-1">{{ test.test_code }}</span>{% endif %}
@@ -37,7 +45,7 @@ elements sharing one view-transition-name on the same document is invalid
           <span class="inline-flex items-center gap-1"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Target: {{ test.target_date|date:"Y-m-d" }}</span>
         {% endif %}
         <button @click="showDef = !showDef" class="inline-flex items-center gap-1 text-brand-dark hover:underline">
-          <i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span x-text="showDef ? 'Hide details' : 'View details'"></span>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-soft" :class="showDef && 'rotate-180'"></i> <span x-text="showDef ? 'Hide details' : 'View details'"></span>
         </button>
       </div>
     </div>
@@ -114,17 +122,17 @@ elements sharing one view-transition-name on the same document is invalid
                  if (rid) { htmx.ajax('POST', '{% url 'pocs:test_link_requirement_add' test.id %}', {target: '#test-{{ test.id }}', swap: 'outerHTML', values: {requirement_id: rid}}); }"
          {% endif %}>
       {% for req in test.requirements.all %}
-        <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink">
+        <span class="inline-flex items-center gap-1 max-w-[14rem] pl-2 pr-1 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink">
           <button type="button" onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
-                  class="inline-flex items-center gap-1 hover:underline"
-                  title="{{ req.sub_system }} — click to preview">
-            <i data-lucide="link" class="w-3 h-3"></i> {{ req.code }}
+                  class="inline-flex items-center gap-1 hover:underline text-sm min-w-0">
+            <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
+            <span class="truncate min-w-0"><strong>{{ req.req_id }}</strong>{% if req.description %} · {{ req.description|truncatechars:28 }}{% endif %}</span>
           </button>
           {% if test.can_execute %}
-            <button type="button" title="Unlink {{ req.code }}" aria-label="Unlink {{ req.code }}"
+            <button type="button" title="Unlink {{ req.req_id }}" aria-label="Unlink {{ req.req_id }}"
                     hx-post="{% url 'pocs:test_link_requirement_remove' test.id req.id %}"
                     hx-target="#test-{{ test.id }}" hx-swap="outerHTML"
-                    class="p-0.5 rounded-full text-ink-muted hover:text-danger hover:bg-danger/10">
+                    class="p-0.5 rounded-full text-ink-muted hover:text-danger hover:bg-danger/10 shrink-0">
               <i data-lucide="x" class="w-3 h-3"></i>
             </button>
           {% endif %}

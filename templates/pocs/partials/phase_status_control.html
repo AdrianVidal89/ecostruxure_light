@@ -2,20 +2,23 @@
 Phase status: a click-to-set dropdown for editors, a read-only badge otherwise.
 Context: phase, editable, phase_status_choices. Swapped in place via HTMX.
 Pass oob=True to mark this control for an out-of-band swap (sub-phase updates).
-Not Applicable / External are never offered in the dropdown (each requires its
-own dedicated flow — a written reason, or a team assignment) — a phase in
-either state always shows as a fixed, distinctly-coloured badge instead.
+Not Applicable is never offered in the dropdown (it requires its own dedicated
+flow — a written reason) — a phase in that state always shows as a fixed badge
+instead. The External flag is independent of progress status (spec item 1):
+when set, an "External" badge is shown ALONGSIDE the normal progress
+dropdown/badge, not instead of it.
 {% endcomment %}
-<span id="phase-status-{{ phase.id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+<span id="phase-status-{{ phase.id }}"{% if oob %} hx-swap-oob="true"{% endif %} class="inline-flex items-center gap-1.5">
+{% if phase.is_external %}
+  <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info whitespace-nowrap"
+        title="{% for team in phase.teams.all %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+    <i data-lucide="building-2" class="w-3 h-3"></i> External
+  </span>
+{% endif %}
 {% if phase.status == 'not_applicable' %}
   <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-line text-ink-muted whitespace-nowrap"
         {% if phase.na_reason %}title="{{ phase.na_reason|truncatechars:140 }}"{% endif %}>
     <i data-lucide="ban" class="w-3 h-3"></i> N/A
-  </span>
-{% elif phase.status == 'external' %}
-  <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info whitespace-nowrap"
-        title="{% for team in phase.teams.all %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% endfor %}">
-    <i data-lucide="building-2" class="w-3 h-3"></i> External
   </span>
 {% elif editable %}
   <select name="status"

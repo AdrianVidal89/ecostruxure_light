@@ -51,8 +51,8 @@
   <style>
     :root {
       color-scheme: light;
-      --color-brand: 61 205 88;         /* #3DCD58 */
-      --color-brand-dark: 26 122 46;    /* #1A7A2E — a readable accent tone on light surfaces */
+      --color-brand: 61 205 88;         /* #3DCD58 — SE "Life Green" */
+      --color-brand-dark: 10 47 36;     /* #0A2F24 — SE "Dark Green", a readable accent tone on light surfaces */
       --color-canvas: 245 246 247;      /* #F5F6F7 */
       --color-surface: 255 255 255;     /* #FFFFFF */
       --color-surface-elevated: 255 255 255; /* modals/popups already read as "elevated" via shadow on light */
@@ -65,8 +65,8 @@
     }
     html.dark {
       color-scheme: dark;
-      --color-brand: 74 222 128;        /* softened — avoids a neon glare on dark surfaces */
-      --color-brand-dark: 134 239 172;  /* a readable accent tone on DARK surfaces (lighter, not darker) */
+      --color-brand: 94 255 89;         /* #5EFF59 — SE "Electric Green", softened role: an accent on dark surfaces */
+      --color-brand-dark: 231 255 217;  /* #E7FFD9 — SE "Light Green", a readable accent tone on DARK surfaces (lighter, not darker) */
       --color-canvas: 18 18 18;         /* #121212 — dark, never pure black */
       --color-surface: 30 30 30;        /* #1E1E1E — cards */
       --color-surface-elevated: 38 38 38; /* #262626 — modals/popups, one tone lighter for hierarchy */
@@ -195,6 +195,23 @@
     .prose th, .prose td { border: 1px solid rgb(var(--color-line)); padding: .35em .6em; }
     .editor-preview hr, .prose hr { border: 0; border-top: 1px solid rgb(var(--color-line)); margin: 1em 0; }
     .editor-preview img, .editor-preview-side img, .prose img { max-width: 100%; height: auto; }
+
+    /* Dark-mode overrides for the EasyMDE EDITING pane (CodeMirror + toolbar).
+       vendor/easymde.min.css ships light-only colours with no theme hook —
+       the live preview pane above already adapts via the tokens; this covers
+       the editing pane, which was still forcing a white background/black
+       text/light toolbar regardless of theme. */
+    html.dark .CodeMirror { background: rgb(var(--color-surface)); color: rgb(var(--color-ink)); }
+    html.dark .CodeMirror-gutters { background: rgb(var(--color-canvas)); border-right-color: rgb(var(--color-line)); }
+    html.dark .CodeMirror-linenumber { color: rgb(var(--color-ink-muted)); }
+    html.dark .CodeMirror-cursor { border-left-color: rgb(var(--color-ink)); background: rgb(var(--color-brand) / .6); }
+    html.dark .CodeMirror-selected, html.dark .CodeMirror-focused .CodeMirror-selected { background: rgb(var(--color-brand) / .25); }
+    html.dark .CodeMirror-activeline-background { background: rgb(var(--color-surface-elevated)); }
+    html.dark .CodeMirror-scrollbar-filler { background: rgb(var(--color-surface)); }
+    html.dark .editor-toolbar { background: rgb(var(--color-surface)); border-color: rgb(var(--color-line)); color: rgb(var(--color-ink-muted)); }
+    html.dark .editor-toolbar button.active, html.dark .editor-toolbar button:hover { background: rgb(var(--color-canvas)); border-color: rgb(var(--color-line)); }
+    html.dark .editor-toolbar i.separator { border-left-color: rgb(var(--color-line)); border-right-color: rgb(var(--color-surface)); }
+    html.dark .editor-toolbar.fullscreen { background: rgb(var(--color-surface)); }
   </style>
 
   {# --- JS libraries (served locally — corporate network blocks CDNs) --- #}
@@ -423,6 +440,12 @@
   <script src="{% static 'js/hover_card.js' %}"></script>
   {# Auto-wires the same hover-card onto every openEntityPreview(...) chip app-wide. #}
   <script src="{% static 'js/entity_hover_preview.js' %}"></script>
+  {# Warns before losing unsaved edits — auto-wires any form[data-unsaved-guard]. #}
+  <script src="{% static 'js/unsaved_changes_guard.js' %}"></script>
+  {# Drag-and-drop reordering for a phase's tests (spec item 10). #}
+  <script src="{% static 'vendor/sortable.min.js' %}"></script>
+  <script src="{% static 'js/test_reorder.js' %}"></script>
+  <script src="{% static 'js/test_order_modal.js' %}"></script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

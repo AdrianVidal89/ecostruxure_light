@@ -30,9 +30,19 @@ urlpatterns = [
     ),
     path("comments/", views.CommentListView.as_view(), name="comments"),
     path(
-        "comments/<int:comment_pk>/decide/",
-        views.comment_decide,
-        name="comment_decide",
+        "comments/<int:comment_pk>/thread/",
+        views.comment_thread,
+        name="comment_thread",
+    ),
+    path(
+        "comments/<int:comment_pk>/reply/",
+        views.comment_reply,
+        name="comment_reply",
+    ),
+    path(
+        "comments/<int:comment_pk>/close/",
+        views.comment_close,
+        name="comment_close",
     ),
     path(
         "comments/<str:model>/<int:pk>/create/",
@@ -313,6 +323,11 @@ urlpatterns = [
         "tests/<int:test_pk>/requirements/<int:requirement_pk>/remove/",
         views.test_link_requirement_remove,
         name="test_link_requirement_remove",
+    ),
+    path(
+        "phases/<int:phase_pk>/tests/reorder/",
+        views.test_reorder,
+        name="test_reorder",
     ),
     # --- Phase documents (Documentation / Functional Analysis) ---
     path(

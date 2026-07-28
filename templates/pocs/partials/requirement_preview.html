@@ -1,6 +1,7 @@
 {% load core_extras %}
 <div class="space-y-4">
   <div>
+    <p class="text-sm font-semibold text-ink">{{ req.req_id }}</p>
     <p class="text-xs font-mono text-ink-muted">
       {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
     </p>
@@ -38,8 +39,7 @@
         {% for uc in req.use_cases.all %}
           <button type="button"
                   onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
-                  title="Click to preview">
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
             <i data-lucide="link" class="w-3 h-3"></i>{{ uc.code }} · {{ uc.title }}
           </button>
         {% endfor %}

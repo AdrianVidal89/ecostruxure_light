@@ -60,7 +60,6 @@ def navigation(request):
             "icon": "message-square-warning",
             "available": True,
             "badge": comment_count,
-            "show_if_badge_or_admin": True,
         },
         {
             "label": "Phase blueprint",
@@ -150,17 +149,18 @@ def _pending_validation_count(user):
 
 
 def _pending_comment_count(user):
-    """Count of open Requirement/Use Case comments this user may Ack."""
+    """Count of open comment threads in POCs this user belongs to (spec item
+    3: any member browses the central Comments page, not just Leads)."""
     try:
         from apps.pocs.models import Comment, POCMembership
 
         qs = Comment.objects.filter(status="open")
         if getattr(user, "is_admin", False):
             return qs.count()
-        lead_ids = POCMembership.objects.filter(
-            user=user, role_in_poc="lead"
-        ).values_list("poc_id", flat=True)
-        return qs.filter(poc_id__in=lead_ids).count()
+        member_poc_ids = POCMembership.objects.filter(user=user).values_list(
+            "poc_id", flat=True
+        )
+        return qs.filter(poc_id__in=member_poc_ids).count()
     except Exception:  # noqa: BLE001
         return 0
 

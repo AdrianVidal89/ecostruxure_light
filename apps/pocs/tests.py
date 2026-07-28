@@ -957,6 +957,43 @@ class TaskOnAnyPhaseTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(self.parent.tasks.filter(title="Parent task").exists())
 
+    def test_task_create_redirects_to_tasks_workspace(self):
+        # Not back to the phase page (spec item 4 follow-up) — task creation
+        # is driven from, and should land back on, the Tasks workspace.
+        resp = self.client.post(
+            reverse("pocs:task_create", args=[self.parent.pk]),
+            {"title": "Redirect check", "status": "pending"},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_create_for_poc_redirects_to_tasks_workspace(self):
+        resp = self.client.post(
+            reverse("pocs:task_create_for_poc", args=[self.poc.pk]),
+            {"title": "Redirect check 2", "status": "pending", "phase": self.parent.pk},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_edit_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Editable")
+        resp = self.client.post(
+            reverse("pocs:task_edit", args=[task.pk]),
+            {"title": "Edited", "status": "pending"},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_delete_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Deletable")
+        resp = self.client.post(reverse("pocs:task_delete", args=[task.pk]))
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_bulk_status_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Bulk me")
+        resp = self.client.post(
+            reverse("pocs:task_bulk_status", args=[self.parent.pk]),
+            {"status": "in_progress", "task_ids": [task.pk]},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
     def test_parent_phase_detail_no_longer_shows_tasks(self):
         # Tasks are removed from the phase page (spec item 4 — minimalism);
         # "Add task" now lives only in the dedicated Tasks workspace.
@@ -1257,6 +1294,52 @@ class Fase3SpecsAndLinkTests(TestCase):
         self.assertEqual(req.created_by, self.admin)
         # Code is auto-generated (no user input): POC-{wbs}-{CAT}-{OP}-{NNN}.
         self.assertEqual(req.code, "POC-6000020869-NO-CS-001")
+        # Spec item 9: req_id falls back to the category abbreviation when
+        # sub_system is blank (as it is here).
+        self.assertEqual(req.req_id, "NO_001")
+
+    def test_req_id_uses_sub_system_slug_and_numbers_per_poc_and_subsystem(self):
+        req1 = Requirement.objects.create(
+            poc=self.poc, sub_system="Fleet Integration",
+            req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.assertEqual(req1.req_id, "FleetIntegration_001")
+        req2 = Requirement.objects.create(
+            poc=self.poc, sub_system="Fleet Integration",
+            req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.assertEqual(req2.req_id, "FleetIntegration_002")
+        # A different sub_system resets the counter.
+        req3 = Requirement.objects.create(
+            poc=self.poc, sub_system="Navigation",
+            req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.assertEqual(req3.req_id, "Navigation_001")
+
+    def test_req_id_unique_per_poc_not_global(self):
+        # Spec item 9: req_id is only guaranteed unique WITHIN a POC — two
+        # different POCs may legitimately share the same req_id.
+        other_poc = POC.objects.create(name="Other POC", created_by=self.admin, status="active")
+        req_a = Requirement.objects.create(
+            poc=self.poc, sub_system="Navigation",
+            req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        req_b = Requirement.objects.create(
+            poc=other_poc, sub_system="Navigation",
+            req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        self.assertEqual(req_a.req_id, "Navigation_001")
+        self.assertEqual(req_b.req_id, "Navigation_001")
 
     def test_link_test_to_requirement(self):
         req = Requirement.objects.create(
@@ -1270,6 +1353,26 @@ class Fase3SpecsAndLinkTests(TestCase):
             {"requirements": [req.pk]},
         )
         self.assertIn(req, self.test.requirements.all())
+
+    def test_link_requirement_remove_oob_refreshes_unlinked_pool(self):
+        # Spec item 8: unlinking a requirement from a test must OOB-refresh
+        # the phase's "unlinked requirements" pool, not just the test row.
+        req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", created_by=self.admin,
+        )
+        self.test.requirements.add(req)
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:test_link_requirement_remove", args=[self.test.pk, req.pk])
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(req, self.test.requirements.all())
+        body = resp.content.decode()
+        self.assertIn('id="unlinked-requirements-panel"', body)
+        self.assertIn('hx-swap-oob="true"', body)
+        self.assertIn(req.req_id, body)
 
     def test_usecase_auto_code_and_title_unique(self):
         # First use case: code auto-generated.
@@ -2285,8 +2388,9 @@ class PocGraphStatusTests(TestCase):
 
 
 class CommentFeedbackTests(TestCase):
-    """Improvements #4: Member comments on Use Cases/Requirements; the POC
-    lead Acks (Applied/Rejected); an open comment shows as a halo until then."""
+    """Improvement brief item 3: any POC member opens a thread and may reply;
+    only a POC lead/admin may Close it (no separate Applied/Rejected verdict).
+    An open thread shows as a halo on its target until closed."""
 
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -2330,7 +2434,7 @@ class CommentFeedbackTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertFalse(self.req.has_open_comment)
 
-    def test_lead_ack_applied_clears_halo(self):
+    def test_lead_can_close_thread_clears_halo(self):
         from django.contrib.contenttypes.models import ContentType
 
         from apps.pocs.models import Comment
@@ -2344,17 +2448,15 @@ class CommentFeedbackTests(TestCase):
         )
         self.assertTrue(self.req.has_open_comment)
         self.client.force_login(self.lead)
-        resp = self.client.post(
-            reverse("pocs:comment_decide", args=[comment.pk]),
-            {"decision": "applied", "note": "Fixed."},
-        )
-        self.assertEqual(resp.status_code, 302)
+        resp = self.client.post(reverse("pocs:comment_close", args=[comment.pk]))
+        self.assertEqual(resp.status_code, 200)
         comment.refresh_from_db()
-        self.assertEqual(comment.status, "applied")
-        self.assertEqual(comment.resolved_by, self.lead)
+        self.assertEqual(comment.status, "closed")
+        self.assertEqual(comment.closed_by, self.lead)
+        self.assertIsNotNone(comment.closed_at)
         self.assertFalse(self.req.has_open_comment)
 
-    def test_member_cannot_ack(self):
+    def test_member_cannot_close_thread(self):
         from apps.pocs.models import Comment
         from django.contrib.contenttypes.models import ContentType
 
@@ -2366,13 +2468,73 @@ class CommentFeedbackTests(TestCase):
             author=self.member,
         )
         self.client.force_login(self.member)
-        resp = self.client.post(
-            reverse("pocs:comment_decide", args=[comment.pk]),
-            {"decision": "applied", "note": ""},
-        )
+        resp = self.client.post(reverse("pocs:comment_close", args=[comment.pk]))
         self.assertEqual(resp.status_code, 403)
         comment.refresh_from_db()
         self.assertEqual(comment.status, "open")
+
+    def test_any_member_can_reply_to_open_thread(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.pocs.models import Comment
+
+        comment = Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(Requirement),
+            object_id=self.req.pk,
+            poc=self.poc,
+            text="Missing detail.",
+            author=self.lead,
+        )
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:comment_reply", args=[comment.pk]), {"text": "On it."}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(comment.messages.count(), 1)
+        self.assertEqual(comment.messages.first().author, self.member)
+
+    def test_cannot_reply_to_closed_thread(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.pocs.models import Comment
+
+        comment = Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(Requirement),
+            object_id=self.req.pk,
+            poc=self.poc,
+            text="Missing detail.",
+            author=self.member,
+        )
+        comment.close(self.lead)
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:comment_reply", args=[comment.pk]), {"text": "Too late."}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(comment.messages.count(), 0)
+
+    def test_central_page_lists_all_threads_grouped_by_poc_and_tab(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.pocs.models import Comment, Test
+
+        Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(Requirement),
+            object_id=self.req.pk, poc=self.poc, text="Spec thread", author=self.member,
+        )
+        phase = Phase.objects.create(poc=self.poc, name="System Testing", order=1)
+        test = Test.objects.create(phase=phase, title="A test")
+        Comment.objects.create(
+            content_type=ContentType.objects.get_for_model(Test),
+            object_id=test.pk, poc=self.poc, text="Test thread", author=self.member,
+        )
+        # A plain member (not a lead/admin) can still browse everything.
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:comments"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Spec thread")
+        self.assertContains(resp, "Test thread")
+        self.assertContains(resp, self.poc.name)
 
 
 class EntityPreviewAndQuickStatusTests(TestCase):
@@ -2405,7 +2567,8 @@ class EntityPreviewAndQuickStatusTests(TestCase):
         self.client.force_login(self.member)
         resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]))
         self.assertContains(resp, "openEntityPreview(")
-        self.assertContains(resp, self.req.code)
+        # Chip shows req_id (spec item 9), not the audit-trail code.
+        self.assertContains(resp, self.req.req_id)
 
     def test_requirement_preview_links_usecase_as_clickable_chip(self):
         self.client.force_login(self.member)
@@ -2600,6 +2763,85 @@ class SvgReportEmbedTests(TestCase):
         self.assertTrue(out)  # generation completed, didn't raise
 
 
+class TestReorderTests(TestCase):
+    """Improvement brief item 10: drag-and-drop reordering of a phase's tests
+    also renumbers test_code to match, so ST-NNN tracks display/execution
+    order rather than creation order."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "reorder_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "reorder_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="Reorder POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.phase = Phase.objects.create(poc=self.poc, name="System Testing", order=1)
+        self.t1 = Test.objects.create(phase=self.phase, title="First")
+        self.t2 = Test.objects.create(phase=self.phase, title="Second")
+        self.t3 = Test.objects.create(phase=self.phase, title="Third")
+
+    def test_tests_get_sequential_codes_on_creation(self):
+        self.assertEqual(self.t1.test_code, "ST-001")
+        self.assertEqual(self.t2.test_code, "ST-002")
+        self.assertEqual(self.t3.test_code, "ST-003")
+        # Default ordering sorts by test_code (spec item 10 follow-up), so
+        # display always reads ST-001, ST-002, … regardless of order/id.
+        self.assertEqual(list(self.phase.tests.all()), [self.t1, self.t2, self.t3])
+
+    def test_reorder_renumbers_codes_and_persists_new_order(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("pocs:test_reorder", args=[self.phase.pk]),
+            {"test_ids": [self.t3.pk, self.t1.pk, self.t2.pk]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.t1.refresh_from_db()
+        self.t2.refresh_from_db()
+        self.t3.refresh_from_db()
+        # Same set of numeric suffixes, reassigned to the new positions.
+        self.assertEqual(self.t3.test_code, "ST-001")
+        self.assertEqual(self.t1.test_code, "ST-002")
+        self.assertEqual(self.t2.test_code, "ST-003")
+        self.assertEqual([self.t3.order, self.t1.order, self.t2.order], [0, 1, 2])
+        # The phase's default ordering now reflects the drop order.
+        self.assertEqual(list(self.phase.tests.all()), [self.t3, self.t1, self.t2])
+
+    def test_out_of_order_ids_still_sort_by_code_by_default(self):
+        # Reproduces the reported bug: even if id/creation order and the
+        # eventual test_code assignment ever drift apart, the default
+        # queryset must still read ST-001, ST-002, ST-003 — not id order.
+        Test.objects.filter(pk=self.t1.pk).update(test_code="ST-003")
+        Test.objects.filter(pk=self.t3.pk).update(test_code="ST-001")
+        self.assertEqual(
+            [t.pk for t in self.phase.tests.all()], [self.t3.pk, self.t2.pk, self.t1.pk]
+        )
+
+    def test_define_test_order_button_and_modal_render_for_lead(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Define test order")
+        self.assertContains(resp, 'id="test-order-list"')
+        self.assertContains(resp, self.t1.title)
+        self.assertContains(resp, self.t1.test_code)
+
+    def test_define_test_order_button_hidden_for_plain_member(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Define test order")
+
+    def test_member_cannot_reorder(self):
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:test_reorder", args=[self.phase.pk]),
+            {"test_ids": [self.t3.pk, self.t1.pk, self.t2.pk]},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
 class TaskGanttRenderTests(TestCase):
     """Section 5: phase_detail and the global Tasks page render the tree+Gantt
     without duplicating a sub-task (the bug being fixed — a sub-task used to
@@ -2667,6 +2909,41 @@ class DarkModeSmokeTests(TestCase):
         body = resp.content.decode()
         self.assertIn("html.dark", body)
         self.assertIn("localStorage.setItem('theme'", body)
+
+
+class UnsavedChangesGuardTests(TestCase):
+    """Improvement brief item 7: a beforeunload/internal-link guard on the
+    app's edit forms — smoke-checks the wiring is present, not the JS
+    behaviour itself (unreachable from a Django TestCase)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "ug_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="Guard POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(poc=self.poc, name="P", order=1)
+        self.client.force_login(self.admin)
+
+    def test_guard_script_loaded_on_app_shell(self):
+        resp = self.client.get(reverse("core:dashboard"))
+        self.assertContains(resp, "unsaved_changes_guard.js")
+
+    def test_poc_edit_form_has_guard_attribute(self):
+        resp = self.client.get(reverse("pocs:edit", args=[self.poc.pk]))
+        self.assertContains(resp, "data-unsaved-guard")
+
+    def test_phase_edit_form_has_guard_attribute(self):
+        resp = self.client.get(reverse("pocs:phase_edit", args=[self.phase.pk]))
+        self.assertContains(resp, "data-unsaved-guard")
+
+    def test_requirement_edit_form_has_guard_attribute(self):
+        req = Requirement.objects.create(
+            poc=self.poc, req_gravity="imposes_mvp", req_operation="navigation",
+            req_functional="performance", req_category="normal_operation",
+            created_by=self.admin,
+        )
+        resp = self.client.get(reverse("pocs:requirement_edit", args=[req.pk]))
+        self.assertContains(resp, "data-unsaved-guard")
 
 
 class MarkdownExportImportTests(TestCase):
@@ -2760,46 +3037,60 @@ class PhaseExternalTests(TestCase):
         self.poc = POC.objects.create(name="Ext POC", created_by=self.admin, status="active")
         self.phase = Phase.objects.create(poc=self.poc, name="Site Survey", order=1)
 
-    def test_mark_external_sets_status_and_teams(self):
+    def test_mark_external_sets_flag_and_teams_without_touching_status(self):
+        # Spec item 1: External is an independent flag — progress status
+        # (default Pending here) is left untouched.
         vendor = Team.objects.create(name="Vendor QA")
         self.phase.mark_external(self.admin, [vendor])
         self.phase.refresh_from_db()
-        self.assertEqual(self.phase.status, Phase.Status.EXTERNAL)
+        self.assertEqual(self.phase.status, Phase.Status.PENDING)
         self.assertTrue(self.phase.is_external)
         self.assertIn(vendor, self.phase.teams.all())
         self.assertIsNotNone(self.phase.external_at)
         self.assertEqual(self.phase.external_by, self.admin)
 
     def test_mark_external_clears_na_and_vice_versa(self):
-        # External then NA — NA wins, external fields are cleared.
+        # External then NA — NA wins, external flag/fields are cleared.
         vendor = Team.objects.create(name="Vendor QA")
         self.phase.mark_external(self.admin, [vendor])
         self.phase.mark_na(self.admin, "Site inaccessible")
         self.phase.refresh_from_db()
         self.assertEqual(self.phase.status, Phase.Status.NOT_APPLICABLE)
+        self.assertFalse(self.phase.is_external)
         self.assertIsNone(self.phase.external_at)
         self.assertEqual(self.phase.teams.count(), 0)
-        # NA then External — External wins, na fields are cleared.
+        # NA then External — External wins, status reverts to Pending, na
+        # fields are cleared.
         self.phase.mark_external(self.admin, [vendor])
         self.phase.refresh_from_db()
-        self.assertEqual(self.phase.status, Phase.Status.EXTERNAL)
+        self.assertEqual(self.phase.status, Phase.Status.PENDING)
+        self.assertTrue(self.phase.is_external)
         self.assertEqual(self.phase.na_reason, "")
         self.assertIsNone(self.phase.na_at)
 
-    def test_unmark_external_reverts_to_pending(self):
+    def test_unmark_external_reverts_flag_only(self):
         vendor = Team.objects.create(name="Vendor QA")
         self.phase.mark_external(self.admin, [vendor])
         self.phase.unmark_external()
         self.phase.refresh_from_db()
+        self.assertFalse(self.phase.is_external)
         self.assertEqual(self.phase.status, Phase.Status.PENDING)
         self.assertEqual(self.phase.teams.count(), 0)
 
-    def test_external_leaf_counts_as_done_for_parent(self):
+    def test_external_leaf_uses_real_status_for_parent_rollup(self):
+        # Spec item 1: marking a child External does NOT automatically count
+        # it as done for the parent rollup — its real progress status does.
         parent = Phase.objects.create(poc=self.poc, name="Parent", order=0)
         self.phase.parent = parent
         self.phase.save()
         vendor = Team.objects.create(name="Vendor QA")
         self.phase.mark_external(self.admin, [vendor])
+        parent.refresh_from_db()
+        self.assertEqual(parent.compute_status(), Phase.Status.PENDING)
+
+        # Progress on the External phase is still independently editable —
+        # once its own status is set to Completed, the parent reflects it.
+        self.phase.set_status_cascade(Phase.Status.COMPLETED)
         parent.refresh_from_db()
         self.assertEqual(parent.compute_status(), Phase.Status.COMPLETED)
 
@@ -2896,8 +3187,9 @@ class UCRequirementMatrixTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.content.decode()
         self.assertIn(self.uc.code, body)
-        self.assertIn(self.req1.code, body)
-        self.assertIn(self.req2.code, body)
+        # Matrix columns show req_id (spec item 9), not the audit-trail code.
+        self.assertIn(self.req1.req_id, body)
+        self.assertIn(self.req2.req_id, body)
         self.assertIn("data-hover-card", body)
         self.assertIn("Full UC description", body)
         self.assertIn("Req 1 description", body)
@@ -2969,7 +3261,8 @@ class EntityHoverPreviewBriefTests(TestCase):
         resp = self.client.get(reverse("pocs:requirement_preview", args=[self.req.pk]) + "?brief=1")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "application/json")
-        self.assertEqual(resp.json(), {"title": self.req.code, "description": "Req full description"})
+        # Hover-card title is req_id (spec item 9), not the audit-trail code.
+        self.assertEqual(resp.json(), {"title": self.req.req_id, "description": "Req full description"})
 
     def test_usecase_preview_brief_returns_json(self):
         self.client.force_login(self.admin)

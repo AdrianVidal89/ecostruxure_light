@@ -4,6 +4,29 @@
 {% block breadcrumb %}<span class="text-ink font-medium">Tasks</span>{% endblock %}
 
 {% block content %}
+{% comment %}
+Remembers which POC folders are collapsed across visits (localStorage), so
+e.g. creating a task and landing back here (spec item 4 follow-up) doesn't
+re-expand every other POC the user had deliberately collapsed.
+{% endcomment %}
+<script>
+  function tasksCollapseState(pocId) {
+    return {
+      open: true,
+      init() {
+        const collapsed = JSON.parse(localStorage.getItem("tasksCollapsedPocs") || "[]");
+        this.open = !collapsed.includes(pocId);
+      },
+      toggle() {
+        this.open = !this.open;
+        let collapsed = JSON.parse(localStorage.getItem("tasksCollapsedPocs") || "[]");
+        collapsed = collapsed.filter((id) => id !== pocId);
+        if (!this.open) collapsed.push(pocId);
+        localStorage.setItem("tasksCollapsedPocs", JSON.stringify(collapsed));
+      },
+    };
+  }
+</script>
 <div class="max-w-5xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-semibold text-ink">{% if manager %}All tasks{% else %}My tasks{% endif %}</h1>
@@ -33,10 +56,10 @@
   </div>
 
   {% for group in groups %}
-    {# POC-level folder — collapses just like the phase folders below it (task_phase_group.html), and carries its own "+ Add Task" entry point (spec item 4): the phase is picked in-form, so this works even for a phase that has zero tasks yet (see TaskCreateForPocView). #}
-    <div class="space-y-3" x-data="{ open: true }">
+    {# POC-level folder — collapses just like the phase folders below it (task_phase_group.html), and carries its own "+ Add Task" entry point (spec item 4): the phase is picked in-form, so this works even for a phase that has zero tasks yet (see TaskCreateForPocView). Collapsed state persists across visits (localStorage — see tasksCollapseState above). #}
+    <div class="space-y-3" x-data="tasksCollapseState({{ group.poc.pk }})">
       <div class="flex items-center gap-2">
-        <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+        <button type="button" @click="toggle()" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
           <i data-lucide="chevron-down" class="w-4 h-4 transition-soft" :class="!open && '-rotate-90'"></i>
         </button>
         <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
