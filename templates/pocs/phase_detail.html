@@ -198,13 +198,18 @@
           </a>
         {% endif %}
       </div>
-      {# ---------- Tests (main column) + Unlinked requirements pool (right column, sticky) ----------
-           The pool sits alongside the tests instead of above them, and stays pinned in view
-           while scrolling through the tests, so a chip can be dragged onto any test without
-           scrolling back up. `top-4` is relative to <main class="overflow-y-auto"> in base.html
-           (the actual scroll container here, not the viewport). ---------- #}
-      <div class="flex flex-col lg:flex-row gap-4 items-start">
-        <div class="flex-1 min-w-0 space-y-3 order-2 lg:order-1">
+      {% comment %}
+        Tests (main column) + Unlinked requirements pool (right column, sticky).
+        The pool sits alongside the tests instead of above them, and stays pinned in view
+        while scrolling through the tests, so a chip can be dragged onto any test without
+        scrolling back up. `top-4` is relative to <main class="overflow-y-auto"> in base.html
+        (the actual scroll container here, not the viewport). Unconditional (no lg: gate) —
+        dragging is a desktop interaction and the pool must stay reachable at any common
+        window width; only collapses to a stacked layout below `sm` (640px) for very narrow
+        windows where a side column would be too cramped to use.
+      {% endcomment %}
+      <div class="flex flex-col sm:flex-row gap-4 items-start">
+        <div class="flex-1 min-w-0 space-y-3 order-2 sm:order-1">
           {% for test in tests %}
             {% include "pocs/partials/test_row.html" with unlinked_requirements=unlinked_requirements %}
           {% empty %}
@@ -215,8 +220,8 @@
         </div>
 
         {% if can_link_requirements and unlinked_requirements %}
-          {# ---------- Unlinked requirements pool (spec item 2) — drag a chip onto a test's "Linked requirements" box to link it, or click its code to preview it. ---------- #}
-          <div class="w-full lg:w-56 shrink-0 order-1 lg:order-2 lg:sticky lg:top-4 rounded-lg border border-dashed border-brand/40 bg-canvas/50 p-3 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+          {# Unlinked requirements pool (spec item 2) — drag a chip onto a test's "Linked requirements" box to link it, or click its code to preview it. #}
+          <div class="w-full sm:w-56 shrink-0 order-1 sm:order-2 sm:sticky sm:top-4 rounded-lg border border-dashed border-brand/40 bg-canvas/50 p-3 sm:max-h-[calc(100vh-8rem)] sm:overflow-y-auto"
                x-data="{ open: true }">
             <button type="button" @click="open = !open" class="flex items-center gap-1.5 text-xs font-medium text-ink-muted hover:text-ink">
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-soft" :class="!open && '-rotate-90'"></i>
