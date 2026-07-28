@@ -1920,15 +1920,6 @@ class Requirement(models.Model):
         blank=True,
         help_text="Auto-generated, readable identifier, e.g. Navigation_001.",
     )
-    external_code = models.CharField(
-        "External code",
-        max_length=100,
-        blank=True,
-        db_index=True,
-        help_text="This requirement's own code in your source documentation "
-        "(e.g. FR101) — kept only for cross-reference, never generated or "
-        "enforced by Light.",
-    )
     poc = models.ForeignKey(
         POC, on_delete=models.CASCADE, related_name="requirements"
     )
@@ -2018,8 +2009,14 @@ class Requirement(models.Model):
 
     @classmethod
     def predefined_choices(cls, field_name):
-        """The built-in (value, label) suggestions for a classification field."""
-        return list(cls.FIELD_CHOICE_SOURCES[field_name].choices)
+        """The built-in (value, label) suggestions for a classification field.
+
+        ``sub_system`` (and any other field with no ``FIELD_CHOICE_SOURCES``
+        entry) has no built-in suggestions — every value comes from
+        :class:`RequirementFieldOption` (see ``field_choices``).
+        """
+        source = cls.FIELD_CHOICE_SOURCES.get(field_name)
+        return list(source.choices) if source else []
 
     @classmethod
     def field_choices(cls, poc, field_name):
@@ -2145,6 +2142,7 @@ class RequirementFieldOption(models.Model):
         FUNCTIONAL = "req_functional", "Functional"
         CATEGORY = "req_category", "Category"
         LIFE_CYCLE_PHASE = "life_cycle_phase", "Lifecycle Status"
+        SUB_SYSTEM = "sub_system", "Sub-System"
 
     poc = models.ForeignKey(
         POC, on_delete=models.CASCADE, related_name="requirement_field_options"

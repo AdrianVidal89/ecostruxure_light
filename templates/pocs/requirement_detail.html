@@ -14,10 +14,8 @@
 <div class="max-w-3xl mx-auto space-y-6">
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0">
-      <p class="text-sm font-semibold text-ink">{{ req.req_id }}</p>
-      <p class="text-xs font-mono text-ink-muted">
-        {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
-      </p>
+      <p class="text-sm font-semibold text-ink" title="OSPI Code">{{ req.req_id }}</p>
+      <p class="text-xs font-mono text-ink-muted">{{ req.code }}</p>
       {% include "pocs/partials/requirement_title.html" %}
       {% include "pocs/partials/requirement_classification.html" %}
     </div>

@@ -17,7 +17,7 @@ from .audit import record_audit
 from .models import Requirement, RequirementFieldOption, UseCase
 
 _CLASSIFICATION_FIELDS = ("req_gravity", "req_operation", "req_functional", "req_category")
-_OPTIONAL_CLASSIFICATION_FIELDS = ("life_cycle_phase",)
+_OPTIONAL_CLASSIFICATION_FIELDS = ("life_cycle_phase", "sub_system")
 
 
 def _reverse_map(choices):
@@ -63,7 +63,6 @@ _HEADER_ALIASES = {
     # code matches an existing requirement of this POC, the row UPDATES it
     # instead of creating a new one (the round-trip export→edit→import flow).
     "code": {"code"},
-    "external_code": {"external_code", "external code", "source code", "original code"},
     "sub_system": {"sub_system", "subsystem", "sub system", "system"},
     "req_gravity": {"req_gravity", "gravity"},
     "req_operation": {"req_operation", "operation"},
@@ -272,7 +271,6 @@ def _requirement_preview_rows(headers, data_rows, poc=None):
                 seen_criteria.add(validation_criteria)
 
         clean = {
-            "external_code": data.get("external_code", ""),
             "sub_system": data.get("sub_system", ""),
             "req_gravity": resolve("req_gravity", "Gravity"),
             "req_operation": resolve("req_operation", "Operation"),
@@ -549,7 +547,6 @@ def build_requirements_template_xlsx(poc=None):
     docstring).
     """
     headers = [
-        "external_code",
         "sub_system",
         "req_gravity",
         "req_operation",
@@ -563,7 +560,6 @@ def build_requirements_template_xlsx(poc=None):
         "use_cases",
     ]
     example_row = [
-        "FR101",
         "PLC Controller",
         Requirement.Gravity.IMPOSES_MVP.label,
         Requirement.Operation.CONTROL_OPERATION.label,
@@ -622,7 +618,7 @@ def build_usecases_template_xlsx():
 # ---------------------------------------------------------------------------
 _REQUIREMENT_EXPORT_HEADERS = [
     "code",
-    "external_code",
+    "OSPI Code",
     "sub_system",
     "req_gravity",
     "req_operation",
@@ -646,13 +642,14 @@ def _requirement_export_rows(poc):
     """Headers matching the importer, plus a leading ``code`` column so a
     re-imported, edited row UPDATES the same requirement instead of creating
     a duplicate (see ``parse_requirements_xlsx``/``_md``). ``code`` is
-    Light's own identifier — don't edit it; edit anything else, including
-    ``external_code``."""
+    Light's own audit-trail identifier — don't edit it. ``OSPI Code`` (the
+    auto-generated ``req_id``, e.g. "Navigation_001") is this requirement's
+    readable identifying column — also read-only, ignored on re-import."""
     rows = []
     for req in poc.requirements.prefetch_related("use_cases").order_by("code"):
         rows.append([
             req.code,
-            req.external_code,
+            req.req_id,
             req.sub_system,
             req.get_req_gravity_display(),
             req.get_req_operation_display(),

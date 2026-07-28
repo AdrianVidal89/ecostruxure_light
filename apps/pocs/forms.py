@@ -96,8 +96,8 @@ class RequirementChoiceField(forms.ModelMultipleChoiceField):
 
     def label_from_instance(self, obj):
         bits = [obj.code]
-        if obj.external_code:
-            bits.append(obj.external_code)
+        if obj.req_id:
+            bits.append(obj.req_id)
         functional = obj.get_req_functional_display()
         if functional:
             bits.append(functional)
@@ -770,16 +770,18 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     The ``code`` is auto-generated (never entered). A requirement carries no
     manual approval; it may be attached to one or more Use Cases here.
 
-    ``req_gravity``/``req_operation``/``req_functional``/``req_category`` are
-    POC-extensible: the dropdown offers the built-in suggestions plus any
-    custom value the POC has added before, and a "+ Add new…" option that
-    reveals a text box (see the paired ``*_new`` fields) — the typed value is
-    saved as a :class:`~apps.pocs.models.RequirementFieldOption` so it becomes
-    a suggestion for next time.
+    ``sub_system``/``req_gravity``/``req_operation``/``req_functional``/``req_category``
+    are POC-extensible: the dropdown offers the built-in suggestions (none, for
+    ``sub_system``) plus any custom value the POC has added before, and a
+    "+ Add new…" option that reveals a text box (see the paired ``*_new``
+    fields) — the typed value is saved as a
+    :class:`~apps.pocs.models.RequirementFieldOption` so it becomes a
+    suggestion for next time (and shows up in the dropdown for the next
+    requirement of this POC).
     """
 
     CLASSIFICATION_FIELDS = (
-        "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
+        "sub_system", "req_gravity", "req_operation", "req_functional", "req_category", "life_cycle_phase",
     )
 
     use_cases = forms.ModelMultipleChoiceField(
@@ -794,6 +796,10 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     # has no ``choices`` for a ModelForm to pick up. ``@change`` is read by
     # spec_form.html (Alpine) to reveal the paired "*_new" text box when
     # "+ Add new…" is picked.
+    sub_system = forms.ChoiceField(
+        choices=[], required=False,
+        widget=forms.Select(attrs={"class": INPUT_CLASS, "@change": "v = $event.target.value"}),
+    )
     req_gravity = forms.ChoiceField(
         choices=[], widget=forms.Select(attrs={"class": INPUT_CLASS, "@change": "v = $event.target.value"})
     )
@@ -811,6 +817,10 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
         widget=forms.Select(attrs={"class": INPUT_CLASS, "@change": "v = $event.target.value"}),
     )
 
+    sub_system_new = forms.CharField(
+        required=False, label="New sub-system value",
+        widget=forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "Type the new value…"}),
+    )
     req_gravity_new = forms.CharField(
         required=False, label="New gravity value",
         widget=forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "Type the new value…"}),
@@ -835,7 +845,6 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
     class Meta:
         model = Requirement
         fields = (
-            "external_code",
             "sub_system",
             "req_gravity",
             "req_operation",
@@ -848,10 +857,6 @@ class RequirementForm(NonBlankMixin, forms.ModelForm):
             "remarks",
         )
         widgets = {
-            "external_code": forms.TextInput(attrs={
-                "class": INPUT_CLASS, "placeholder": "e.g. FR101 — your source documentation's own code",
-            }),
-            "sub_system": forms.TextInput(attrs={"class": INPUT_CLASS}),
             "description": forms.Textarea(attrs={
                 "rows": 3, "class": INPUT_CLASS,
                 "placeholder": REQUIREMENT_DESCRIPTION_PLACEHOLDER,

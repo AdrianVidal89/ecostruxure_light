@@ -575,7 +575,7 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         # table — keys must match the `data-*` attributes set on each `<tr>`.
         ctx["sortable_req_columns"] = [
             ("code", "Code"),
-            ("externalCode", "External code"),
+            ("reqId", "OSPI Code"),
             ("subsystem", "Sub-system"),
             ("gravityRank", "Gravity"),
             ("operationRank", "Operation"),
