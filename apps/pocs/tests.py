@@ -973,6 +973,27 @@ class TaskOnAnyPhaseTests(TestCase):
         )
         self.assertRedirects(resp, reverse("pocs:tasks"))
 
+    def test_task_edit_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Editable")
+        resp = self.client.post(
+            reverse("pocs:task_edit", args=[task.pk]),
+            {"title": "Edited", "status": "pending"},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_delete_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Deletable")
+        resp = self.client.post(reverse("pocs:task_delete", args=[task.pk]))
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_bulk_status_redirects_to_tasks_workspace(self):
+        task = Task.objects.create(phase=self.parent, title="Bulk me")
+        resp = self.client.post(
+            reverse("pocs:task_bulk_status", args=[self.parent.pk]),
+            {"status": "in_progress", "task_ids": [task.pk]},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
     def test_parent_phase_detail_no_longer_shows_tasks(self):
         # Tasks are removed from the phase page (spec item 4 — minimalism);
         # "Add task" now lives only in the dedicated Tasks workspace.

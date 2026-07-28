@@ -1283,7 +1283,10 @@ class TaskUpdateView(_ItemEditMixin, UpdateView):
         self.object = form.save()
         self.object.phase.recalculate_status()
         messages.success(self.request, f"Task “{self.object.title}” updated.")
-        return redirect("pocs:phase_detail", phase_pk=self.object.phase.pk)
+        # Land back on the Tasks workspace (spec item 4 follow-up) — tasks no
+        # longer display on the phase page, so this is where the edit/delete
+        # actions are actually driven from.
+        return redirect("pocs:tasks")
 
 
 class TaskDeleteView(_ItemEditMixin, DeleteView):
@@ -1300,7 +1303,9 @@ class TaskDeleteView(_ItemEditMixin, DeleteView):
         self.object.delete()
         phase.recalculate_status()
         messages.success(self.request, f"Task “{title}” deleted.")
-        return redirect("pocs:phase_detail", phase_pk=phase.pk)
+        # Land back on the Tasks workspace (spec item 4 follow-up) — tasks no
+        # longer display on the phase page.
+        return redirect("pocs:tasks")
 
 
 def _annotate_task_tree(task, can_edit, user_id):
@@ -1410,7 +1415,9 @@ def task_bulk_status(request, phase_pk):
     messages.success(
         request, f"Bulk update: {applied} task(s) changed, {skipped} skipped."
     )
-    return redirect("pocs:phase_detail", phase_pk=phase.pk)
+    # Land back on the Tasks workspace (spec item 4 follow-up) — tasks no
+    # longer display on the phase page.
+    return redirect("pocs:tasks")
 
 
 @require_POST
