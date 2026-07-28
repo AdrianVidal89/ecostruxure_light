@@ -246,6 +246,11 @@ urlpatterns = [
         views.TaskCreateView.as_view(),
         name="task_create",
     ),
+    path(
+        "<int:pk>/tasks/create/",
+        views.TaskCreateForPocView.as_view(),
+        name="task_create_for_poc",
+    ),
     path("tasks/<int:task_pk>/edit/", views.TaskUpdateView.as_view(), name="task_edit"),
     path(
         "tasks/<int:task_pk>/delete/",
@@ -278,6 +283,16 @@ urlpatterns = [
         "tests/<int:test_pk>/requirements/",
         views.test_link_requirements,
         name="test_link_requirements",
+    ),
+    path(
+        "tests/<int:test_pk>/requirements/add/",
+        views.test_link_requirement_add,
+        name="test_link_requirement_add",
+    ),
+    path(
+        "tests/<int:test_pk>/requirements/<int:requirement_pk>/remove/",
+        views.test_link_requirement_remove,
+        name="test_link_requirement_remove",
     ),
     path(
         "tests/<int:test_pk>/parameters/",

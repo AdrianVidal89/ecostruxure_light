@@ -352,6 +352,17 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         help_text="Use case(s) this task implements.",
     )
+    # Not a Meta.field — deliberately left out of construct_instance() so the
+    # view always sets ``instance.phase`` itself before save(). ``required``
+    # stays False at the form level: the phase-scoped ``TaskCreateView`` never
+    # renders this field (the phase is already implied by the URL), so nothing
+    # would be posted for it there; the POC-scoped create view enforces its
+    # presence itself in ``form_valid`` (see views.TaskCreateForPocView).
+    phase = forms.ModelChoiceField(
+        queryset=Phase.objects.none(),
+        required=False,
+        help_text="Which phase this task belongs to.",
+    )
 
     class Meta:
         model = Task
@@ -390,6 +401,9 @@ class TaskForm(NonBlankMixin, forms.ModelForm):
             )
             self.fields["requirements"].queryset = poc.requirements.all()
             self.fields["use_cases"].queryset = poc.use_cases.all()
+            self.fields["phase"].queryset = poc.phases.all()
+            self.fields["phase"].label_from_instance = lambda p: p.name
+            self.fields["phase"].widget.attrs["class"] = INPUT_CLASS
 
     def clean(self):
         cleaned = super().clean()

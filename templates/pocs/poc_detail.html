@@ -182,8 +182,10 @@
       </div>
     {% endif %}
 
-    {# Tasks are no longer shown here — minimalism: they only live in the
-       dedicated Tasks workspace (pocs:tasks), spec item 4. #}
+    {% comment %}
+      Tasks are no longer shown here — minimalism: they only live in the
+      dedicated Tasks workspace (pocs:tasks), spec item 4.
+    {% endcomment %}
 
     {# Obsidian-style map: POC -> Use Cases -> Requirements -> Tests. #}
     {% include "pocs/partials/poc_graph.html" %}
@@ -873,9 +875,11 @@
   {# ---------- Reports ---------- #}
   <section x-show="tab === 'reports'" x-cloak class="space-y-6">
 
-    {# Generated reports for this POC — grouped by where they came from (phase /
-       report type) instead of one flat folder, so e.g. Functional Analysis and
-       Testing reports are easy to tell apart. #}
+    {% comment %}
+      Generated reports for this POC — grouped by where they came from (phase /
+      report type) instead of one flat folder, so e.g. Functional Analysis and
+      Testing reports are easy to tell apart.
+    {% endcomment %}
     <div class="space-y-4">
       <h2 class="font-medium text-ink flex items-center gap-2">
         <i data-lucide="file-text" class="w-4 h-4"></i> Reports

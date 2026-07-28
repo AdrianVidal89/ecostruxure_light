@@ -70,7 +70,9 @@
           </a>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {% for test in pgroup.tests %}
-              <a href="{% url 'pocs:test_detail' test.pk %}" class="card card-hover p-4 flex flex-col gap-2">
+              {# view-transition-name pairs with test_detail.html's hero <h1> — the "zoom in" effect (spec item 3). #}
+              <a href="{% url 'pocs:test_detail' test.pk %}" class="card card-hover p-4 flex flex-col gap-2"
+                 style="view-transition-name: test-{{ test.id }}">
                 <div class="flex items-center gap-2 flex-wrap">
                   {% if test.test_code %}<span class="text-xs font-mono text-ink-muted">{{ test.test_code }}</span>{% endif %}
                   {% if test.pending_validation %}

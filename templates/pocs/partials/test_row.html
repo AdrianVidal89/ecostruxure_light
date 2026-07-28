@@ -1,14 +1,23 @@
 {% load core_extras %}
 {% comment %}
 Single test row (#test-<id>). Re-rendered by HTMX after inline execution saves.
-Also reused, unmodified, as the body of the standalone test_detail.html page
-(spec item 5) — the "Open full page" link is harmless there too (a permalink
-to the page you're already on). Context: test (with .can_execute,
-.can_validate), can_lead, test_execution_choices, test_result_choices,
-poc_requirements, exec_form (only set when a save failed).
+Also reused as the body of the standalone test_detail.html page (spec item
+5) — the "Open full page" link is harmless there too (a permalink to the page
+you're already on). Context: test (with .can_execute, .can_validate),
+can_lead, test_execution_choices, test_result_choices, poc_requirements,
+exec_form (only set when a save failed), expanded (True on test_detail.html —
+opens the Description/Acceptance/Expected block immediately instead of
+collapsed, since that page's whole point is "show me everything").
+
+view-transition-name: only stamped on THIS root when NOT ``expanded`` (i.e.
+when included from a list — phase_detail.html/tests_overview.html), because
+test_detail.html's own hero <h1> claims the same name there instead; two
+elements sharing one view-transition-name on the same document is invalid
+(spec item 3 — "zoom" effect between the tests list and the detail page).
 {% endcomment %}
 <div id="test-{{ test.id }}" class="border border-line rounded-xl p-4 bg-surface"
-     x-data="{ showDef: false, recordOpen: {% if exec_form %}true{% else %}false{% endif %},
+     {% if not expanded %}style="view-transition-name: test-{{ test.id }}"{% endif %}
+     x-data="{ showDef: {% if expanded %}true{% else %}false{% endif %}, recordOpen: {% if exec_form %}true{% else %}false{% endif %},
        paramsEditing: false }">
 
   {# Header #}
@@ -88,18 +97,43 @@ poc_requirements, exec_form (only set when a save failed).
     {% if test.expected_result %}<div><p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">Expected result</p><div class="prose prose-sm max-w-none text-ink">{{ test.expected_result|markdownify }}</div></div>{% endif %}
   </div>
 
-  {# Linked requirements (spec 3d) — read-only chips; edited via the test's edit form #}
+  {% comment %}
+  Linked requirements (spec 3d) — click a chip to preview it, or drag one
+  from the phase page's "Unlinked requirements" pool onto this box to link
+  it (spec item 2). The "x" on each chip unlinks it, making the pool/test
+  relationship bidirectional (also editable in bulk via the test's edit
+  form, TestRequirementsForm).
+  {% endcomment %}
   <div class="mt-3 pt-3 border-t border-line">
     <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Linked requirements</p>
-    <div class="mt-1 flex flex-wrap gap-1.5">
+    <div class="mt-1 flex flex-wrap gap-1.5 rounded-lg{% if test.can_execute %} transition-soft{% endif %} p-1 -m-1"
+         {% if test.can_execute %}
+         ondragover="event.preventDefault(); this.classList.add('ring-2','ring-brand/50','bg-brand/5');"
+         ondragleave="this.classList.remove('ring-2','ring-brand/50','bg-brand/5');"
+         ondrop="event.preventDefault(); this.classList.remove('ring-2','ring-brand/50','bg-brand/5');
+                 var rid = event.dataTransfer.getData('text/requirement-id');
+                 if (rid) { htmx.ajax('POST', '{% url 'pocs:test_link_requirement_add' test.id %}', {target: '#test-{{ test.id }}', swap: 'outerHTML', values: {requirement_id: rid}}); }"
+         {% endif %}>
       {% for req in test.requirements.all %}
-        <button type="button" onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:bg-line/60"
-                title="{{ req.sub_system }} — click to preview">
-          <i data-lucide="link" class="w-3 h-3"></i> {{ req.code }}
-        </button>
+        <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink">
+          <button type="button" onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
+                  class="inline-flex items-center gap-1 hover:underline"
+                  title="{{ req.sub_system }} — click to preview">
+            <i data-lucide="link" class="w-3 h-3"></i> {{ req.code }}
+          </button>
+          {% if test.can_execute %}
+            <button type="button" title="Unlink {{ req.code }}" aria-label="Unlink {{ req.code }}"
+                    hx-post="{% url 'pocs:test_link_requirement_remove' test.id req.id %}"
+                    hx-target="#test-{{ test.id }}" hx-swap="outerHTML"
+                    class="p-0.5 rounded-full text-ink-muted hover:text-danger hover:bg-danger/10">
+              <i data-lucide="x" class="w-3 h-3"></i>
+            </button>
+          {% endif %}
+        </span>
       {% empty %}
-        <span class="text-sm text-ink-muted">No requirements linked.</span>
+        <span class="text-sm text-ink-muted">
+          No requirements linked.{% if test.can_execute and unlinked_requirements %} Drag one from “Unlinked requirements” above.{% endif %}
+        </span>
       {% endfor %}
     </div>
   </div>

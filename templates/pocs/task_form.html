@@ -5,8 +5,10 @@
 {% block breadcrumb %}
   <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
-  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% if phase %}
+    <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
+    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% endif %}
   <span class="text-ink font-medium">{{ title }}</span>
 {% endblock %}
 
@@ -31,6 +33,17 @@
       {% if form.non_field_errors %}
         <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
           {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      {% if not phase %}
+        {# Only rendered when the view didn't already pin a phase from the URL (POC-level "+ Add Task", spec item 4) — see TaskCreateForPocView. #}
+        <div>
+          <label for="{{ form.phase.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            Phase <span class="text-danger">*</span>
+          </label>
+          {{ form.phase }}
+          {% for error in form.phase.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
@@ -113,7 +126,7 @@
                 class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
           Save
         </button>
-        <a href="{% url 'pocs:phase_detail' phase.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+        <a href="{% if phase %}{% url 'pocs:phase_detail' phase.pk %}{% else %}{% url 'pocs:tasks' %}{% endif %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
       </div>
     </form>
   </div>

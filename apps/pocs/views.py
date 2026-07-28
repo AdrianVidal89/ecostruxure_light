@@ -22,7 +22,13 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db.models import Case, F, IntegerField, Max, Q, When
-from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -974,6 +980,14 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
                     test.can_validate = can_validate
                 ctx["tests"] = tests
                 ctx["poc_requirements"] = phase.poc.requirements.all()
+                # Drag-and-drop "unlinked requirements" panel (spec item 2):
+                # only worth showing to someone who could actually drop onto
+                # at least one test card here, and only when there's a
+                # requirement of this POC not yet linked to ANY test.
+                ctx["can_link_requirements"] = any(t.can_execute for t in tests)
+                ctx["unlinked_requirements"] = list(
+                    phase.poc.requirements.filter(tests__isnull=True).order_by("code")
+                )
 
             # FA phases seed one document section per step (idempotent).
             if phase.is_functional_analysis:
@@ -1099,6 +1113,61 @@ class TaskCreateView(_PhaseEditCreateMixin, CreateView):
         self.phase.recalculate_status()
         messages.success(self.request, f"Task “{self.object.title}” created.")
         return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+
+
+class TaskCreateForPocView(LoginRequiredMixin, CreateView):
+    """POC-level "+ Add Task" entry point (Tasks workspace, spec item 4).
+
+    ``TaskCreateView`` (above) is scoped to one phase via the URL, and the
+    Tasks view only ever builds a folder row for phases that already have at
+    least one Task — so a phase with zero tasks had no "Add task" link at
+    all. Here the phase is picked from a dropdown of the POC's phases
+    instead, so any phase can receive its first task.
+
+    Only membership is checked in ``dispatch`` — the *edit* right depends on
+    which phase the user picks, and that isn't known until the form is
+    submitted, so ``user_can_edit_phase`` is re-checked in ``form_valid``.
+    """
+
+    model = Task
+    form_class = TaskForm
+    template_name = "pocs/task_form.html"
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.poc = get_object_or_404(POC, pk=kwargs["pk"])
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if not user_is_poc_member(request.user, self.poc):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["poc"] = self.poc
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["poc"] = self.poc
+        ctx["title"] = "Add task"
+        return ctx
+
+    def form_valid(self, form):
+        phase = form.cleaned_data.get("phase")
+        if phase is None:
+            form.add_error("phase", "Select a phase.")
+            return self.form_invalid(form)
+        if not user_can_edit_phase(self.request.user, phase):
+            form.add_error("phase", "You don't have edit rights on that phase.")
+            return self.form_invalid(form)
+        form.instance.phase = phase
+        self.object = form.save()
+        phase.recalculate_status()
+        messages.success(self.request, f"Task “{self.object.title}” created.")
+        return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
 class TaskUpdateView(_ItemEditMixin, UpdateView):
@@ -1507,6 +1576,47 @@ def test_link_requirements(request, test_pk):
     form = TestRequirementsForm(request.POST, poc=test.phase.poc)
     if form.is_valid():
         test.requirements.set(form.cleaned_data["requirements"])
+    return _render_test_row(request, test)
+
+
+@require_POST
+def test_link_requirement_add(request, test_pk):
+    """Link ONE Requirement to a Test — additive counterpart to
+    ``test_link_requirements`` above (which replaces the whole set). Backs the
+    drag-and-drop "unlinked requirements" panel on the phase page (spec item
+    2): dropping a requirement chip onto a test card posts here via HTMX.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    test = get_object_or_404(Test, pk=test_pk)
+    if not user_can_execute_test(request.user, test):
+        raise PermissionDenied
+    requirement_id = request.POST.get("requirement_id", "")
+    if not requirement_id.isdigit():
+        return HttpResponseBadRequest("Invalid requirement_id.")
+    # Scoped to the test's own POC — never let a client link a requirement
+    # from an unrelated POC just by guessing its id.
+    requirement = get_object_or_404(
+        Requirement, pk=int(requirement_id), poc=test.phase.poc
+    )
+    test.requirements.add(requirement)
+    return _render_test_row(request, test)
+
+
+@require_POST
+def test_link_requirement_remove(request, test_pk, requirement_pk):
+    """Unlink ONE Requirement from a Test (the "x" on a linked chip,
+    test_row.html) — makes the drag-and-drop pool/test linkage bidirectional.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    test = get_object_or_404(Test, pk=test_pk)
+    if not user_can_execute_test(request.user, test):
+        raise PermissionDenied
+    requirement = get_object_or_404(
+        Requirement, pk=requirement_pk, poc=test.phase.poc
+    )
+    test.requirements.remove(requirement)
     return _render_test_row(request, test)
 
 
@@ -3249,10 +3359,34 @@ class TasksView(LoginRequiredMixin, View):
                 groups.append(current)
             current["tasks"].append(t)
 
+        # A POC with zero tasks anywhere never produced a group above, so its
+        # "+ Add Task" button (below) was unreachable — the exact same bug
+        # being fixed at the phase level, just one layer up. Add an empty
+        # group for every POC this user can add a task to (lead, or any POC
+        # if admin) that doesn't already have one, purely so that entry
+        # point always exists — independent of the active quick filter,
+        # since "no tasks yet" is precisely when adding the first one matters
+        # most.
+        seen_poc_ids = {g["poc"].id for g in groups}
+        if user.is_admin:
+            addable_poc_ids = set(POC.objects.values_list("id", flat=True))
+        else:
+            addable_poc_ids = lead_poc_ids
+        missing_poc_ids = addable_poc_ids - seen_poc_ids
+        if missing_poc_ids:
+            for poc in POC.objects.filter(id__in=missing_poc_ids).order_by("name"):
+                groups.append({"poc": poc, "tasks": []})
+            groups.sort(key=lambda g: g["poc"].name)
+
         for group in groups:
             gantt, top_level_phases = build_phase_task_tree(group["tasks"], today)
             group["gantt"] = gantt
             group["phases"] = top_level_phases
+            # POC-level "+ Add Task" (spec item 4): same edit-rights rule as
+            # every per-folder "Add task" below, but not limited to phases
+            # that already have a folder (i.e. already have >=1 task) — see
+            # TaskCreateForPocView.
+            group["can_add_task"] = user.is_admin or group["poc"].id in lead_poc_ids
 
         # "Add task" now lives only here (spec item 4 — tasks are removed from
         # the phase page); annotate every folder with whether this user may
