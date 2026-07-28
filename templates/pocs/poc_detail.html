@@ -502,6 +502,43 @@
         </div>
       {% endif %}
 
+      {# Quick-read list: every requirement, OSPI Code + description + validation criteria + linked UC(s), for fast scanning without opening each one. #}
+      {% if requirements %}
+        <div class="bg-surface border border-line rounded-xl">
+          <div class="px-4 py-2.5 border-b border-line">
+            <p class="text-sm font-semibold text-ink">All requirements — quick read</p>
+          </div>
+          <div class="divide-y divide-line max-h-[36rem] overflow-y-auto">
+            {% for req in requirements %}
+              <div class="p-4 space-y-1.5">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <button type="button"
+                          onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
+                          class="text-sm font-semibold text-ink hover:text-brand-dark hover:underline" title="OSPI Code">
+                    {{ req.req_id }}
+                  </button>
+                  <div class="flex flex-wrap gap-1">
+                    {% for uc in req.use_cases.all %}
+                      <button type="button"
+                              onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+                        <i data-lucide="link" class="w-3 h-3 shrink-0"></i> {{ uc.code }}
+                      </button>
+                    {% empty %}
+                      <span class="text-xs text-ink-muted">No linked UC</span>
+                    {% endfor %}
+                  </div>
+                </div>
+                {% if req.description %}<p class="text-sm text-ink-muted">{{ req.description }}</p>{% endif %}
+                {% if req.validation_criteria %}
+                  <p class="text-xs text-ink-muted"><span class="font-medium text-ink">Validation criteria:</span> {{ req.validation_criteria }}</p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
       {# Modal: requirements with no test yet — select one or more and assign a test. #}
       <div x-show="pendingReqModalOpen" x-cloak
            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
@@ -641,7 +678,7 @@
                  matches(el) {
                    const d = el.dataset;
                    const f = this.filters;
-                   if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase()) && !d.externalCode.toLowerCase().includes(f.q.toLowerCase())) return false;
+                   if (f.q && !d.subsystem.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase()) && !d.reqId.toLowerCase().includes(f.q.toLowerCase())) return false;
                    if (f.gravity && d.gravity !== f.gravity) return false;
                    if (f.operation && d.operation !== f.operation) return false;
                    if (f.functional && d.functional !== f.functional) return false;
@@ -671,7 +708,7 @@
             </div>
             <div x-show="showFilters" x-cloak x-transition
                  class="bg-canvas border border-line rounded-xl p-3 flex flex-wrap items-center gap-2 shrink-0">
-              <input type="text" x-model="filters.q" placeholder="Search code or sub-system…"
+              <input type="text" x-model="filters.q" placeholder="Search code, OSPI Code or sub-system…"
                      class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
               <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">
                 <option value="">Gravity: all</option>
@@ -760,7 +797,7 @@
                 <tbody class="divide-y divide-line" x-ref="tbody">
                   {% for req in requirements %}
                     <tr class="hover:bg-canvas/50" x-show="matches($el)"
-                        data-code="{{ req.code }}" data-external-code="{{ req.external_code }}" data-subsystem="{{ req.sub_system }}"
+                        data-code="{{ req.code }}" data-req-id="{{ req.req_id }}" data-subsystem="{{ req.sub_system }}"
                         data-gravity="{{ req.req_gravity }}" data-operation="{{ req.req_operation }}"
                         data-functional="{{ req.req_functional }}" data-category="{{ req.req_category }}"
                         data-lifecycle="{{ req.life_cycle_phase }}"
@@ -777,7 +814,7 @@
                         </td>
                       {% endif %}
                       <td class="px-3 py-2 font-mono text-xs text-ink">{{ req.code }}</td>
-                      <td class="px-3 py-2 font-mono text-xs text-ink-muted">{{ req.external_code|default:"—" }}</td>
+                      <td class="px-3 py-2 font-mono text-xs text-ink-muted" title="OSPI Code">{{ req.req_id|default:"—" }}</td>
                       <td class="px-3 py-2 text-ink">{{ req.sub_system|default:"—" }}</td>
                       <td class="px-3 py-2 text-ink-muted">{{ req.get_req_gravity_display }}</td>
                       <td class="px-3 py-2 text-ink-muted">{{ req.get_req_operation_display }}</td>
