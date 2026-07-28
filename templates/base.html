@@ -80,6 +80,12 @@
     [x-cloak] { display: none !important; }
     /* Subtle, non-distracting transitions only. */
     .transition-soft { transition: all .18s ease; }
+    /* Cross-document View Transitions (spec item 3 — "zoom" between the tests
+       list and a test's detail page): a no-op progressive enhancement in
+       browsers without support, so this is safe with no JS required. Elements
+       sharing a view-transition-name (see test_row.html / test_detail.html)
+       morph between the two pages instead of a generic cross-fade. */
+    @view-transition { navigation: auto; }
     /* Drag-and-drop file zone highlight. */
     .filedrop.filedrop-active { border-color: rgb(var(--color-brand)); background: rgb(var(--color-brand) / .06); }
 
@@ -381,10 +387,12 @@
     renderIcons();
     document.body.addEventListener('htmx:afterSwap', renderIcons);
   </script>
-  {# Quick-edits (htmx) update the current page only. Without this, using the
-     browser's Back button after such an edit can restore a stale snapshot
-     from bfcache instead of re-fetching the page, so the change appears
-     missing until a manual refresh. #}
+  {% comment %}
+    Quick-edits (htmx) update the current page only. Without this, using the
+    browser's Back button after such an edit can restore a stale snapshot
+    from bfcache instead of re-fetching the page, so the change appears
+    missing until a manual refresh.
+  {% endcomment %}
   <script>
     window.addEventListener('pageshow', (event) => {
       if (event.persisted) window.location.reload();
@@ -395,7 +403,13 @@
 
   {# Shared read-only preview popup for Use Case / Requirement / Test / section links (see static/js/entity_preview.js). #}
   {% include "pocs/partials/entity_preview_modal.html" %}
-  <script src="{% static 'js/entity_preview.js' %}"></script>
+  {% comment %}
+    ?v= bump this whenever entity_preview.js changes — WhiteNoise's storage here
+    is deliberately non-hashing (see config/settings/production.py), so without
+    a manual cache-buster a browser can keep serving a stale cached copy across
+    deploys (this is what made a just-shipped fix look like it "didn't appear").
+  {% endcomment %}
+  <script src="{% static 'js/entity_preview.js' %}?v=2"></script>
 
   {# Shared "view large without leaving the tool" popup for uploaded PDFs/SVGs (see static/js/file_preview.js). #}
   {% include "components/file_preview_modal.html" %}

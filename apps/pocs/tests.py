@@ -444,6 +444,34 @@ class TasksViewTests(TestCase):
         resp = self.client.get(reverse("pocs:tasks"))
         self.assertContains(resp, '<option value="in_progress"')
 
+    def test_poc_with_zero_tasks_still_gets_an_add_task_entry(self):
+        # A POC that has never had a task built no group at all here, so its
+        # POC-level "+ Add Task" link (spec item 4) was unreachable — the
+        # phase-level version of the same bug, one layer up.
+        empty_poc = POC.objects.create(
+            name="Empty POC", created_by=self.admin, status="active"
+        )
+        POCMembership.objects.create(
+            poc=empty_poc, user=self.admin, role_in_poc=POCMembership.Role.LEAD
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:tasks"))
+        self.assertContains(resp, "Empty POC")
+        self.assertContains(
+            resp, reverse("pocs:task_create_for_poc", args=[empty_poc.pk])
+        )
+
+    def test_member_without_lead_role_gets_no_add_task_for_empty_poc(self):
+        # The zero-task placeholder group is only worth showing to someone
+        # who could actually use its "Add task" link.
+        empty_poc = POC.objects.create(
+            name="Empty POC 2", created_by=self.admin, status="active"
+        )
+        POCMembership.objects.create(poc=empty_poc, user=self.member, role_in_poc="member")
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:tasks"))
+        self.assertNotContains(resp, "Empty POC 2")
+
 
 class POCOverviewTasksWidgetTests(TestCase):
     """POC Overview tab no longer shows a Tasks widget (spec item 4 —

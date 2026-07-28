@@ -33,16 +33,30 @@
   </div>
 
   {% for group in groups %}
-    <div class="space-y-3">
-      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
-        <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
-        <span class="text-xs text-ink-muted">({{ group.tasks|length }})</span>
-      </a>
-      {% for entry in group.phases %}
-        <div class="pl-2">
-          {% include "pocs/partials/task_phase_group.html" with entry=entry gantt=group.gantt %}
-        </div>
-      {% endfor %}
+    {# POC-level folder — collapses just like the phase folders below it (task_phase_group.html), and carries its own "+ Add Task" entry point (spec item 4): the phase is picked in-form, so this works even for a phase that has zero tasks yet (see TaskCreateForPocView). #}
+    <div class="space-y-3" x-data="{ open: true }">
+      <div class="flex items-center gap-2">
+        <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+          <i data-lucide="chevron-down" class="w-4 h-4 transition-soft" :class="!open && '-rotate-90'"></i>
+        </button>
+        <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
+          <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
+          <span class="text-xs text-ink-muted">({{ group.tasks|length }})</span>
+        </a>
+        {% if group.can_add_task %}
+          <a href="{% url 'pocs:task_create_for_poc' group.poc.pk %}"
+             class="ml-auto inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-2.5 py-1 text-xs transition-soft shrink-0">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add task
+          </a>
+        {% endif %}
+      </div>
+      <div x-show="open" x-cloak class="space-y-3">
+        {% for entry in group.phases %}
+          <div class="pl-2">
+            {% include "pocs/partials/task_phase_group.html" with entry=entry gantt=group.gantt %}
+          </div>
+        {% endfor %}
+      </div>
     </div>
   {% empty %}
     <div class="bg-surface border border-line rounded-xl p-12 text-center">
