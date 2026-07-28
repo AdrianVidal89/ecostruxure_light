@@ -957,6 +957,22 @@ class TaskOnAnyPhaseTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(self.parent.tasks.filter(title="Parent task").exists())
 
+    def test_task_create_redirects_to_tasks_workspace(self):
+        # Not back to the phase page (spec item 4 follow-up) — task creation
+        # is driven from, and should land back on, the Tasks workspace.
+        resp = self.client.post(
+            reverse("pocs:task_create", args=[self.parent.pk]),
+            {"title": "Redirect check", "status": "pending"},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
+    def test_task_create_for_poc_redirects_to_tasks_workspace(self):
+        resp = self.client.post(
+            reverse("pocs:task_create_for_poc", args=[self.poc.pk]),
+            {"title": "Redirect check 2", "status": "pending", "phase": self.parent.pk},
+        )
+        self.assertRedirects(resp, reverse("pocs:tasks"))
+
     def test_parent_phase_detail_no_longer_shows_tasks(self):
         # Tasks are removed from the phase page (spec item 4 — minimalism);
         # "Add task" now lives only in the dedicated Tasks workspace.
@@ -2530,7 +2546,8 @@ class EntityPreviewAndQuickStatusTests(TestCase):
         self.client.force_login(self.member)
         resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]))
         self.assertContains(resp, "openEntityPreview(")
-        self.assertContains(resp, self.req.code)
+        # Chip shows req_id (spec item 9), not the audit-trail code.
+        self.assertContains(resp, self.req.req_id)
 
     def test_requirement_preview_links_usecase_as_clickable_chip(self):
         self.client.force_login(self.member)

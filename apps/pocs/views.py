@@ -1196,7 +1196,9 @@ class TaskCreateView(_PhaseEditCreateMixin, CreateView):
         self.object = form.save()
         self.phase.recalculate_status()
         messages.success(self.request, f"Task “{self.object.title}” created.")
-        return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+        # Land back on the Tasks workspace (spec item 4 follow-up) rather than
+        # the phase page — that's where task creation is driven from.
+        return redirect("pocs:tasks")
 
 
 class TaskCreateForPocView(LoginRequiredMixin, CreateView):
@@ -1251,7 +1253,9 @@ class TaskCreateForPocView(LoginRequiredMixin, CreateView):
         self.object = form.save()
         phase.recalculate_status()
         messages.success(self.request, f"Task “{self.object.title}” created.")
-        return redirect("pocs:phase_detail", phase_pk=phase.pk)
+        # Land back on the Tasks workspace (spec item 4 follow-up) rather than
+        # the phase page — that's where task creation is driven from.
+        return redirect("pocs:tasks")
 
 
 class TaskUpdateView(_ItemEditMixin, UpdateView):

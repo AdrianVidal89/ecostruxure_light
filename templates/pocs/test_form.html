@@ -93,7 +93,7 @@
                     {% if owner %}<span class="text-xs italic">(covered by {{ owner.test_code|default:owner.title }})</span>{% endif %}
                   </label>
                   <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
-                          onclick="openEntityPreview('{% url 'pocs:requirement_preview' cb.data.value %}', '{% url 'pocs:requirement_detail' cb.data.value %}', 'Go to Requirement')" title="View">
+                          onclick="openEntityPreview('{% url 'pocs:requirement_preview' cb.data.value %}', '{% url 'pocs:requirement_detail' cb.data.value %}', 'Go to Requirement')" aria-label="View">
                     <i data-lucide="eye" class="w-4 h-4"></i>
                   </button>
                 </div>

@@ -21,8 +21,7 @@ out-of-band swap.
     {% for req in unlinked_requirements %}
       <span draggable="true" data-requirement-id="{{ req.id }}"
             ondragstart="event.dataTransfer.setData('text/requirement-id', '{{ req.id }}'); event.dataTransfer.effectAllowed = 'copy';"
-            class="inline-flex items-center gap-1 max-w-full pl-1.5 pr-2 py-0.5 rounded-full text-sm bg-surface border border-line text-ink cursor-grab active:cursor-grabbing"
-            title="{{ req.req_id }}{% if req.sub_system %} — {{ req.sub_system }}{% endif %}{% if req.description %} · {{ req.description }}{% endif %}">
+            class="inline-flex items-center gap-1 max-w-full pl-1.5 pr-2 py-0.5 rounded-full text-sm bg-surface border border-line text-ink cursor-grab active:cursor-grabbing">
         <i data-lucide="grip-vertical" class="w-3 h-3 text-ink-muted shrink-0"></i>
         <button type="button" onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
                 class="hover:underline truncate min-w-0"><strong>{{ req.req_id }}</strong>{% if req.description %} · {{ req.description|truncatechars:22 }}{% endif %}</button>

@@ -307,7 +307,7 @@
                 {% if not document.content %}<span class="text-xs text-ink-muted shrink-0">Empty</span>{% endif %}
               </a>
               <div class="flex items-center gap-1 shrink-0">
-                <button type="button" onclick="openEntityPreview('{% url 'pocs:fa_section_preview' document.pk %}', '{% url 'pocs:document_edit' document.pk %}', 'Edit section')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                <button type="button" onclick="openEntityPreview('{% url 'pocs:fa_section_preview' document.pk %}', '{% url 'pocs:document_edit' document.pk %}', 'Edit section')" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" aria-label="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
                 <a href="{% url 'pocs:document_edit' document.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
                 {% if can_edit %}
                   <form method="post" action="{% url 'pocs:document_delete' document.pk %}" onsubmit="return confirm('Delete “{{ document.title|escapejs }}”?');" class="contents">
