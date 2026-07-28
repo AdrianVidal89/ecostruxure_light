@@ -1003,7 +1003,8 @@ class TestValidationDecisionForm(forms.Form):
 
 
 class CommentForm(forms.Form):
-    """A review comment left on a Requirement or Use Case."""
+    """A message in a Comment thread — either the opening one (a new thread
+    on a Requirement/Use Case/Test) or a reply (spec item 3)."""
 
     text = forms.CharField(
         widget=forms.Textarea(
@@ -1016,20 +1017,6 @@ class CommentForm(forms.Form):
         if not text:
             raise forms.ValidationError("Comment can't be empty.")
         return text
-
-
-class CommentDecisionForm(forms.Form):
-    """A POC lead's Ack on a pending comment: mark Applied or Rejected."""
-
-    decision = forms.ChoiceField(
-        choices=(("applied", "Applied"), ("rejected", "Rejected"))
-    )
-    note = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={"rows": 2, "class": INPUT_CLASS, "placeholder": "Optional reply…"}
-        ),
-    )
 
 
 class RequirementImportForm(forms.Form):

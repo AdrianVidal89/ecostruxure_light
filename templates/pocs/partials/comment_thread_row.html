@@ -1,0 +1,30 @@
+{% comment %}
+One thread row on the central Comments page (spec item 3). Clicking opens
+the shared thread modal (comment_thread, fetched on demand into
+#comment-modal-body). Pass oob=True for an out-of-band refresh after a
+reply/close (see comment_reply/comment_close).
+Context: c (a Comment, with .target_url/.target_display/.target_title
+annotated by the view).
+{% endcomment %}
+<button type="button" id="thread-row-{{ c.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}
+        hx-get="{% url 'pocs:comment_thread' c.pk %}" hx-target="#comment-modal-body" hx-swap="innerHTML"
+        @click="modalOpen = true"
+        class="w-full flex items-center justify-between gap-3 p-3 bg-surface border border-line rounded-lg hover:shadow-sm hover:border-brand/40 transition-soft text-left
+               {% if not c.is_open %}opacity-70{% endif %}">
+  <div class="min-w-0 flex-1">
+    <div class="flex items-center gap-2">
+      {% if c.is_open %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-warning/10 text-warning">Open</span>
+      {% else %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-line text-ink-muted"><i data-lucide="lock" class="w-2.5 h-2.5"></i> Closed</span>
+      {% endif %}
+      <span class="text-xs font-mono text-ink-muted">{{ c.target_display }}</span>
+    </div>
+    <p class="text-sm font-medium text-ink mt-0.5 truncate">{{ c.target_title }}</p>
+    <p class="text-xs text-ink-muted truncate mt-0.5">Last: {{ c.last_message.text|truncatechars:80 }}</p>
+  </div>
+  <div class="shrink-0 text-right text-xs text-ink-muted">
+    <p>{{ c.last_activity_at|date:"Y-m-d H:i" }}</p>
+    <p class="font-medium text-ink">{{ c.last_message.author.get_full_name|default:c.last_message.author.username }}</p>
+  </div>
+</button>

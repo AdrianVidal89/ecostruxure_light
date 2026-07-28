@@ -28,7 +28,7 @@
   {% endif %}
 
   <div class="bg-surface border border-line rounded-xl p-6">
-    <form method="post" class="space-y-4">
+    <form method="post" class="space-y-4" data-unsaved-guard>
       {% csrf_token %}
 
       {% if form.non_field_errors %}

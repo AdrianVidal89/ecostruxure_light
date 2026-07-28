@@ -67,7 +67,7 @@
                       onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}?next={{ request.path|urlencode }}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement'); markRequirementVisited({{ usecase.pk }}, {{ req.pk }});"
                       class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-ink hover:bg-canvas transition-soft">
                 <i data-lucide="link" class="w-3.5 h-3.5 shrink-0 text-ink-muted"></i>
-                <span class="font-mono text-xs text-ink-muted shrink-0">{{ req.code }}</span>
+                <span class="font-mono text-xs text-ink-muted shrink-0">{{ req.req_id }}</span>
                 <span class="truncate">{% if req.sub_system %}{{ req.sub_system }}{% else %}—{% endif %}</span>
                 <span class="ml-auto text-xs text-ink-muted shrink-0">{{ req.get_req_gravity_display }}</span>
               </button>

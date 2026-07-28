@@ -78,13 +78,13 @@ Requirements/Use Cases endpoints (spec item 1) — no separate matrix format.
                 {% if req.color_token == 0 %}bg-brand/10{% elif req.color_token == 1 %}bg-info/10{% elif req.color_token == 2 %}bg-warning/10{% else %}bg-danger/10{% endif %}"
                   style="min-width: 30px; max-width: 30px; height: 150px;"
                   data-req-col data-req-id="{{ req.id }}" data-sub-system="{{ req.sub_system }}"
-                  data-hover-card data-hc-title="{{ req.code }}"
+                  data-hover-card data-hc-title="{{ req.req_id }}"
                   data-hc-description="{{ req.description|default:'No description.' }}">
                 <div class="h-full flex items-end justify-center pb-1">
                   <span class="whitespace-nowrap text-[10px] font-semibold
                     {% if req.color_token == 0 %}text-brand-dark{% elif req.color_token == 1 %}text-info{% elif req.color_token == 2 %}text-warning{% else %}text-danger{% endif %}"
                         style="writing-mode: vertical-rl; transform: rotate(180deg);">
-                    {{ req.code }}
+                    {{ req.req_id }}
                   </span>
                 </div>
               </th>

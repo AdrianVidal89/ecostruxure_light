@@ -30,6 +30,7 @@ from django.http import (
     JsonResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -63,7 +64,6 @@ from .forms import (
     BasePhaseDocumentForm,
     BaseTaskForm,
     BaseTestForm,
-    CommentDecisionForm,
     CommentForm,
     FunctionalAnalysisStepForm,
     MemberTestForm,
@@ -109,6 +109,7 @@ from .models import (
     Test,
     TestValidation,
     UseCase,
+    test_phase_abbreviation,
 )
 from .audit import record_audit
 from .gantt import build_phase_task_tree, build_task_gantt, gantt_summary
@@ -1482,6 +1483,10 @@ class TestCreateView(LoginRequiredMixin, CreateView):
         # Members document their own tests: auto-assign so they can record it.
         if not self.is_manager:
             form.instance.assigned_to = self.request.user
+        # New tests append at the end of the phase's execution order (spec
+        # item 10).
+        last = self.phase.tests.aggregate(m=Max("order"))["m"]
+        form.instance.order = (last or 0) + 1
         self.object = form.save()
         self.phase.recalculate_status()
         messages.success(self.request, f"Test “{self.object.title}” created.")
@@ -1554,6 +1559,72 @@ def _render_test_row(request, test, form=None):
             "comment_form": CommentForm(),
         },
     )
+
+
+def _render_tests_list(request, phase):
+    """Re-render a leaf Test phase's ordered tests list (Tests tab, spec item
+    10) — used after a drag-and-drop reorder, mirroring the context
+    ``PhaseDetailView`` builds for the same block."""
+    user = request.user
+    can_edit = user_can_edit_phase(user, phase)
+    tests = list(
+        phase.tests.select_related("assigned_to").prefetch_related(
+            "requirements", "validations"
+        )
+    )
+    can_validate = user_can_validate_test(user, tests[0]) if tests else False
+    for test in tests:
+        test.can_execute = can_edit or test.assigned_to_id == user.id
+        test.can_validate = can_validate
+    return render(
+        request,
+        "pocs/partials/phase_tests_list.html",
+        {
+            "phase": phase,
+            "tests": tests,
+            "can_lead": can_edit,
+            "test_execution_choices": Test.ExecutionStatus.choices,
+            "test_result_choices": Test.Result.choices,
+            "unlinked_requirements": list(
+                phase.poc.requirements.filter(tests__isnull=True).order_by("code")
+            ),
+            "can_add_test": phase.is_leaf and phase.is_test,
+            "can_reorder": can_edit,
+        },
+    )
+
+
+@require_POST
+def test_reorder(request, phase_pk):
+    """Persist a drag-and-drop reorder of a leaf phase's tests (spec item 10).
+
+    The new order also drives execution order, and renumbers each
+    ``test_code`` to match: the numeric suffixes already allocated to this
+    phase's tests (e.g. 001, 002, 003) are simply reassigned to the new
+    positions — a permutation of the same set, so nothing outside this phase
+    (other phases' codes, the POC-wide uniqueness rule) is touched.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    phase = get_object_or_404(Phase, pk=phase_pk)
+    if not user_can_edit_phase(request.user, phase):
+        raise PermissionDenied
+    ordered_ids = [int(i) for i in request.POST.getlist("test_ids") if i.isdigit()]
+    tests_by_id = {t.id: t for t in phase.tests.filter(id__in=ordered_ids)}
+    ordered_tests = [tests_by_id[i] for i in ordered_ids if i in tests_by_id]
+    if ordered_tests:
+        prefix = f"{test_phase_abbreviation(phase.name)}-"
+        numbers = sorted(
+            int(t.test_code.rsplit("-", 1)[-1])
+            for t in ordered_tests
+            if t.test_code.rsplit("-", 1)[-1].isdigit()
+        )
+        for index, test in enumerate(ordered_tests):
+            test.order = index
+            if index < len(numbers):
+                test.test_code = f"{prefix}{numbers[index]:03d}"
+        Test.objects.bulk_update(ordered_tests, ["order", "test_code"])
+    return _render_tests_list(request, phase)
 
 
 @require_POST
@@ -1669,10 +1740,37 @@ def test_link_requirement_add(request, test_pk):
     return _render_test_row(request, test)
 
 
+def _render_unlinked_requirements_panel_oob(request, phase):
+    """Re-render the "unlinked requirements" pool (phase_detail.html's Tests
+    tab, spec item 2) as an out-of-band swap fragment, mirroring the same
+    computation done in the phase_detail view itself (spec item 8)."""
+    can_edit = user_can_edit_phase(request.user, phase)
+    tests = list(phase.tests.all())
+    can_link_requirements = any(
+        can_edit or t.assigned_to_id == request.user.id for t in tests
+    )
+    unlinked_requirements = list(
+        phase.poc.requirements.filter(tests__isnull=True).order_by("code")
+    )
+    return render_to_string(
+        "pocs/partials/unlinked_requirements_panel.html",
+        {
+            "can_link_requirements": can_link_requirements,
+            "unlinked_requirements": unlinked_requirements,
+            "oob": True,
+        },
+        request=request,
+    )
+
+
 @require_POST
 def test_link_requirement_remove(request, test_pk, requirement_pk):
     """Unlink ONE Requirement from a Test (the "x" on a linked chip,
     test_row.html) — makes the drag-and-drop pool/test linkage bidirectional.
+
+    Also OOB-refreshes the "unlinked requirements" pool (spec item 8): the
+    requirement just freed up may now belong there, and without this the pool
+    only caught up on a full page reload.
     """
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
@@ -1683,7 +1781,9 @@ def test_link_requirement_remove(request, test_pk, requirement_pk):
         Requirement, pk=requirement_pk, poc=test.phase.poc
     )
     test.requirements.remove(requirement)
-    return _render_test_row(request, test)
+    response = _render_test_row(request, test)
+    response.write(_render_unlinked_requirements_panel_oob(request, test.phase))
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1777,7 +1877,7 @@ def validation_decide(request, validation_pk):
 
 
 # ---------------------------------------------------------------------------
-# Comments / feedback on Requirements & Use Cases
+# Comments / feedback on Requirements, Use Cases & Tests (spec item 3)
 # ---------------------------------------------------------------------------
 COMMENT_TARGET_MODELS = {"usecase": UseCase, "requirement": Requirement, "test": Test}
 
@@ -1791,21 +1891,37 @@ def _comment_target_url(obj):
     return reverse("pocs:requirement_detail", args=[obj.pk])
 
 
-def _pending_comments_for(user):
-    """Open comments this user may Ack: admins see every POC's, a POC lead
-    only theirs (mirrors ``_pending_validations_for``)."""
-    qs = Comment.objects.filter(status=Comment.Status.OPEN)
+def _comment_target_display(obj):
+    """Short identifying label for a comment's target — ``req_id`` for a
+    Requirement (spec item 9; ``code`` remains the audit-only identifier)."""
+    if isinstance(obj, Requirement):
+        return obj.req_id
+    if isinstance(obj, Test):
+        return obj.test_code
+    return obj.code
+
+
+def _comment_target_title(obj):
+    if isinstance(obj, (UseCase, Test)):
+        return obj.title
+    return obj.sub_system or "Requirement"
+
+
+def _visible_comment_pocs_for(user):
+    """POCs whose comment threads ``user`` may browse on the central page
+    (spec item 3): every POC they belong to; every POC for an admin."""
     if user.is_admin:
-        return qs
-    lead_poc_ids = POCMembership.objects.filter(
-        user=user, role_in_poc=POCMembership.Role.LEAD
-    ).values_list("poc_id", flat=True)
-    return qs.filter(poc_id__in=lead_poc_ids)
+        return POC.objects.all()
+    member_poc_ids = POCMembership.objects.filter(user=user).values_list(
+        "poc_id", flat=True
+    )
+    return POC.objects.filter(id__in=member_poc_ids)
 
 
 @require_POST
 def comment_create(request, model, pk):
-    """Add a review comment to a Requirement or Use Case (any POC member)."""
+    """Open a new comment thread on a Requirement, Use Case, or Test (any
+    POC member — spec item 3)."""
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     target_model = COMMENT_TARGET_MODELS.get(model)
@@ -1831,46 +1947,144 @@ def comment_create(request, model, pk):
 
 
 class CommentListView(LoginRequiredMixin, View):
-    """Page listing open comments awaiting the current user's Ack."""
+    """Central Comments page (spec item 3): every thread (open AND closed) of
+    every POC the user belongs to, grouped by POC, tabbed "Use Cases /
+    Requirements" vs "Tests" within each. Any POC member may browse; only a
+    Lead/Admin may Close a thread (see ``comment_close``)."""
 
     template_name = "pocs/comments.html"
 
     def get(self, request):
+        visible_pocs = list(_visible_comment_pocs_for(request.user))
+        test_ct_id = ContentType.objects.get_for_model(Test).id
         comments = list(
-            _pending_comments_for(request.user).select_related(
-                "author", "poc", "content_type"
-            )
+            Comment.objects.filter(poc__in=visible_pocs)
+            .select_related("author", "content_type", "poc")
+            .prefetch_related("messages__author")
         )
         for c in comments:
-            c.target_url = _comment_target_url(c.content_object)
-        return render(
-            request,
-            self.template_name,
-            {"comments": comments, "total": len(comments)},
+            c.target_object = c.content_object
+            c.target_url = _comment_target_url(c.target_object)
+            c.target_display = _comment_target_display(c.target_object)
+            c.target_title = _comment_target_title(c.target_object)
+
+        by_poc = {}
+        for c in comments:
+            by_poc.setdefault(c.poc_id, []).append(c)
+
+        groups = []
+        for poc in visible_pocs:
+            poc_comments = by_poc.get(poc.id, [])
+            if not poc_comments:
+                continue
+            poc_comments.sort(key=lambda c: c.last_activity_at(), reverse=True)
+            groups.append(
+                {
+                    "poc": poc,
+                    "can_close": user_can_lead_poc(request.user, poc),
+                    "spec_comments": [
+                        c for c in poc_comments if c.content_type_id != test_ct_id
+                    ],
+                    "test_comments": [
+                        c for c in poc_comments if c.content_type_id == test_ct_id
+                    ],
+                }
+            )
+        return render(request, self.template_name, {"groups": groups})
+
+
+def _comment_thread_ctx(request, comment):
+    comment.target_url = _comment_target_url(comment.content_object)
+    comment.target_display = _comment_target_display(comment.content_object)
+    comment.target_title = _comment_target_title(comment.content_object)
+    return {
+        "c": comment,
+        "can_close": user_can_lead_poc(request.user, comment.poc),
+        "target_url": comment.target_url,
+        "target_display": comment.target_display,
+        "target_title": comment.target_title,
+    }
+
+
+def _render_comment_thread_modal(request, comment):
+    """Modal content, PLUS an out-of-band refresh of that thread's row on the
+    central Comments page (spec item 3) — so a reply/close is reflected
+    there immediately, not just inside the modal."""
+    response = render(
+        request, "pocs/partials/comment_thread_modal.html", _comment_thread_ctx(request, comment)
+    )
+    response.write(
+        render_to_string(
+            "pocs/partials/comment_thread_row.html", {"c": comment, "oob": True}, request=request
         )
+    )
+    return response
+
+
+def comment_thread(request, comment_pk):
+    """Modal content for one thread (spec item 3) — fetched on demand from
+    the central Comments page's row click."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    comment = get_object_or_404(
+        Comment.objects.select_related("author", "poc", "content_type").prefetch_related(
+            "messages__author"
+        ),
+        pk=comment_pk,
+    )
+    if not user_is_poc_member(request.user, comment.poc):
+        raise PermissionDenied
+    return render(
+        request, "pocs/partials/comment_thread_modal.html", _comment_thread_ctx(request, comment)
+    )
 
 
 @require_POST
-def comment_decide(request, comment_pk):
-    """A POC lead's Ack on a pending comment: mark Applied or Rejected."""
+def comment_reply(request, comment_pk):
+    """Add a reply message to a thread (any POC member — spec item 3).
+
+    ``?render=inline`` returns the compact single-thread-card partial (the
+    entity's own Comments accordion); otherwise the central page's modal
+    content (+ an OOB row refresh) is returned.
+    """
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    comment = get_object_or_404(Comment, pk=comment_pk)
+    if not user_is_poc_member(request.user, comment.poc):
+        raise PermissionDenied
+    if comment.is_open:
+        form = CommentForm(request.POST)
+        if form.is_valid():
+            comment.reply(request.user, form.cleaned_data["text"])
+            record_audit(comment, "comment_replied", request.user)
+    if request.GET.get("render") == "inline":
+        return render(
+            request,
+            "pocs/partials/comment_thread_item.html",
+            {"c": comment, "can_close": user_can_lead_poc(request.user, comment.poc)},
+        )
+    return _render_comment_thread_modal(request, comment)
+
+
+@require_POST
+def comment_close(request, comment_pk):
+    """Close a thread (POC lead/admin only — spec item 3): no separate
+    Applied/Rejected verdict, just who closed it and when."""
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     comment = get_object_or_404(Comment, pk=comment_pk)
     if not user_can_lead_poc(request.user, comment.poc):
         raise PermissionDenied
-    if comment.status != Comment.Status.OPEN:
-        messages.info(request, "This comment has already been decided.")
-        return redirect("pocs:comments")
-
-    form = CommentDecisionForm(request.POST)
-    if form.is_valid():
-        decision = form.cleaned_data["decision"]
-        note = form.cleaned_data["note"]
-        comment.ack(request.user, decision, note)
-        details = {"note": {"before": None, "after": note}} if note else {}
-        record_audit(comment, f"comment_{decision}", request.user, details)
-        messages.success(request, f"Comment marked {comment.get_status_display()}.")
-    return redirect("pocs:comments")
+    if comment.is_open:
+        comment.close(request.user)
+        record_audit(comment, "comment_closed", request.user)
+    if request.GET.get("render") == "inline":
+        return render(
+            request,
+            "pocs/partials/comment_thread_item.html",
+            {"c": comment, "can_close": user_can_lead_poc(request.user, comment.poc)},
+        )
+    return _render_comment_thread_modal(request, comment)
 
 
 # ---------------------------------------------------------------------------
@@ -2063,7 +2277,7 @@ class UseCaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["poc"] = self.poc
         ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc)
-        ctx["comments"] = self.object.comments.select_related("author", "resolved_by")
+        ctx["comments"] = self.object.comments.select_related("author", "closed_by").prefetch_related("messages__author")
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "usecase"
         return ctx
@@ -2092,7 +2306,7 @@ class RequirementDetailView(POCMemberRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["poc"] = self.poc
         ctx["can_manage"] = user_can_lead_poc(self.request.user, self.poc) and not self.poc.is_closed
-        ctx["comments"] = self.object.comments.select_related("author", "resolved_by")
+        ctx["comments"] = self.object.comments.select_related("author", "closed_by").prefetch_related("messages__author")
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "requirement"
         ctx.update(_requirement_classification_ctx(self.request, self.object))
@@ -2159,7 +2373,7 @@ def requirement_preview(request, pk):
         # — every chip that links a Requirement reuses this same endpoint,
         # no per-template description plumbing needed (spec: hover-card
         # everywhere a Requirement/Use Case link appears).
-        return JsonResponse({"title": req.code, "description": req.description or ""})
+        return JsonResponse({"title": req.req_id, "description": req.description or ""})
     return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req, next_url=request.GET.get("next")))
 
 
@@ -2339,7 +2553,7 @@ class TestDetailView(POCMemberRequiredMixin, DetailView):
         ctx["can_lead"] = can_edit
         ctx["test_execution_choices"] = Test.ExecutionStatus.choices
         ctx["test_result_choices"] = Test.Result.choices
-        ctx["comments"] = test.comments.select_related("author", "resolved_by")
+        ctx["comments"] = test.comments.select_related("author", "closed_by").prefetch_related("messages__author")
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "test"
         ctx["can_manage"] = can_edit
@@ -2386,7 +2600,7 @@ def poc_graph_data(request, pk):
     linked_test_ids = set()
     for req in requirements:
         nodes.append(
-            {"id": f"req-{req.id}", "type": "requirement", "label": req.code,
+            {"id": f"req-{req.id}", "type": "requirement", "label": req.req_id,
              "status": req.graph_status(), "url": reverse("pocs:requirement_preview", args=[req.id]),
              "detailUrl": reverse("pocs:requirement_detail", args=[req.id]), "detailLabel": "Go to Requirement",
              "description": req.description}

@@ -17,6 +17,7 @@ Markdown fields store raw Markdown; rendering happens at the template layer
 (markdown2) in later steps.
 """
 
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -351,7 +352,7 @@ class POC(models.Model):
         if not total:
             return 0
         done = leaves.filter(
-            status__in=[Phase.Status.COMPLETED, Phase.Status.NOT_APPLICABLE, Phase.Status.EXTERNAL]
+            status__in=[Phase.Status.COMPLETED, Phase.Status.NOT_APPLICABLE]
         ).count()
         return round(done / total * 100)
 
@@ -572,16 +573,12 @@ class Phase(models.Model):
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
         NOT_APPLICABLE = "not_applicable", "Not applicable"
-        # Coexists with NOT_APPLICABLE (spec: two distinct escape hatches) — the
-        # phase DOES apply, but the work is done by an external team rather than
-        # tracked here. See ``mark_external``/``unmark_external``.
-        EXTERNAL = "external", "External"
 
     # Statuses a user may pick from the click-to-set dropdown. ``NOT_APPLICABLE``
-    # and ``EXTERNAL`` are deliberately excluded — each is only reachable via its
-    # own dedicated action (``mark_na()``/``mark_external()``), which requires a
-    # justification / a team assignment respectively (see ``phase_mark_na``/
-    # ``phase_mark_external``).
+    # is deliberately excluded — it's only reachable via its own dedicated
+    # action (``mark_na()``), which requires a justification (see
+    # ``phase_mark_na``). The External flag (``is_external``) is independent of
+    # ``status`` and coexists with any of these three.
     MANUAL_STATUS_CHOICES = [
         (Status.PENDING, Status.PENDING.label),
         (Status.IN_PROGRESS, Status.IN_PROGRESS.label),
@@ -660,9 +657,11 @@ class Phase(models.Model):
         blank=True,
         related_name="marked_na_phases",
     )
-    # External (coexists with Not Applicable — see Status.EXTERNAL): the phase
-    # applies, but is executed by one or more external Team(s) rather than
-    # tracked with tasks/tests here.
+    # External: the phase applies, but is executed by one or more external
+    # Team(s) rather than tracked with tasks/tests here. Independent of
+    # ``status`` — a phase can be External AND pending/in_progress/completed at
+    # the same time; the parent rollup uses the real ``status``, not this flag.
+    is_external = models.BooleanField(default=False)
     teams = models.ManyToManyField("Team", blank=True, related_name="phases")
     external_at = models.DateTimeField(null=True, blank=True)
     external_by = models.ForeignKey(
@@ -740,12 +739,6 @@ class Phase(models.Model):
         return self.status == self.Status.NOT_APPLICABLE
 
     @property
-    def is_external(self):
-        """Marked External — applies, but done by an external Team (coexists
-        with Not Applicable; see Status.EXTERNAL)."""
-        return self.status == self.Status.EXTERNAL
-
-    @property
     def can_be_marked_external(self):
         return not self.is_external
 
@@ -770,12 +763,13 @@ class Phase(models.Model):
         self.na_by = user
         # Clear any prior External marking — the two are mutually exclusive
         # on a given phase even though both exist as options (coexist).
+        self.is_external = False
         self.external_at = None
         self.external_by = None
         self.save(
             update_fields=[
                 "status", "na_reason", "na_at", "na_by",
-                "external_at", "external_by", "updated_at",
+                "is_external", "external_at", "external_by", "updated_at",
             ]
         )
         self.teams.clear()
@@ -795,34 +789,43 @@ class Phase(models.Model):
 
     def mark_external(self, user, teams):
         """Mark this phase External — it applies, but is executed by one or
-        more external Team(s) rather than tracked here (coexists with Not
-        Applicable, spec item 4)."""
-        self.status = self.Status.EXTERNAL
+        more external Team(s) rather than tracked here. Independent of
+        ``status``: the phase's progress (pending/in_progress/completed) is
+        left untouched and remains editable (spec item 1)."""
+        self.is_external = True
         self.external_at = timezone.now()
         self.external_by = user
+        # Clear any prior Not Applicable marking — the two are mutually
+        # exclusive on a given phase even though both exist as options.
+        if self.is_na:
+            self.status = self.Status.PENDING
         self.na_reason = ""
         self.na_at = None
         self.na_by = None
         self.save(
             update_fields=[
-                "status", "external_at", "external_by",
+                "status", "is_external", "external_at", "external_by",
                 "na_reason", "na_at", "na_by", "updated_at",
             ]
         )
         self.teams.set(teams)
+        # Only bubble to the parent — this phase's own ``status`` (progress)
+        # is left exactly as it was; recalculating it here would clobber a
+        # manually-set value with the "no own work" PENDING fallback.
         if self.parent_id:
             self.parent.recalculate_status(commit=True)
 
     def unmark_external(self):
-        """Revert an External phase back to a normally-derived status."""
+        """Revert an External phase — the flag only, ``status`` is untouched."""
+        self.is_external = False
         self.external_at = None
         self.external_by = None
-        self.status = self.Status.PENDING
         self.save(
-            update_fields=["status", "external_at", "external_by", "updated_at"]
+            update_fields=["is_external", "external_at", "external_by", "updated_at"]
         )
         self.teams.clear()
-        self.recalculate_status(commit=True)
+        if self.parent_id:
+            self.parent.recalculate_status(commit=True)
 
     @property
     def awaiting_approval(self):
@@ -900,11 +903,13 @@ class Phase(models.Model):
         status — recursive, bottom-up aggregation.
 
         A sub-phase counts as done once it's ``completed`` or marked ``Not
-        applicable``/``External``. So a phase becomes ``completed`` once every
-        part of it is done: its own tasks/tests (if any) *and* every
-        sub-phase — including a milestone sub-phase that was completed
-        manually (via the click-to-set status control) rather than by
-        finishing real tasks/tests.
+        applicable``. So a phase becomes ``completed`` once every part of it
+        is done: its own tasks/tests (if any) *and* every sub-phase —
+        including a milestone sub-phase that was completed manually (via the
+        click-to-set status control) rather than by finishing real
+        tasks/tests. The External flag does NOT count as done by itself — an
+        External sub-phase's real ``status`` (set manually, since it has no
+        tasks/tests of its own to derive it from) is what's used here.
         """
         parts = []
         own = self._own_work_status()
@@ -915,7 +920,7 @@ class Phase(models.Model):
         if not parts:
             return self.Status.PENDING
 
-        done_like = (self.Status.COMPLETED, self.Status.NOT_APPLICABLE, self.Status.EXTERNAL)
+        done_like = (self.Status.COMPLETED, self.Status.NOT_APPLICABLE)
         if all(p in done_like for p in parts):
             return self.Status.COMPLETED
         if all(p == self.Status.PENDING for p in parts):
@@ -925,12 +930,13 @@ class Phase(models.Model):
     def recalculate_status(self, commit=True):
         """Persist the derived status and bubble the recalculation to ancestors.
 
-        A phase marked Not Applicable or External is frozen — it keeps that
-        status until a lead/admin explicitly reverts it via ``unmark_na()``/
-        ``unmark_external()`` — but ancestors are still recalculated (see
-        ``compute_status``, which counts either as done).
+        A phase marked Not Applicable is frozen — it keeps that status until a
+        lead/admin explicitly reverts it via ``unmark_na()`` — but ancestors
+        are still recalculated (see ``compute_status``, which counts it as
+        done). The External flag does NOT freeze status: an External phase's
+        progress is real and independently editable (spec item 1).
         """
-        if self.is_na or self.is_external:
+        if self.is_na:
             if self.parent_id and commit:
                 self.parent.recalculate_status(commit=True)
             return self.status
@@ -967,10 +973,11 @@ class Phase(models.Model):
         their progress, so 2 of 4 completed sub-phases reads as 50% (each
         sub-phase weighs the same regardless of how many items it holds).
         A **leaf** phase is the ratio of its settled tasks/tests. A phase marked
-        Not Applicable or External also reads 100% — there's nothing left to
-        track here either way.
+        Not Applicable also reads 100% — there's nothing left to track there.
+        An External phase uses its real ``status`` like any other leaf/parent
+        (spec item 1) — it is NOT automatically 100%.
         """
-        if self.status in (self.Status.COMPLETED, self.Status.NOT_APPLICABLE, self.Status.EXTERNAL):
+        if self.status in (self.Status.COMPLETED, self.Status.NOT_APPLICABLE):
             return 100
         children = list(self.children.all())
         if children:
@@ -1174,6 +1181,11 @@ class Test(models.Model):
 
     phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="tests")
     comments = GenericRelation("pocs.Comment")
+    # Manual ordering within the phase (spec item 10) — also the execution
+    # order. Reordering (see the "move up/down" controls, ``test_move``) also
+    # renumbers ``test_code`` to match, so the ST-NNN sequence always tracks
+    # display/execution order rather than creation order.
+    order = models.PositiveIntegerField(default=0, help_text="Manual ordering; also the execution order.")
     # Auto-generated on save, formatted {PHASE_ABBR}-{NNN} (e.g. UT-001, IT-002)
     # — see ``test_phase_abbreviation``/``_generate_test_code``. Must be unique
     # within the owning POC — that rule can't be expressed as a DB constraint
@@ -1240,7 +1252,7 @@ class Test(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["id"]
+        ordering = ["order", "id"]
 
     def __str__(self):
         return self.title
@@ -1890,6 +1902,18 @@ class Requirement(models.Model):
         blank=True,
         help_text="Auto-generated, e.g. POC-6000020869-NO-CS-001.",
     )
+    # Readable identifier (spec item 9) — used as the display header in the
+    # graph, the UC×Requirement matrix and chip/preview links, in place of
+    # ``code`` (which stays unchanged for audit/traceability). Auto-generated,
+    # never user-editable. Unique per-POC only (not globally, unlike ``code``
+    # — see ``_generate_req_id``): two different POCs may end up with the
+    # same ``req_id`` (e.g. both have a "Navigation_001"), an accepted risk
+    # since nothing today lists Requirements across POCs under one identifier.
+    req_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Auto-generated, readable identifier, e.g. Navigation_001.",
+    )
     external_code = models.CharField(
         "External code",
         max_length=100,
@@ -1933,6 +1957,11 @@ class Requirement(models.Model):
 
     class Meta:
         ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["poc", "req_id"], name="unique_requirement_req_id_per_poc"
+            ),
+        ]
 
     def __str__(self):
         return self.code
@@ -1948,9 +1977,37 @@ class Requirement(models.Model):
             code = f"{prefix}-{cat}-{op}-{n:03d}"
         return code
 
+    def _req_id_prefix(self):
+        """Slug of ``sub_system`` (e.g. "Fleet Integration" -> "FleetIntegration").
+        Falls back to the category abbreviation (spec item 9) when blank,
+        since ``sub_system`` is free text and may be empty."""
+        words = re.findall(r"[A-Za-z0-9]+", self.sub_system or "")
+        if words:
+            return "".join(w[:1].upper() + w[1:] for w in words)
+        return self.CATEGORY_ABBR.get(self.req_category, "XX")
+
+    def _generate_req_id(self):
+        """Numbered per (poc, sub_system) — same free-text bucket a blank
+        ``sub_system`` shares, regardless of category (spec item 9)."""
+        prefix = self._req_id_prefix()
+        n = Requirement.objects.filter(
+            poc=self.poc, sub_system=self.sub_system
+        ).count() + 1
+        req_id = f"{prefix}_{n:03d}"
+        while (
+            Requirement.objects.filter(poc=self.poc, req_id=req_id)
+            .exclude(pk=self.pk)
+            .exists()
+        ):
+            n += 1
+            req_id = f"{prefix}_{n:03d}"
+        return req_id
+
     def save(self, *args, **kwargs):
         if not self.code and self.poc_id:
             self.code = self._generate_code()
+        if not self.req_id and self.poc_id:
+            self.req_id = self._generate_req_id()
         super().save(*args, **kwargs)
 
     @classmethod
@@ -2227,25 +2284,28 @@ class UseCase(models.Model):
 # Comments / feedback (Requirement & Use Case review loop)
 # ---------------------------------------------------------------------------
 class Comment(models.Model):
-    """A review comment on a :class:`Requirement` or :class:`UseCase`.
+    """A review/feedback THREAD on a :class:`Requirement`, :class:`UseCase`,
+    or :class:`Test` (improvement brief item 3).
 
-    Any POC member may leave one; a POC lead (or admin) acknowledges it by
-    marking it Applied or Rejected, optionally with a reply. While it stays
-    OPEN, the commented item shows an orange halo (see ``has_open_comment``
-    on both target models) until it's resolved.
+    Any POC member may open one (this row is the thread's opening message)
+    and any POC member may add replies (:class:`CommentMessage`) — a real
+    multi-message thread, not a single message + one Lead Ack. Only a POC
+    lead (or admin) may close it ("Close Thread"); a closed thread carries no
+    separate Applied/Rejected verdict (simplified per spec — just who closed
+    it and when). While OPEN, the commented item shows an orange halo (see
+    ``has_open_comment`` on the target models) until it's closed.
     """
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"
-        APPLIED = "applied", "Applied"
-        REJECTED = "rejected", "Rejected"
+        CLOSED = "closed", "Closed"
 
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey("content_type", "object_id")
 
-    # Direct POC link so comments stay queryable (e.g. the pending-Ack count)
-    # without walking the generic FK — mirrors AuditLog.poc.
+    # Direct POC link so comments stay queryable (e.g. the central Comments
+    # page) without walking the generic FK — mirrors AuditLog.poc.
     poc = models.ForeignKey(POC, on_delete=models.CASCADE, related_name="comments")
 
     text = models.TextField()
@@ -2257,15 +2317,14 @@ class Comment(models.Model):
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.OPEN
     )
-    resolved_by = models.ForeignKey(
+    closed_by = models.ForeignKey(
         USER,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="resolved_comments",
+        related_name="closed_comments",
     )
-    resolved_at = models.DateTimeField(null=True, blank=True)
-    resolution_note = models.TextField(blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -2278,15 +2337,47 @@ class Comment(models.Model):
     def is_open(self):
         return self.status == self.Status.OPEN
 
-    def ack(self, user, status, note=""):
-        """Resolve the comment as Applied or Rejected (the Lead's 'Ack')."""
-        self.status = status
-        self.resolved_by = user
-        self.resolved_at = timezone.now()
-        self.resolution_note = note
-        self.save(
-            update_fields=["status", "resolved_by", "resolved_at", "resolution_note"]
-        )
+    def last_message(self):
+        """The most recent message in the thread — a reply if there is one,
+        otherwise the opening message itself (as a duck-typed stand-in).
+        Uses ``.all()`` (not ``.last()``, which reorders via a fresh query)
+        so a prefetched ``messages`` cache is reused with no extra query."""
+        msgs = list(self.messages.all())
+        return msgs[-1] if msgs else self
+
+    def last_activity_at(self):
+        return self.last_message().created_at
+
+    def close(self, user):
+        """Close the thread (spec item 3) — a Lead/Admin-only action, no
+        separate Applied/Rejected verdict."""
+        self.status = self.Status.CLOSED
+        self.closed_by = user
+        self.closed_at = timezone.now()
+        self.save(update_fields=["status", "closed_by", "closed_at"])
+
+    def reply(self, user, text):
+        """Add a message to the thread (spec item 3) — any POC member."""
+        return self.messages.create(author=user, text=text)
+
+
+class CommentMessage(models.Model):
+    """A reply within a :class:`Comment` thread (spec item 3) — any POC
+    member may add one. The root Comment's own ``text``/``author``/
+    ``created_at`` remains the thread's opening message."""
+
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="messages")
+    author = models.ForeignKey(
+        USER, on_delete=models.PROTECT, related_name="comment_replies"
+    )
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Reply #{self.pk} on Comment #{self.comment_id}"
 
 
 # ---------------------------------------------------------------------------

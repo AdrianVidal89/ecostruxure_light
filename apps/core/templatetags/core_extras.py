@@ -13,6 +13,8 @@ from django import template
 from django.utils.html import urlize as django_urlize
 from django.utils.safestring import mark_safe
 
+from apps.core.mixins import user_can_lead_poc
+
 register = template.Library()
 
 _URLIZED_LINK_RE = re.compile(r'<a href="([^"]*)"([^>]*)>(.*?)</a>')
@@ -24,6 +26,13 @@ _MARKDOWN_EXTRAS = [
     "cuddled-lists",
     "break-on-newline",
 ]
+
+
+@register.filter(name="is_poc_lead")
+def is_poc_lead(user, poc):
+    """``{{ request.user|is_poc_lead:poc }}`` — True for an admin or a Lead
+    of ``poc`` (spec item 3: only they may Close a comment thread)."""
+    return bool(user and poc and user.is_authenticated and user_can_lead_poc(user, poc))
 
 
 @register.filter(name="get_item")

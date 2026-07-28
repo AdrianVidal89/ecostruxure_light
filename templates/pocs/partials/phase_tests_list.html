@@ -1,0 +1,21 @@
+{% comment %}
+Ordered list of a leaf Test phase's tests (spec item 10) — draggable via the
+grip handle on each card (static/js/test_reorder.js, vendored SortableJS)
+when can_reorder. Dropping posts the new id order to test_reorder, which
+reassigns each test's ``order`` AND renumbers ``test_code`` to match, so the
+ST-NNN sequence always tracks display/execution order rather than creation
+order — the response (this same partial) replaces the whole list so the
+updated codes render immediately.
+Context: phase, tests, unlinked_requirements, can_add_test, can_lead,
+test_execution_choices, test_result_choices, can_reorder.
+{% endcomment %}
+<div id="phase-tests-list" class="flex-1 min-w-0 space-y-3 order-2 sm:order-1"
+     {% if can_reorder %}data-sortable data-reorder-url="{% url 'pocs:test_reorder' phase.pk %}"{% endif %}>
+  {% for test in tests %}
+    {% include "pocs/partials/test_row.html" with unlinked_requirements=unlinked_requirements can_reorder=can_reorder %}
+  {% empty %}
+    <div class="bg-surface border border-line rounded-xl p-10 text-center text-sm text-ink-muted">
+      No tests yet.{% if can_add_test %} Use “Add test” to create one.{% endif %}
+    </div>
+  {% endfor %}
+</div>

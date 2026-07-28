@@ -1,0 +1,93 @@
+{% load core_extras %}
+{% comment %}
+Full thread modal content for the central Comments page (spec item 3) —
+fetched on demand from a thread row click, and re-rendered in place after a
+Reply/Close Thread. Context: c (the Comment thread root), can_close,
+target_url, target_display, target_title.
+{% endcomment %}
+<div class="p-6 border-b border-line flex items-start justify-between gap-3 shrink-0">
+  <div class="min-w-0">
+    <div class="flex items-center gap-2">
+      {% if c.is_open %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-warning/10 text-warning">Open</span>
+      {% else %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-line text-ink-muted"><i data-lucide="lock" class="w-3 h-3"></i> Closed</span>
+      {% endif %}
+      <span class="text-xs font-mono text-ink-muted">{{ target_display }}</span>
+    </div>
+    <a href="{{ target_url }}" class="font-semibold text-ink hover:text-brand-dark hover:underline">{{ target_title }}</a>
+  </div>
+  <button type="button" @click="modalOpen = false" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0">
+    <i data-lucide="x" class="w-4 h-4"></i>
+  </button>
+</div>
+
+<div class="flex-1 overflow-y-auto p-6 space-y-4">
+  {# Opening message #}
+  <div class="flex gap-3">
+    <div class="w-9 h-9 rounded-full bg-canvas border border-line flex items-center justify-center shrink-0 text-xs font-semibold text-ink-muted">
+      {{ c.author.get_full_name|default:c.author.username|slice:":2"|upper }}
+    </div>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-baseline gap-2 flex-wrap">
+        <span class="text-sm font-medium text-ink">{{ c.author.get_full_name|default:c.author.username }}</span>
+        {% if c.author_id == request.user.id %}
+          <span class="text-[10px] font-bold uppercase text-brand-dark">You</span>
+        {% elif c.author|is_poc_lead:c.poc %}
+          <span class="text-[10px] font-bold uppercase text-ink-muted">Lead</span>
+        {% endif %}
+        <span class="text-xs text-ink-muted ml-auto">{{ c.created_at|date:"Y-m-d H:i" }}</span>
+      </div>
+      <p class="text-sm text-ink mt-1 whitespace-pre-wrap">{{ c.text|linkify }}</p>
+    </div>
+  </div>
+  {# Replies #}
+  {% for m in c.messages.all %}
+    <div class="flex gap-3">
+      <div class="w-9 h-9 rounded-full bg-canvas border border-line flex items-center justify-center shrink-0 text-xs font-semibold text-ink-muted">
+        {{ m.author.get_full_name|default:m.author.username|slice:":2"|upper }}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-sm font-medium text-ink">{{ m.author.get_full_name|default:m.author.username }}</span>
+          {% if m.author_id == request.user.id %}
+            <span class="text-[10px] font-bold uppercase text-brand-dark">You</span>
+          {% elif m.author|is_poc_lead:c.poc %}
+            <span class="text-[10px] font-bold uppercase text-ink-muted">Lead</span>
+          {% endif %}
+          <span class="text-xs text-ink-muted ml-auto">{{ m.created_at|date:"Y-m-d H:i" }}</span>
+        </div>
+        <p class="text-sm text-ink mt-1 whitespace-pre-wrap">{{ m.text|linkify }}</p>
+      </div>
+    </div>
+  {% endfor %}
+  {% if not c.is_open %}
+    <p class="text-xs text-ink-muted pt-2 border-t border-line">
+      Closed by <span class="text-ink font-medium">{{ c.closed_by.get_full_name|default:c.closed_by.username }}</span>
+      {% if c.closed_at %}on {{ c.closed_at|date:"Y-m-d H:i" }}{% endif %}.
+    </p>
+  {% endif %}
+</div>
+
+<div class="p-4 border-t border-line shrink-0">
+  {% if c.is_open %}
+    <form hx-post="{% url 'pocs:comment_reply' c.pk %}" hx-target="#comment-modal-body" hx-swap="innerHTML" class="space-y-2">
+      {% csrf_token %}
+      <textarea name="text" rows="2" required placeholder="Reply…"
+                class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"></textarea>
+      <div class="flex items-center justify-end gap-2">
+        {% if can_close %}
+          <button type="button" hx-post="{% url 'pocs:comment_close' c.pk %}" hx-target="#comment-modal-body" hx-swap="innerHTML"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line text-sm font-medium hover:bg-canvas">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i> Close Thread
+          </button>
+        {% endif %}
+        <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="send" class="w-4 h-4"></i> Reply
+        </button>
+      </div>
+    </form>
+  {% else %}
+    <p class="text-sm text-ink-muted text-center">This thread is closed.</p>
+  {% endif %}
+</div>

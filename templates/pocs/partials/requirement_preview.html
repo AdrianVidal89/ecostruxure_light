@@ -1,6 +1,7 @@
 {% load core_extras %}
 <div class="space-y-4">
   <div>
+    <p class="text-sm font-semibold text-ink">{{ req.req_id }}</p>
     <p class="text-xs font-mono text-ink-muted">
       {{ req.code }}{% if req.external_code %} · <span title="External code (source documentation)">{{ req.external_code }}</span>{% endif %}
     </p>
