@@ -5,14 +5,22 @@ The dashboard is the post-login landing page: a grid of the POCs the user
 belongs to (admins see all), plus a global stats row for admins.
 """
 
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import redirect_to_login
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.generic import TemplateView, View
 
-from .forms import BrandingForm
+from . import db_backup
+from .forms import BrandingForm, DatabaseRestoreForm
 from .mixins import AdminRequiredMixin
 from .models import SiteBranding
+
+logger = logging.getLogger(__name__)
 
 
 # Imported business fields offered as fine-grain dropdown filters (admin only).
@@ -193,3 +201,74 @@ class BrandingView(AdminRequiredMixin, View):
             messages.success(request, "Logo updated.")
             return redirect("core:branding")
         return render(request, self.template_name, {"form": form, "branding_obj": obj})
+
+
+class DatabaseBackupView(AdminRequiredMixin, View):
+    """Admin-only: download a full database backup, or restore from one.
+
+    Restore is destructive (replaces ALL current data) — gated behind a
+    typed "RESTORE" confirmation (``DatabaseRestoreForm``) on top of the
+    admin-only access. A safety copy of the database as it stood right
+    before the restore is always saved server-side first (see
+    ``apps.core.db_backup.save_safety_backup``), so restoring the wrong file
+    is recoverable.
+    """
+
+    template_name = "core/db_backup.html"
+
+    def get(self, request):
+        return render(
+            request,
+            self.template_name,
+            {"form": DatabaseRestoreForm(), "engine": db_backup.engine()},
+        )
+
+    def post(self, request):
+        form = DatabaseRestoreForm(request.POST, request.FILES)
+        if not form.is_valid():
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "engine": db_backup.engine()},
+            )
+        try:
+            log = db_backup.restore_backup(form.cleaned_data["file"])
+        except db_backup.RestoreError as exc:
+            messages.error(request, f"Restore failed: {exc}")
+            return render(
+                request,
+                self.template_name,
+                {"form": DatabaseRestoreForm(), "engine": db_backup.engine()},
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Database restore failed unexpectedly")
+            messages.error(request, "Restore failed unexpectedly — check the server logs.")
+            return render(
+                request,
+                self.template_name,
+                {"form": DatabaseRestoreForm(), "engine": db_backup.engine()},
+            )
+        logger.warning("Database restored by %s from an uploaded backup.", request.user)
+        # The database (possibly the session table itself) was just replaced
+        # — don't rely on Django messages/session surviving past this point.
+        # Render a plain confirmation page directly instead of redirecting.
+        return render(request, "core/db_restore_done.html", {"log": log})
+
+
+def database_backup_download(request):
+    """Stream a fresh full-database backup for download (admin-only)."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    if not request.user.is_admin:
+        raise PermissionDenied
+    try:
+        filename, data = db_backup.create_backup()
+    except db_backup.RestoreError as exc:
+        messages.error(request, f"Backup failed: {exc}")
+        return redirect("core:db_backup")
+    content_type = (
+        "application/x-sqlite3" if db_backup.engine() == "sqlite" else "application/octet-stream"
+    )
+    response = HttpResponse(data, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response

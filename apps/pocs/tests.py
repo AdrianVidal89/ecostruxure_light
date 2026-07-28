@@ -2935,3 +2935,64 @@ class UCRequirementMatrixTests(TestCase):
         body = resp.content.decode()
         # The linked cell renders a filled check icon.
         self.assertIn('data-lucide="check"', body)
+
+
+class EntityHoverPreviewBriefTests(TestCase):
+    """A follow-up request: the delayed hover-card (used on the graph and the
+    matrix) should also work on every chip that links a Requirement/Use Case/
+    Test elsewhere in the app. Implemented as a `?brief=1` JSON fast-path on
+    the existing preview endpoints (apps/pocs/views.py), fetched generically
+    by static/js/entity_hover_preview.js — these tests cover the server side."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "hp_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="Hover POC", created_by=self.admin, status="active")
+        self.uc = UseCase.objects.create(
+            poc=self.poc, title="Login", description="UC full description", created_by=self.admin,
+        )
+        self.req = Requirement.objects.create(
+            poc=self.poc, sub_system="SCADA", req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", description="Req full description",
+            created_by=self.admin,
+        )
+        self.phase = Phase.objects.create(poc=self.poc, name="Testing", order=1)
+        self.test = Test.objects.create(
+            phase=self.phase, title="Smoke test", test_code="UT-001",
+            description="Test full description",
+        )
+
+    def test_requirement_preview_brief_returns_json(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:requirement_preview", args=[self.req.pk]) + "?brief=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/json")
+        self.assertEqual(resp.json(), {"title": self.req.code, "description": "Req full description"})
+
+    def test_usecase_preview_brief_returns_json(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:usecase_preview", args=[self.uc.pk]) + "?brief=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"title": f"{self.uc.code} · {self.uc.title}", "description": "UC full description"})
+
+    def test_test_preview_brief_returns_json(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:test_preview", args=[self.test.pk]) + "?brief=1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"title": "UT-001", "description": "Test full description"})
+
+    def test_brief_still_requires_poc_membership(self):
+        outsider = User.objects.create_user(
+            "hp_outsider", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.client.force_login(outsider)
+        resp = self.client.get(reverse("pocs:requirement_preview", args=[self.req.pk]) + "?brief=1")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_normal_preview_still_returns_html_without_brief_param(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:requirement_preview", args=[self.req.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/html; charset=utf-8")

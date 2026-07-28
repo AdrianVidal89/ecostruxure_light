@@ -41,6 +41,7 @@
           <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap
             {% if phase.status == 'completed' %}bg-brand/10 text-brand-dark
             {% elif phase.status == 'in_progress' %}bg-info/10 text-info
+            {% elif phase.status == 'external' %}bg-info/10 text-info
             {% else %}bg-line text-ink-muted{% endif %}">
             {{ phase.get_status_display }}
           </span>

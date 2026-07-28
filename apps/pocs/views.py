@@ -2154,6 +2154,12 @@ def requirement_preview(request, pk):
     req = get_object_or_404(Requirement, pk=pk)
     if not user_is_poc_member(request.user, req.poc):
         raise PermissionDenied
+    if request.GET.get("brief"):
+        # Fast path for the delayed hover-card (static/js/entity_hover_preview.js)
+        # — every chip that links a Requirement reuses this same endpoint,
+        # no per-template description plumbing needed (spec: hover-card
+        # everywhere a Requirement/Use Case link appears).
+        return JsonResponse({"title": req.code, "description": req.description or ""})
     return render(request, "pocs/partials/requirement_preview.html", _requirement_preview_ctx(request, req, next_url=request.GET.get("next")))
 
 
@@ -2252,6 +2258,8 @@ def usecase_preview(request, pk):
     uc = get_object_or_404(UseCase, pk=pk)
     if not user_is_poc_member(request.user, uc.poc):
         raise PermissionDenied
+    if request.GET.get("brief"):
+        return JsonResponse({"title": f"{uc.code} · {uc.title}", "description": uc.description or ""})
     return render(request, "pocs/partials/usecase_preview.html", _usecase_preview_ctx(request, uc))
 
 
@@ -2292,6 +2300,8 @@ def test_preview(request, pk):
     test = get_object_or_404(Test, pk=pk)
     if not user_is_poc_member(request.user, test.phase.poc):
         raise PermissionDenied
+    if request.GET.get("brief"):
+        return JsonResponse({"title": test.test_code or test.title, "description": test.description or ""})
     return render(request, "pocs/partials/test_preview.html", {"test": test})
 
 

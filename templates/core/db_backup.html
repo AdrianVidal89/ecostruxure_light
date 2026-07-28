@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Database backup · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">Backup</span>{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">Database backup</h1>
+    <p class="text-ink-muted mt-1">
+      Download a full copy of the database, or restore from a previously downloaded backup.
+      Engine detected: <span class="font-mono text-ink">{{ engine }}</span>.
+    </p>
+  </div>
+
+  {# ---------- Backup (safe, read-only) ---------- #}
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
+    <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="download" class="w-4 h-4 text-brand-dark"></i> Download a backup</h2>
+    <p class="text-sm text-ink-muted">
+      Produces a full snapshot of the current database
+      ({% if engine == 'sqlite' %}a <code>.sqlite3</code> file{% else %}a <code>pg_dump</code> custom-format <code>.dump</code> file{% endif %}),
+      safe to run any time — nothing is changed.
+    </p>
+    <a href="{% url 'core:db_backup_download' %}"
+       class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+      <i data-lucide="download" class="w-4 h-4"></i> Download backup now
+    </a>
+  </div>
+
+  {# ---------- Restore (destructive) ---------- #}
+  <div class="bg-surface border border-danger/30 rounded-xl p-6 space-y-4"
+       x-data="{ open: {% if form.errors %}true{% else %}false{% endif %} }">
+    <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="upload" class="w-4 h-4 text-danger"></i> Restore from a backup</h2>
+
+    <div class="rounded-xl border border-danger/40 bg-danger/5 p-4 space-y-1">
+      <p class="flex items-center gap-2 font-medium text-danger">
+        <i data-lucide="triangle-alert" class="w-5 h-5"></i> This replaces ALL current data
+      </p>
+      <p class="text-sm text-ink">
+        Every POC, phase, task, test, requirement, use case, user, and comment currently in the
+        database is overwritten with whatever is inside the uploaded file. This cannot be undone from
+        the app — a safety copy of the current database is saved on the server first, but recovering
+        from it requires server/file access, not this page.
+      </p>
+      <p class="text-sm text-ink">
+        Only restore a backup taken from a compatible version of this app (same database schema /
+        migrations). Restoring an incompatible or unrelated file can break the application.
+      </p>
+    </div>
+
+    {% comment %}
+    Both the button and the form are always in the DOM — x-show is a client-side
+    CSS toggle only; a server-rendered {% if %} can't see Alpine's state, and a
+    submitted form (e.g. after a validation error) must always come back visible.
+    {% endcomment %}
+    <button type="button" @click="open = true" x-show="!open"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-danger/40 text-danger text-sm font-medium hover:bg-danger/5">
+      <i data-lucide="unlock" class="w-4 h-4"></i> I understand — show the restore form
+    </button>
+    <form method="post" enctype="multipart/form-data" class="space-y-4" x-show="open" {% if not form.errors %}x-cloak{% endif %}>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">Backup file</label>
+        {% include "components/filedrop.html" with field=form.file hint="The exact file downloaded from 'Download backup now' above." %}
+      </div>
+
+      <div>
+        <label for="{{ form.confirm.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          {{ form.confirm.label }}
+        </label>
+        {{ form.confirm }}
+        {% for error in form.confirm.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <button type="submit"
+              onclick="return confirm('This will overwrite ALL current data in the database. Continue?');"
+              class="inline-flex items-center gap-2 bg-danger hover:bg-danger/90 text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="upload" class="w-4 h-4"></i> Restore now
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
