@@ -18,7 +18,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-6">
+{# Tests tab (spec item 10 follow-up) gets more width — the tests + unlinked-requirements two-column layout is cramped at max-w-4xl. Every other tab keeps the narrower reading width. #}
+<div class="{% if is_leaf and is_test %}max-w-7xl{% else %}max-w-4xl{% endif %} mx-auto space-y-6">
 
   {% if phase.parent %}
     {% url 'pocs:phase_detail' phase.parent.pk as back_url %}
@@ -221,18 +222,26 @@
 
   {% if is_leaf and is_test %}
     {# ---------- Tests (leaf Test phases) ---------- #}
-    <section class="space-y-3 rounded-xl border border-brand/30 bg-brand/5 p-4">
+    <section class="space-y-3 rounded-xl border border-brand/30 bg-brand/5 p-4" x-data="{ testOrderModalOpen: false }" @test-order-saved.window="testOrderModalOpen = false">
       <div class="flex items-center justify-between">
         <h2 class="font-medium text-ink flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-brand shrink-0"></span>
           Tests <span class="text-ink-muted font-normal">({{ tests|length }})</span>
         </h2>
-        {% if can_add_test %}
-          <a href="{% url 'pocs:test_create' phase.pk %}"
-             class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
-            <i data-lucide="plus" class="w-4 h-4"></i> Add test
-          </a>
-        {% endif %}
+        <div class="flex items-center gap-2">
+          {% if can_lead and tests|length > 1 %}
+            <button type="button" @click="testOrderModalOpen = true"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+              <i data-lucide="list-ordered" class="w-4 h-4"></i> Define test order
+            </button>
+          {% endif %}
+          {% if can_add_test %}
+            <a href="{% url 'pocs:test_create' phase.pk %}"
+               class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-2 text-sm transition-soft">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add test
+            </a>
+          {% endif %}
+        </div>
       </div>
       {% comment %}
         Tests (main column) + Unlinked requirements pool (right column, sticky).
@@ -250,6 +259,8 @@
         {# Unlinked requirements pool (spec item 2) — drag a chip onto a test's "Linked requirements" box to link it, or click its code to preview it. Always included (hidden via CSS when empty) so it's a valid HTMX out-of-band swap target — see test_link_requirement_remove. #}
         {% include "pocs/partials/unlinked_requirements_panel.html" %}
       </div>
+
+      {% if can_lead %}{% include "pocs/partials/test_order_modal.html" %}{% endif %}
     </section>
   {% endif %}
 
@@ -357,7 +368,7 @@
               <span class="min-w-0">
                 <span class="block font-semibold text-ink">Generate report</span>
                 <span class="block text-sm text-ink-muted mt-0.5">
-                  {% if is_test %}Builds the report from the tests below.
+                  {% if is_test %}Builds the report from the tests above.
                   {% elif is_functional_analysis %}Builds the report from the Functional Analysis structure above.
                   {% else %}Builds the report from the sections above.{% endif %}
                 </span>

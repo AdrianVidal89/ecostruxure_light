@@ -1252,7 +1252,13 @@ class Test(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["order", "id"]
+        # Sorted by test_code (e.g. ST-001, ST-002, …) rather than the
+        # ``order``/``id`` fields — the zero-padded numeric suffix sorts
+        # correctly as plain text, and reordering (test_reorder) always keeps
+        # test_code in sync with the desired position, so this guarantees the
+        # visible list always reads ST-001, ST-002, … regardless of any
+        # order/id drift in older data (spec item 10 follow-up).
+        ordering = ["test_code"]
 
     def __str__(self):
         return self.title

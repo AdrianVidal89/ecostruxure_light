@@ -589,10 +589,28 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
             "status": UseCase.Status.choices,
             "priority": UseCase.Priority.choices,
         }
+        # Tests tab (spec item 3 follow-up) — quick access to this POC's own
+        # tests, grouped by phase, without leaving to the global Tests page.
+        poc_tests = list(
+            Test.objects.filter(phase__poc=poc)
+            .select_related("phase", "assigned_to")
+            .prefetch_related("validations", "requirements")
+            .order_by("phase__order", "test_code")
+        )
+        phase_groups, current_phase = [], None
+        for t in poc_tests:
+            if current_phase is None or current_phase["phase"].id != t.phase_id:
+                current_phase = {"phase": t.phase, "tests": []}
+                phase_groups.append(current_phase)
+            current_phase["tests"].append(t)
+        ctx["poc_test_phase_groups"] = phase_groups
+        ctx["poc_tests_total"] = len(poc_tests)
+
         ctx["tabs"] = [
             ("overview", "Overview"),
             ("specs", "Use Cases & Requirements"),
             ("phases", "Phases"),
+            ("tests", "Tests"),
             ("team", "Team"),
             ("audit", "Audit Log"),
             ("reports", "Reports"),
@@ -1982,6 +2000,7 @@ class CommentListView(LoginRequiredMixin, View):
                 {
                     "poc": poc,
                     "can_close": user_can_lead_poc(request.user, poc),
+                    "total": len(poc_comments),
                     "spec_comments": [
                         c for c in poc_comments if c.content_type_id != test_ct_id
                     ],
@@ -3841,7 +3860,7 @@ class TestsView(LoginRequiredMixin, View):
         elif flt == "awaiting":
             qs = qs.filter(validations__status=TestValidation.Decision.PENDING).distinct()
 
-        tests = list(qs.order_by("phase__poc__name", "phase__order", "id"))
+        tests = list(qs.order_by("phase__poc__name", "phase__order", "test_code"))
         groups, current = [], None
         for t in tests:
             poc = t.phase.poc

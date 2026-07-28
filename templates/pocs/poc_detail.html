@@ -424,9 +424,10 @@
               {% for req in uc.requirements.all %}
                 <button type="button" x-show="{{ forloop.counter }} <= 6 || showAllReqs"
                         onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
-                        title="View requirement">
-                  <i data-lucide="link" class="w-3 h-3"></i><strong>{{ req.req_id }}</strong>{% if req.description %} · {{ req.description|truncatechars:40 }}{% endif %}
+                        class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-full text-sm bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+                        title="{{ req.req_id }}{% if req.description %} · {{ req.description }}{% endif %}">
+                  <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
+                  <span class="truncate min-w-0"><strong>{{ req.req_id }}</strong>{% if req.description %} · {{ req.description|truncatechars:28 }}{% endif %}</span>
                 </button>
               {% empty %}
                 <span class="text-xs text-ink-muted">No linked requirements</span>
@@ -850,6 +851,23 @@
       {% empty %}
         <div class="lg:col-span-2 card p-8 text-center text-sm text-ink-muted">
           No phases yet.{% if is_admin %} Define the global blueprint, or add a phase here.{% elif can_lead %} Add a phase here.{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ---------- Tests (spec item 3 follow-up: this POC's own tests, no need to leave to the global Tests page) ---------- #}
+  <section x-show="tab === 'tests'" x-cloak class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+      <p class="text-sm text-ink-muted">This POC's tests, grouped by phase.</p>
+      <span class="text-xs text-ink-muted shrink-0">{{ poc_tests_total }} test{{ poc_tests_total|pluralize }}</span>
+    </div>
+    <div class="space-y-4">
+      {% for pgroup in poc_test_phase_groups %}
+        {% include "pocs/partials/tests_phase_group.html" %}
+      {% empty %}
+        <div class="card p-8 text-center text-sm text-ink-muted">
+          No tests yet.{% if can_lead %} Add one from a Test phase in the Phases tab.{% endif %}
         </div>
       {% endfor %}
     </div>

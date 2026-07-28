@@ -1,0 +1,36 @@
+{% comment %}
+"Define test order" modal (spec item 10 follow-up) — a lightweight,
+titles-only reorderable list. The main draggable test cards get impractical
+to use for reordering once a test has many linked requirements (the chips
+push the second/third card off-screen); this popup shows just the code +
+title for every test in the phase, drag to arrange, then Save applies the
+same test_reorder endpoint (renumbers test_code to match) as the card list.
+Context: phase, tests.
+{% endcomment %}
+<div x-show="testOrderModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="testOrderModalOpen = false">
+  <div class="bg-surface-elevated rounded-xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col" @click.outside="testOrderModalOpen = false">
+    <div class="p-4 border-b border-line flex items-center justify-between shrink-0">
+      <h3 class="font-semibold text-ink">Define test order</h3>
+      <button type="button" @click="testOrderModalOpen = false" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <p class="px-4 pt-3 text-xs text-ink-muted shrink-0">Drag to set the execution order — Save also renumbers each test's code to match.</p>
+    <div id="test-order-list" data-reorder-url="{% url 'pocs:test_reorder' phase.pk %}" class="flex-1 overflow-y-auto p-4 space-y-1.5">
+      {% for test in tests %}
+        <div data-test-id="{{ test.id }}" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-line bg-surface">
+          <i data-lucide="grip-vertical" class="drag-handle w-4 h-4 text-ink-muted shrink-0 cursor-grab active:cursor-grabbing"></i>
+          <span class="text-xs font-mono text-ink-muted shrink-0">{{ test.test_code }}</span>
+          <span class="text-sm text-ink truncate">{{ test.title }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="p-4 border-t border-line flex justify-end gap-2 shrink-0">
+      <button type="button" @click="testOrderModalOpen = false" class="px-4 py-2 rounded-lg border border-line text-sm font-medium hover:bg-canvas">Cancel</button>
+      <button type="button" id="save-test-order-btn"
+              class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="check" class="w-4 h-4"></i> Save order
+      </button>
+    </div>
+  </div>
+</div>

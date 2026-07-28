@@ -2748,8 +2748,8 @@ class TestReorderTests(TestCase):
         self.assertEqual(self.t1.test_code, "ST-001")
         self.assertEqual(self.t2.test_code, "ST-002")
         self.assertEqual(self.t3.test_code, "ST-003")
-        # All default to order=0 (unset until first reorder) — id breaks the
-        # tie, so display still matches creation order.
+        # Default ordering sorts by test_code (spec item 10 follow-up), so
+        # display always reads ST-001, ST-002, … regardless of order/id.
         self.assertEqual(list(self.phase.tests.all()), [self.t1, self.t2, self.t3])
 
     def test_reorder_renumbers_codes_and_persists_new_order(self):
@@ -2769,6 +2769,31 @@ class TestReorderTests(TestCase):
         self.assertEqual([self.t3.order, self.t1.order, self.t2.order], [0, 1, 2])
         # The phase's default ordering now reflects the drop order.
         self.assertEqual(list(self.phase.tests.all()), [self.t3, self.t1, self.t2])
+
+    def test_out_of_order_ids_still_sort_by_code_by_default(self):
+        # Reproduces the reported bug: even if id/creation order and the
+        # eventual test_code assignment ever drift apart, the default
+        # queryset must still read ST-001, ST-002, ST-003 — not id order.
+        Test.objects.filter(pk=self.t1.pk).update(test_code="ST-003")
+        Test.objects.filter(pk=self.t3.pk).update(test_code="ST-001")
+        self.assertEqual(
+            [t.pk for t in self.phase.tests.all()], [self.t3.pk, self.t2.pk, self.t1.pk]
+        )
+
+    def test_define_test_order_button_and_modal_render_for_lead(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Define test order")
+        self.assertContains(resp, 'id="test-order-list"')
+        self.assertContains(resp, self.t1.title)
+        self.assertContains(resp, self.t1.test_code)
+
+    def test_define_test_order_button_hidden_for_plain_member(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Define test order")
 
     def test_member_cannot_reorder(self):
         self.client.force_login(self.member)

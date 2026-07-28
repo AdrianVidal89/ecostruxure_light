@@ -74,6 +74,8 @@ each with a coloured status dot. Editors get the click-to-set status control.
             </a>
             {% if is_admin or is_lead_member %}
               {% include "pocs/partials/phase_status_control.html" with phase=child editable=True %}
+            {% else %}
+              {% include "pocs/partials/phase_status_control.html" with phase=child editable=False %}
             {% endif %}
             <a href="{% url 'pocs:phase_detail' child.pk %}" class="shrink-0 text-ink-muted group-hover:text-brand-dark">
               <i data-lucide="chevron-right" class="w-4 h-4 transition-soft group-hover:translate-x-0.5"></i>
@@ -94,6 +96,8 @@ each with a coloured status dot. Editors get the click-to-set status control.
                     </a>
                     {% if is_admin or is_lead_member %}
                       {% include "pocs/partials/phase_status_control.html" with phase=grandchild editable=True %}
+                    {% else %}
+                      {% include "pocs/partials/phase_status_control.html" with phase=grandchild editable=False %}
                     {% endif %}
                     <a href="{% url 'pocs:phase_detail' grandchild.pk %}" class="shrink-0 text-ink-muted group-hover:text-brand-dark">
                       <i data-lucide="chevron-right" class="w-3.5 h-3.5 transition-soft group-hover:translate-x-0.5"></i>
