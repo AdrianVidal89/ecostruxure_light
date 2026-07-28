@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 
+{# This is a single-test full-page view — start with the sidebar collapsed so the test content has more room; the toggle still works. #}
+{% block sidebar_default_open %}false{% endblock %}
+
 {% comment %}
 Full-page detail for one Test (spec item 5 — "Acceso Flexible a Vistas de
 Detalle"). Reachable from the general Tests overview and from the phase page

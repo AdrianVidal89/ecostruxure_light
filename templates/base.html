@@ -210,25 +210,25 @@
 </head>
 
 <body class="h-full bg-canvas text-ink font-sans antialiased"
-      x-data="{ sidebarOpen: true }"
+      x-data="{ sidebarOpen: {% block sidebar_default_open %}true{% endblock %} }"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
   <div class="flex h-full">
     {# ===================== SIDEBAR ===================== #}
     <aside x-cloak
            class="flex flex-col bg-surface border-r border-line transition-soft shrink-0"
-           :class="sidebarOpen ? 'w-64' : 'w-16'">
+           :class="sidebarOpen ? 'w-52' : 'w-14'">
 
       {# Brand / logo — the image leads; the wordmark is a small caption beside it. #}
-      <div class="flex items-center gap-2 h-28 px-3 border-b border-line">
+      <div class="flex items-center gap-2 h-14 px-2.5 border-b border-line">
         {% if branding and branding.logo %}
           <img src="{{ branding.logo.url }}" alt="Logo"
                class="object-contain shrink-0"
-               :class="sidebarOpen ? 'h-24 w-auto max-w-[170px]' : 'h-12 w-12'">
+               :class="sidebarOpen ? 'h-9 w-auto max-w-[120px]' : 'h-8 w-8'">
         {% else %}
           <div class="rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shrink-0 shadow-sm"
-               :class="sidebarOpen ? 'w-16 h-16' : 'w-12 h-12'">
-            <span class="text-white font-extrabold text-3xl leading-none">O</span>
+               :class="sidebarOpen ? 'w-9 h-9' : 'w-8 h-8'">
+            <span class="text-white font-extrabold text-lg leading-none">O</span>
           </div>
         {% endif %}
         <div class="min-w-0 leading-tight" x-show="sidebarOpen">
@@ -238,24 +238,24 @@
       </div>
 
       {# Navigation #}
-      <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav class="flex-1 px-1.5 py-2.5 space-y-0.5 overflow-y-auto">
         {% for item in nav_items %}
           {% if item.available %}
             {% url item.url_name as item_url %}
             <a href="{{ item_url }}"
-               class="group relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-soft
+               class="group relative flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-soft
                       {% if request.path == item_url %}bg-brand/10 text-brand-dark neon-glow{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
-              {% if request.path == item_url %}<span class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-brand"></span>{% endif %}
-              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
+              {% if request.path == item_url %}<span class="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-brand"></span>{% endif %}
+              <i data-lucide="{{ item.icon }}" class="w-4 h-4 shrink-0"></i>
               <span x-show="sidebarOpen" class="truncate flex-1">{{ item.label }}</span>
               {% if item.badge %}
                 <span x-show="sidebarOpen" class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-warning text-white text-xs font-semibold">{{ item.badge }}</span>
               {% endif %}
             </a>
           {% else %}
-            <span class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
+            <span class="group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
                   title="Coming in a later build step">
-              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
+              <i data-lucide="{{ item.icon }}" class="w-4 h-4 shrink-0"></i>
               <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
             </span>
           {% endif %}
@@ -263,12 +263,12 @@
       </nav>
 
       {# User info + menu (bottom) #}
-      <div class="border-t border-line p-3">
+      <div class="border-t border-line p-2">
         {% if user.is_authenticated %}
           <div class="relative" x-data="{ menuOpen: false }">
             <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
-                    class="w-full flex items-center gap-3 rounded-lg p-1 hover:bg-canvas transition-soft">
-              <div class="w-9 h-9 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
+                    class="w-full flex items-center gap-2.5 rounded-lg p-1 hover:bg-canvas transition-soft">
+              <div class="w-8 h-8 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
                 {{ user.username|slice:":1"|upper }}
               </div>
               <div class="min-w-0 text-left flex-1" x-show="sidebarOpen">
@@ -300,9 +300,9 @@
             </div>
           </div>
         {% else %}
-          <a href="{% url 'accounts:login' %}" class="flex items-center gap-3 text-ink-muted hover:text-ink">
-            <div class="w-9 h-9 rounded-full bg-canvas flex items-center justify-center shrink-0">
-              <i data-lucide="log-in" class="w-5 h-5"></i>
+          <a href="{% url 'accounts:login' %}" class="flex items-center gap-2.5 text-ink-muted hover:text-ink">
+            <div class="w-8 h-8 rounded-full bg-canvas flex items-center justify-center shrink-0">
+              <i data-lucide="log-in" class="w-4 h-4"></i>
             </div>
             <span class="text-sm" x-show="sidebarOpen">Sign in</span>
           </a>
