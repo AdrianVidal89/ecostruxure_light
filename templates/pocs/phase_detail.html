@@ -95,6 +95,22 @@
           </button>
         </form>
       {% endif %}
+      {# External (spec item 4) — independent of the Delete/N.A. chain above: coexists, doesn't replace it. #}
+      {% if is_external and can_edit %}
+        <form method="post" action="{% url 'pocs:phase_unmark_external' phase.pk %}"
+              onsubmit="return confirm('Restore “{{ phase.name|escapejs }}” to Pending?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Revert External
+          </button>
+        </form>
+      {% elif can_mark_external %}
+        <a href="{% url 'pocs:phase_mark_external' phase.pk %}"
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-sm font-medium text-info hover:bg-info/5"
+           title="This phase applies, but is done by an external team.">
+          <i data-lucide="building-2" class="w-4 h-4"></i> Mark External
+        </a>
+      {% endif %}
     </div>
   </div>
 
@@ -111,6 +127,21 @@
         {% if phase.na_reason %}
           <div class="prose prose-sm max-w-none mt-2 text-ink-muted">{{ phase.na_reason|markdownify }}</div>
         {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if is_external %}
+    <div class="flex flex-wrap items-start gap-3 rounded-xl border border-info/40 bg-info/5 px-4 py-3">
+      <i data-lucide="building-2" class="w-5 h-5 text-info shrink-0 mt-0.5"></i>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm text-ink">
+          Marked <strong>External</strong>
+          {% if phase.external_by %}by <strong>{{ phase.external_by.get_full_name|default:phase.external_by.username }}</strong>{% endif %}
+          {% if phase.external_at %}on {{ phase.external_at|date:"Y-m-d H:i" }}{% endif %}.
+          Executed by: <strong>{% for team in phase.teams.all %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong>.
+          This is shown in the final report.
+        </p>
       </div>
     </div>
   {% endif %}

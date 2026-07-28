@@ -225,10 +225,17 @@
       </div>
     </div>
 
+    {# Matrix (spec item 3) — quick UC×Requirement linking, alternative to the one-by-one forms below. #}
+    <a href="{% url 'pocs:uc_requirement_matrix' poc.pk %}"
+       class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface w-fit">
+      <i data-lucide="grid-3x3" class="w-4 h-4"></i> Open Use Case × Requirement matrix
+    </a>
+
     {# Use Cases #}
     <div class="space-y-3"
          x-data="{
            showFilters: false,
+           pendingUcModalOpen: false,
            filters: { q: '', status: '', priority: '', approved: '' },
            rows: [],
            selectedCount: 0,
@@ -263,11 +270,8 @@
                   x-text="activeFilterCount"></span>
           </button>
           {% if use_cases %}
-            <a href="{% url 'pocs:usecase_export' poc.pk %}"
-               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
-               title="Download all use cases as .xlsx — edit and re-import to update them">
-              <i data-lucide="download" class="w-4 h-4"></i> Export
-            </a>
+            {% url 'pocs:usecase_export' poc.pk as uc_export_url %}
+            {% include "pocs/partials/export_menu.html" with export_url=uc_export_url label="use cases" %}
           {% endif %}
           {% if can_manage %}
             <a href="{% url 'pocs:usecase_import' poc.pk %}"
@@ -279,6 +283,56 @@
               <i data-lucide="plus" class="w-4 h-4"></i> Add use case
             </a>
           {% endif %}
+        </div>
+      </div>
+
+      {% if use_cases %}
+        <div class="flex flex-wrap gap-3">
+          <button type="button" @click="pendingUcModalOpen = true"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-soft
+                         {% if usecases_without_requirements_count %}bg-warning/10 text-warning hover:bg-warning/20{% else %}bg-canvas text-ink-muted hover:bg-line/40{% endif %}">
+            <i data-lucide="unlink" class="w-4 h-4 shrink-0"></i>
+            {{ usecases_without_requirements_count }} without requirements
+          </button>
+        </div>
+      {% endif %}
+
+      {# Modal: use cases with no requirement linked yet (spec item 6, analogous to Requirements sin Test). #}
+      <div x-show="pendingUcModalOpen" x-cloak
+           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+           @keydown.escape.window="pendingUcModalOpen = false">
+        <div class="bg-surface-elevated rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col"
+             @click.outside="pendingUcModalOpen = false">
+          <div class="flex items-center justify-between p-4 border-b border-line shrink-0">
+            <h3 class="font-semibold text-ink flex items-center gap-2">
+              <i data-lucide="unlink" class="w-4 h-4 text-warning"></i> Use Cases without requirements
+            </h3>
+            <button type="button" @click="pendingUcModalOpen = false" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div class="p-4 overflow-y-auto space-y-2 flex-1">
+            {% for uc in usecases_without_requirements %}
+              <div class="flex items-center gap-3 p-2 rounded-lg border border-line">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-ink truncate">{{ uc.code }} · {{ uc.title }}</p>
+                  <p class="text-xs text-ink-muted truncate">{{ uc.get_priority_display }} · {{ uc.get_status_display }}</p>
+                </div>
+                <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
+                        @click.prevent="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                        title="View">
+                  <i data-lucide="eye" class="w-4 h-4"></i>
+                </button>
+                {% if can_manage %}
+                  <a href="{% url 'pocs:usecase_edit' uc.pk %}" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0" title="Link requirements">
+                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                  </a>
+                {% endif %}
+              </div>
+            {% empty %}
+              <p class="text-sm text-ink-muted text-center p-6">Every use case already has a requirement linked.</p>
+            {% endfor %}
+          </div>
         </div>
       </div>
 
@@ -410,11 +464,8 @@
             </button>
           {% endif %}
           {% if requirements %}
-            <a href="{% url 'pocs:requirement_export' poc.pk %}"
-               class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
-               title="Download all requirements as .xlsx — edit and re-import to update them">
-              <i data-lucide="download" class="w-4 h-4"></i> Export
-            </a>
+            {% url 'pocs:requirement_export' poc.pk as req_export_url %}
+            {% include "pocs/partials/export_menu.html" with export_url=req_export_url label="requirements" %}
           {% endif %}
           {% if can_manage %}
             <a href="{% url 'pocs:requirement_import' poc.pk %}"
@@ -838,7 +889,7 @@
         {% for log in audit_logs %}
           <div class="flex items-start gap-3 p-4">
             <div class="w-9 h-9 rounded-full bg-canvas text-ink-muted flex items-center justify-center shrink-0">
-              <i data-lucide="{% if log.action == 'validation_rejected' %}x-circle{% elif 'deleted' in log.action %}trash-2{% elif log.action == 'validation_requested' %}clock{% elif log.action == 'validation_approved' or log.action == 'phase_approved' %}check-circle{% elif log.action == 'phase_unlocked' %}lock-open{% elif log.action == 'report_uploaded' %}upload{% elif log.action == 'report_generated' %}file-output{% elif log.action == 'created' or log.action == 'document_created' or log.action == 'image_uploaded' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% else %}pencil{% endif %}" class="w-4 h-4"></i>
+              <i data-lucide="{% if log.action == 'validation_rejected' %}x-circle{% elif 'deleted' in log.action %}trash-2{% elif log.action == 'validation_requested' %}clock{% elif log.action == 'validation_approved' or log.action == 'phase_approved' %}check-circle{% elif log.action == 'phase_unlocked' %}lock-open{% elif log.action == 'report_uploaded' %}upload{% elif log.action == 'report_generated' %}file-output{% elif log.action == 'created' or log.action == 'document_created' or log.action == 'image_uploaded' %}plus{% elif log.action == 'file_uploaded' %}paperclip{% elif log.action == 'status_changed' or log.action == 'verdict_changed' %}refresh-cw{% elif log.action == 'phase_marked_external' or log.action == 'phase_external_reverted' %}building-2{% else %}pencil{% endif %}" class="w-4 h-4"></i>
             </div>
             <div class="min-w-0 flex-1">
               <p class="text-sm text-ink">

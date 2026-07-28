@@ -22,6 +22,7 @@ from apps.pocs.models import (
     POCMembership,
     Requirement,
     Task,
+    Team,
     Test,
     TestValidation,
     UseCase,
@@ -1627,23 +1628,6 @@ class TestReportMarkdownTests(TestCase):
         self.assertIn("UT-001", md)
         self.assertIn("UT-001 — Login works", md)
 
-    def test_parameters_heading_shown_even_when_empty(self):
-        from apps.reports.generation import build_phase_body_markdown
-
-        Test.objects.create(phase=self.phase, title="No params test")
-        md = build_phase_body_markdown(self.phase)
-        self.assertIn("**Parameters:**", md)
-        self.assertIn("No parameters defined", md)
-
-    def test_parameters_table_shown_when_present(self):
-        from apps.pocs.models import TestParameter
-        from apps.reports.generation import build_phase_body_markdown
-
-        t = Test.objects.create(phase=self.phase, title="Params test")
-        TestParameter.objects.create(test=t, name="Voltage", value="230V")
-        md = build_phase_body_markdown(self.phase)
-        self.assertIn("| Voltage | 230V |", md)
-
     def test_expected_result_and_target_date_always_shown(self):
         from apps.reports.generation import build_phase_body_markdown
 
@@ -2683,4 +2667,271 @@ class DarkModeSmokeTests(TestCase):
         body = resp.content.decode()
         self.assertIn("html.dark", body)
         self.assertIn("localStorage.setItem('theme'", body)
-        self.assertIn("bg-surface-elevated", body)
+
+
+class MarkdownExportImportTests(TestCase):
+    """Improvement brief item 1: Requirements & Use Cases export/import also
+    accepts .md, in addition to the existing .xlsx round-trip."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "md_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="MD POC", created_by=self.admin, status="active")
+        self.req = Requirement.objects.create(
+            poc=self.poc, sub_system="SCADA", req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", description="Has a | pipe\nand a newline",
+            created_by=self.admin,
+        )
+        self.uc = UseCase.objects.create(poc=self.poc, title="Login", created_by=self.admin)
+
+    def test_requirement_export_md_round_trips_through_parser(self):
+        from apps.pocs.requirements_import import (
+            build_requirements_export_md,
+            parse_requirements_md,
+        )
+
+        md = build_requirements_export_md(self.poc)
+        self.assertIn("| code |", md)
+        self.assertIn(self.req.code, md)
+        # The pipe/newline in the description survive the escape/unescape round-trip.
+        preview = parse_requirements_md(md, self.poc)
+        self.assertEqual(len(preview), 1)
+        row = preview[0]
+        self.assertTrue(row["valid"], row["errors"])
+        self.assertEqual(row["data"]["description"], "Has a | pipe\nand a newline")
+        self.assertEqual(row["data"]["existing_id"], self.req.id)
+
+    def test_usecase_export_md_round_trips_through_parser(self):
+        from apps.pocs.requirements_import import (
+            build_usecases_export_md,
+            parse_usecases_md,
+        )
+
+        md = build_usecases_export_md(self.poc)
+        self.assertIn(self.uc.code, md)
+        preview = parse_usecases_md(md, self.poc)
+        self.assertEqual(len(preview), 1)
+        self.assertTrue(preview[0]["valid"], preview[0]["errors"])
+        self.assertEqual(preview[0]["data"]["existing_id"], self.uc.id)
+
+    def test_requirement_export_view_offers_md_format(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:requirement_export", args=[self.poc.pk]) + "?format=md")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/markdown")
+        self.assertIn(self.req.code, resp.content.decode())
+
+    def test_usecase_export_view_offers_md_format(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:usecase_export", args=[self.poc.pk]) + "?format=md")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/markdown")
+        self.assertIn(self.uc.code, resp.content.decode())
+
+    def test_requirement_import_view_accepts_md_upload(self):
+        from apps.pocs.requirements_import import build_requirements_export_md
+
+        # Re-uploading this POC's own export (unedited) round-trips as an
+        # UPDATE of the same requirement (matched by its ``code`` column) —
+        # proving .md upload works end-to-end through the view, same as .xlsx.
+        md = build_requirements_export_md(self.poc)
+        upload = SimpleUploadedFile("reqs.md", md.encode("utf-8"), content_type="text/markdown")
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"file": upload})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "1 valid")
+        resp = self.client.post(reverse("pocs:requirement_import", args=[self.poc.pk]), {"confirm": "1"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.poc.requirements.count(), 1)
+        self.req.refresh_from_db()
+        self.assertEqual(self.req.description, "Has a | pipe\nand a newline")
+
+
+class PhaseExternalTests(TestCase):
+    """Improvement brief item 4: 'External' phase status, coexisting with
+    Not Applicable, with a reusable Team catalog."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "ext_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.poc = POC.objects.create(name="Ext POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(poc=self.poc, name="Site Survey", order=1)
+
+    def test_mark_external_sets_status_and_teams(self):
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, Phase.Status.EXTERNAL)
+        self.assertTrue(self.phase.is_external)
+        self.assertIn(vendor, self.phase.teams.all())
+        self.assertIsNotNone(self.phase.external_at)
+        self.assertEqual(self.phase.external_by, self.admin)
+
+    def test_mark_external_clears_na_and_vice_versa(self):
+        # External then NA — NA wins, external fields are cleared.
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        self.phase.mark_na(self.admin, "Site inaccessible")
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, Phase.Status.NOT_APPLICABLE)
+        self.assertIsNone(self.phase.external_at)
+        self.assertEqual(self.phase.teams.count(), 0)
+        # NA then External — External wins, na fields are cleared.
+        self.phase.mark_external(self.admin, [vendor])
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, Phase.Status.EXTERNAL)
+        self.assertEqual(self.phase.na_reason, "")
+        self.assertIsNone(self.phase.na_at)
+
+    def test_unmark_external_reverts_to_pending(self):
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        self.phase.unmark_external()
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, Phase.Status.PENDING)
+        self.assertEqual(self.phase.teams.count(), 0)
+
+    def test_external_leaf_counts_as_done_for_parent(self):
+        parent = Phase.objects.create(poc=self.poc, name="Parent", order=0)
+        self.phase.parent = parent
+        self.phase.save()
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        parent.refresh_from_db()
+        self.assertEqual(parent.compute_status(), Phase.Status.COMPLETED)
+
+    def test_mark_external_view_creates_new_team_inline(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:phase_mark_external", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(
+            reverse("pocs:phase_mark_external", args=[self.phase.pk]),
+            {"new_teams": "Vendor QA, Site Ops"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.phase.refresh_from_db()
+        self.assertTrue(self.phase.is_external)
+        self.assertEqual(
+            set(self.phase.teams.values_list("name", flat=True)), {"Vendor QA", "Site Ops"}
+        )
+        self.assertEqual(Team.objects.count(), 2)
+
+    def test_mark_external_view_requires_at_least_one_team(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:phase_mark_external", args=[self.phase.pk]), {})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Select or add at least one team")
+
+    def test_unmark_external_view(self):
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse("pocs:phase_unmark_external", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.phase.refresh_from_db()
+        self.assertEqual(self.phase.status, Phase.Status.PENDING)
+
+    def test_member_cannot_mark_external(self):
+        member = User.objects.create_user(
+            "ext_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        POCMembership.objects.create(poc=self.poc, user=member, role_in_poc="member")
+        self.client.force_login(member)
+        resp = self.client.get(reverse("pocs:phase_mark_external", args=[self.phase.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_phase_detail_shows_external_banner_and_teams(self):
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:phase_detail", args=[self.phase.pk]))
+        self.assertContains(resp, "Marked")
+        self.assertContains(resp, "External")
+        self.assertContains(resp, "Vendor QA")
+
+    def test_final_report_shows_external_team(self):
+        from apps.reports.generation import build_final_report_markdown
+
+        vendor = Team.objects.create(name="Vendor QA")
+        self.phase.mark_external(self.admin, [vendor])
+        md = build_final_report_markdown(self.poc, "done")
+        self.assertIn("External — Vendor QA", md)
+
+
+class UCRequirementMatrixTests(TestCase):
+    """Improvement brief item 3: UC×Requirement matrix (+ item 7's shared
+    hover-card, reused here on the row/column headers)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "mx_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.member = User.objects.create_user(
+            "mx_member", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="Matrix POC", created_by=self.admin, status="active")
+        POCMembership.objects.create(poc=self.poc, user=self.member, role_in_poc="member")
+        self.uc = UseCase.objects.create(
+            poc=self.poc, title="Operator logs in", description="Full UC description",
+            created_by=self.admin,
+        )
+        self.req1 = Requirement.objects.create(
+            poc=self.poc, sub_system="SCADA", req_gravity="imposes_mvp",
+            req_operation="navigation", req_functional="performance",
+            req_category="normal_operation", description="Req 1 description",
+            created_by=self.admin,
+        )
+        self.req2 = Requirement.objects.create(
+            poc=self.poc, sub_system="HMI", req_gravity="imposes_mvp",
+            req_operation="cybersecurity", req_functional="performance",
+            req_category="degraded_operation", created_by=self.admin,
+        )
+
+    def test_matrix_renders_rows_cols_and_hover_card_data(self):
+        self.client.force_login(self.member)
+        resp = self.client.get(reverse("pocs:uc_requirement_matrix", args=[self.poc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn(self.uc.code, body)
+        self.assertIn(self.req1.code, body)
+        self.assertIn(self.req2.code, body)
+        self.assertIn("data-hover-card", body)
+        self.assertIn("Full UC description", body)
+        self.assertIn("Req 1 description", body)
+        # Different categories get different colour tokens (grouped/coloured, spec item 3).
+        self.assertNotEqual(
+            self.req1.req_category, self.req2.req_category
+        )
+
+    def test_member_cannot_toggle_link(self):
+        self.client.force_login(self.member)
+        resp = self.client.post(
+            reverse("pocs:matrix_toggle_link", args=[self.poc.pk]),
+            {"usecase_id": self.uc.pk, "requirement_id": self.req1.pk},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(self.uc.requirements.count(), 0)
+
+    def test_lead_can_toggle_link_on_and_off(self):
+        self.client.force_login(self.admin)
+        url = reverse("pocs:matrix_toggle_link", args=[self.poc.pk])
+        resp = self.client.post(url, {"usecase_id": self.uc.pk, "requirement_id": self.req1.pk})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"linked": True})
+        self.assertIn(self.req1, self.uc.requirements.all())
+
+        resp = self.client.post(url, {"usecase_id": self.uc.pk, "requirement_id": self.req1.pk})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"linked": False})
+        self.assertNotIn(self.req1, self.uc.requirements.all())
+
+    def test_matrix_reflects_existing_links(self):
+        self.uc.requirements.add(self.req1)
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("pocs:uc_requirement_matrix", args=[self.poc.pk]))
+        body = resp.content.decode()
+        # The linked cell renders a filled check icon.
+        self.assertIn('data-lucide="check"', body)

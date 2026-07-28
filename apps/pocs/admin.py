@@ -18,6 +18,7 @@ from .models import (
     PhaseTemplate,
     POCMembership,
     Task,
+    Team,
     Test,
 )
 
@@ -82,6 +83,12 @@ class TestAdmin(admin.ModelAdmin):
     list_filter = ("execution_status", "result", "phase__poc")
     search_fields = ("title", "description")
     autocomplete_fields = ["assigned_to", "executed_by"]
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at")
+    search_fields = ("name",)
 
 
 @admin.register(POCMembership)

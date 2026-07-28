@@ -82,7 +82,93 @@ def _norm(value):
     return str(value if value is not None else "").strip()
 
 
+# ---------------------------------------------------------------------------
+# Markdown table read/write — the .md counterpart of the .xlsx round-trip.
+# A GitHub-flavoured pipe table with the exact same header names as the .xlsx
+# format, so the two are interchangeable for both export and import.
+# ---------------------------------------------------------------------------
+def _md_escape(value):
+    # An HTML entity (not a backslash) so a naive split("|") below never
+    # re-breaks an escaped pipe back into two cells.
+    return str(value if value is not None else "").replace("|", "&#124;").replace("\n", "<br>")
+
+
+def _md_unescape(value):
+    return value.replace("<br>", "\n").replace("&#124;", "|")
+
+
+def _split_md_row(line):
+    cells = line.strip()
+    if cells.startswith("|"):
+        cells = cells[1:]
+    if cells.endswith("|"):
+        cells = cells[:-1]
+    return [_md_unescape(c.strip()) for c in cells.split("|")]
+
+
+def _read_md_table(file):
+    """Parse a single pipe-table out of a Markdown file/text: (headers, rows).
+
+    Only the first table found is read (matches what ``build_*_export_md``
+    writes) — any other content on the page is ignored.
+    """
+    text = file.read() if hasattr(file, "read") else file
+    if isinstance(text, bytes):
+        text = text.decode("utf-8-sig")
+    lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")]
+    if len(lines) < 2:
+        return [], []
+    headers = _split_md_row(lines[0])
+    # lines[1] is the "| --- | --- |" separator — skip it.
+    return headers, [_split_md_row(ln) for ln in lines[2:]]
+
+
+def _write_md_table(headers, rows):
+    lines = [
+        "| " + " | ".join(_md_escape(h) for h in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(_md_escape(c) for c in row) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def _rows_from_xlsx(file):
+    """(headers, data_rows) from an .xlsx — shared by the requirement/use
+    case parsers below."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    headers = next(rows_iter, None)
+    if not headers:
+        return [], []
+    data_rows = [
+        row for row in rows_iter
+        if row is not None and not all(_norm(c) == "" for c in row)
+    ]
+    return list(headers), data_rows
+
+
 def parse_requirements_xlsx(file, poc=None):
+    """Return a list of preview rows: {row, data, errors, valid} from an .xlsx."""
+    headers, data_rows = _rows_from_xlsx(file)
+    if not headers:
+        return []
+    return _requirement_preview_rows(headers, data_rows, poc)
+
+
+def parse_requirements_md(file, poc=None):
+    """Same as ``parse_requirements_xlsx`` but reading a Markdown pipe table
+    (as written by ``build_requirements_export_md``)."""
+    headers, data_rows = _read_md_table(file)
+    if not headers:
+        return []
+    return _requirement_preview_rows(headers, data_rows, poc)
+
+
+def _requirement_preview_rows(headers, data_rows, poc=None):
     """Return a list of preview rows: {row, data, errors, valid}.
 
     ``poc`` supplies the POC's own previously-added custom classification
@@ -94,15 +180,6 @@ def parse_requirements_xlsx(file, poc=None):
     POC (comma-separated) to link on import — left out or blank, a requirement
     is imported with no use cases linked (the previous, only behaviour).
     """
-    import openpyxl
-
-    wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
-    headers = next(rows_iter, None)
-    if not headers:
-        return []
-
     col_field = {}
     for idx, h in enumerate(headers):
         hn = _norm(h).lower()
@@ -133,7 +210,7 @@ def parse_requirements_xlsx(file, poc=None):
     seen_criteria = set()
 
     preview = []
-    for r_i, row in enumerate(rows_iter, start=2):
+    for r_i, row in enumerate(data_rows, start=2):
         if row is None or all(_norm(c) == "" for c in row):
             continue
         data = {}
@@ -277,21 +354,29 @@ _UC_HEADER_ALIASES = {
 
 
 def parse_usecases_xlsx(file, poc):
+    """Return preview rows for a Use Case import (validated against ``poc``) from an .xlsx."""
+    headers, data_rows = _rows_from_xlsx(file)
+    if not headers:
+        return []
+    return _usecase_preview_rows(headers, data_rows, poc)
+
+
+def parse_usecases_md(file, poc):
+    """Same as ``parse_usecases_xlsx`` but reading a Markdown pipe table
+    (as written by ``build_usecases_export_md``)."""
+    headers, data_rows = _read_md_table(file)
+    if not headers:
+        return []
+    return _usecase_preview_rows(headers, data_rows, poc)
+
+
+def _usecase_preview_rows(headers, data_rows, poc):
     """Return preview rows for a Use Case import (validated against ``poc``).
 
     Title is required and must be unique within the POC (and the batch). Priority
     defaults to Medium and status to Draft when blank. A ``requirements`` column
     may list existing requirement codes (comma-separated) to link.
     """
-    import openpyxl
-
-    wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
-    headers = next(rows_iter, None)
-    if not headers:
-        return []
-
     col_field = {}
     for idx, h in enumerate(headers):
         hn = _norm(h).lower()
@@ -306,7 +391,7 @@ def parse_usecases_xlsx(file, poc):
     seen_titles = set()
 
     preview = []
-    for r_i, row in enumerate(rows_iter, start=2):
+    for r_i, row in enumerate(data_rows, start=2):
         if row is None or all(_norm(c) == "" for c in row):
             continue
         data = {}
@@ -533,41 +618,39 @@ def build_usecases_template_xlsx():
 
 
 # ---------------------------------------------------------------------------
-# Full data export (round-trip: export → edit in Excel → re-import to update)
+# Full data export (round-trip: export → edit → re-import to update)
 # ---------------------------------------------------------------------------
-def build_requirements_export_xlsx(poc):
-    """Dump every current Requirement of ``poc`` — headers match the importer,
-    plus a leading ``code`` column so a re-imported, edited row UPDATES the
-    same requirement instead of creating a duplicate (see
-    ``parse_requirements_xlsx``). ``code`` is Light's own identifier — don't
-    edit it; edit anything else, including ``external_code``.
-    """
-    import openpyxl
-    from openpyxl.styles import Font
+_REQUIREMENT_EXPORT_HEADERS = [
+    "code",
+    "external_code",
+    "sub_system",
+    "req_gravity",
+    "req_operation",
+    "req_functional",
+    "req_category",
+    "description",
+    "validation_criteria",
+    "life_cycle_phase",
+    "reference_documentations",
+    "remarks",
+    "use_cases",
+]
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Requirements"
-    headers = [
-        "code",
-        "external_code",
-        "sub_system",
-        "req_gravity",
-        "req_operation",
-        "req_functional",
-        "req_category",
-        "description",
-        "validation_criteria",
-        "life_cycle_phase",
-        "reference_documentations",
-        "remarks",
-        "use_cases",
-    ]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
+_USECASE_EXPORT_HEADERS = [
+    "code", "external_code", "title", "description", "actor",
+    "priority", "status", "remarks", "requirements",
+]
+
+
+def _requirement_export_rows(poc):
+    """Headers matching the importer, plus a leading ``code`` column so a
+    re-imported, edited row UPDATES the same requirement instead of creating
+    a duplicate (see ``parse_requirements_xlsx``/``_md``). ``code`` is
+    Light's own identifier — don't edit it; edit anything else, including
+    ``external_code``."""
+    rows = []
     for req in poc.requirements.prefetch_related("use_cases").order_by("code"):
-        ws.append([
+        rows.append([
             req.code,
             req.external_code,
             req.sub_system,
@@ -582,35 +665,13 @@ def build_requirements_export_xlsx(poc):
             req.remarks,
             ", ".join(uc.code for uc in req.use_cases.all()),
         ])
-    for col in ws.columns:
-        width = max(len(str(c.value)) if c.value is not None else 0 for c in col)
-        ws.column_dimensions[col[0].column_letter].width = max(14, min(width + 2, 60))
-
-    import io
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
+    return rows
 
 
-def build_usecases_export_xlsx(poc):
-    """Dump every current Use Case of ``poc`` — see ``build_requirements_export_xlsx``."""
-    import openpyxl
-    from openpyxl.styles import Font
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Use Cases"
-    headers = [
-        "code", "external_code", "title", "description", "actor",
-        "priority", "status", "remarks", "requirements",
-    ]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
+def _usecase_export_rows(poc):
+    rows = []
     for uc in poc.use_cases.prefetch_related("requirements").order_by("code"):
-        ws.append([
+        rows.append([
             uc.code,
             uc.external_code,
             uc.title,
@@ -621,13 +682,52 @@ def build_usecases_export_xlsx(poc):
             uc.remarks,
             ", ".join(r.code for r in uc.requirements.all()),
         ])
+    return rows
+
+
+def _build_export_xlsx(sheet_title, headers, rows):
+    import io
+
+    import openpyxl
+    from openpyxl.styles import Font
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        ws.append(row)
     for col in ws.columns:
         width = max(len(str(c.value)) if c.value is not None else 0 for c in col)
         ws.column_dimensions[col[0].column_letter].width = max(14, min(width + 2, 60))
-
-    import io
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+def build_requirements_export_xlsx(poc):
+    """Dump every current Requirement of ``poc`` as .xlsx — see ``build_requirements_export_md``
+    for the Markdown equivalent (same columns, same round-trip semantics)."""
+    return _build_export_xlsx("Requirements", _REQUIREMENT_EXPORT_HEADERS, _requirement_export_rows(poc))
+
+
+def build_usecases_export_xlsx(poc):
+    """Dump every current Use Case of ``poc`` as .xlsx — see ``build_requirements_export_xlsx``."""
+    return _build_export_xlsx("Use Cases", _USECASE_EXPORT_HEADERS, _usecase_export_rows(poc))
+
+
+def build_requirements_export_md(poc):
+    """Dump every current Requirement of ``poc`` as a Markdown pipe table —
+    same columns/semantics as ``build_requirements_export_xlsx``, readable and
+    editable as plain text and reimportable via ``parse_requirements_md``."""
+    return _write_md_table(_REQUIREMENT_EXPORT_HEADERS, _requirement_export_rows(poc))
+
+
+def build_usecases_export_md(poc):
+    """Dump every current Use Case of ``poc`` as a Markdown pipe table — see
+    ``build_requirements_export_md``."""
+    return _write_md_table(_USECASE_EXPORT_HEADERS, _usecase_export_rows(poc))

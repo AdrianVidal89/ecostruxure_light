@@ -52,6 +52,7 @@ from apps.core.mixins import (
     user_can_execute_task,
     user_can_execute_test,
     user_can_lead_poc,
+    user_can_mark_external,
     user_can_mark_na,
     user_can_validate_phase,
     user_can_validate_test,
@@ -69,6 +70,7 @@ from .forms import (
     PhaseDocumentForm,
     PhaseForm,
     PhaseImageForm,
+    PhaseMarkExternalForm,
     PhaseMarkNAForm,
     PhaseReportUploadForm,
     PhaseTemplateForm,
@@ -544,7 +546,13 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["test_target_phases"] = list(
             poc.phases.filter(kind=PhaseKind.TEST, children__isnull=True)
         )
-        ctx["use_cases"] = poc.use_cases.prefetch_related("requirements__tests")
+        use_cases_qs = list(poc.use_cases.prefetch_related("requirements__tests"))
+        ctx["use_cases"] = use_cases_qs
+        # Analogous to requirements_without_test above (spec item 6): use
+        # cases with zero linked requirements, for the matching alert/modal.
+        usecases_without_requirements = [uc for uc in use_cases_qs if not uc.requirements.all()]
+        ctx["usecases_without_requirements"] = usecases_without_requirements
+        ctx["usecases_without_requirements_count"] = len(usecases_without_requirements)
         ctx["can_manage"] = can_lead
         # Filter dropdown options for the Requirements table (client-side, spec 4a).
         ctx["requirement_filter_fields"] = {
@@ -866,6 +874,61 @@ def phase_unmark_na(request, phase_pk):
     return redirect("pocs:phase_detail", phase_pk=phase.pk)
 
 
+class PhaseMarkExternalView(_PhaseEditMixin, View):
+    """Mark a phase External, assigning one or more Team(s) (spec item 4 —
+    coexists with Not Applicable, see ``PhaseMarkNAView``)."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if not user_can_mark_external(request.user, self.phase):
+            raise PermissionDenied
+        return super(_PhaseEditMixin, self).dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        return render(
+            request,
+            "pocs/phase_external_form.html",
+            {"phase": self.phase, "poc": self.poc, "form": PhaseMarkExternalForm()},
+        )
+
+    def post(self, request, *args, **kwargs):
+        form = PhaseMarkExternalForm(request.POST)
+        if not form.is_valid():
+            return render(
+                request,
+                "pocs/phase_external_form.html",
+                {"phase": self.phase, "poc": self.poc, "form": form},
+            )
+        teams = form.save()
+        self.phase.mark_external(request.user, teams)
+        record_audit(
+            self.phase, "phase_marked_external", request.user,
+            {"teams": {"before": None, "after": ", ".join(t.name for t in teams)}},
+        )
+        messages.success(
+            request,
+            f"Phase “{self.phase.name}” marked as External ({', '.join(t.name for t in teams)}).",
+        )
+        return redirect("pocs:phase_detail", phase_pk=self.phase.pk)
+
+
+@require_POST
+def phase_unmark_external(request, phase_pk):
+    """Revert an External phase back to a normally-derived status."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    phase = get_object_or_404(Phase, pk=phase_pk)
+    if not user_can_edit_phase(request.user, phase):
+        raise PermissionDenied
+    if not phase.is_external:
+        return redirect("pocs:phase_detail", phase_pk=phase.pk)
+    phase.unmark_external()
+    record_audit(phase, "phase_external_reverted", request.user)
+    messages.success(request, f"Phase “{phase.name}” restored to Pending.")
+    return redirect("pocs:phase_detail", phase_pk=phase.pk)
+
+
 @require_POST
 def phase_reorder(request, pk):
     """Persist a drag-and-drop reorder of sibling phases (HTMX → 204).
@@ -942,6 +1005,8 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["can_delete"] = user_can_delete_phase(user, phase)
         ctx["can_mark_na"] = user_can_mark_na(user, phase)
         ctx["is_na"] = phase.is_na
+        ctx["can_mark_external"] = user_can_mark_external(user, phase)
+        ctx["is_external"] = phase.is_external
         # Phase approval / locking (spec Fase 5).
         ctx["is_approved"] = phase.is_approved
         ctx["is_locked"] = phase.is_locked
@@ -1486,6 +1551,7 @@ def _render_test_row(request, test, form=None):
             "test_execution_choices": Test.ExecutionStatus.choices,
             "test_result_choices": Test.Result.choices,
             "exec_form": form,
+            "comment_form": CommentForm(),
         },
     )
 
@@ -1620,21 +1686,6 @@ def test_link_requirement_remove(request, test_pk, requirement_pk):
     return _render_test_row(request, test)
 
 
-@require_POST
-def test_parameters_save(request, test_pk):
-    """Bulk-replace a test's parameters from a pasted ``name = value`` block
-    (HTMX) — the practical way to set the hundreds a test may carry, rather
-    than adding rows one at a time."""
-    if not request.user.is_authenticated:
-        return redirect_to_login(request.get_full_path())
-    test = get_object_or_404(Test, pk=test_pk)
-    if not user_can_execute_test(request.user, test):
-        raise PermissionDenied
-    count = test.replace_parameters_from_text(request.POST.get("parameters_text", ""))
-    messages.success(request, f"Saved {count} parameter(s).")
-    return _render_test_row(request, test)
-
-
 # ---------------------------------------------------------------------------
 # Test-outcome validation (spec Fase 3b)
 # ---------------------------------------------------------------------------
@@ -1728,13 +1779,15 @@ def validation_decide(request, validation_pk):
 # ---------------------------------------------------------------------------
 # Comments / feedback on Requirements & Use Cases
 # ---------------------------------------------------------------------------
-COMMENT_TARGET_MODELS = {"usecase": UseCase, "requirement": Requirement}
+COMMENT_TARGET_MODELS = {"usecase": UseCase, "requirement": Requirement, "test": Test}
 
 
 def _comment_target_url(obj):
-    """Where a comment on ``obj`` (a UseCase or Requirement) lives."""
+    """Where a comment on ``obj`` (a UseCase, Requirement, or Test) lives."""
     if isinstance(obj, UseCase):
         return reverse("pocs:usecase_detail", args=[obj.pk])
+    if isinstance(obj, Test):
+        return reverse("pocs:test_detail", args=[obj.pk])
     return reverse("pocs:requirement_detail", args=[obj.pk])
 
 
@@ -2257,7 +2310,7 @@ class TestDetailView(POCMemberRequiredMixin, DetailView):
     def get_queryset(self):
         return super().get_queryset().select_related(
             "phase__poc", "assigned_to"
-        ).prefetch_related("requirements", "validations", "parameters")
+        ).prefetch_related("requirements", "validations")
 
     def get_poc(self):
         if not hasattr(self, "_poc"):
@@ -2276,6 +2329,10 @@ class TestDetailView(POCMemberRequiredMixin, DetailView):
         ctx["can_lead"] = can_edit
         ctx["test_execution_choices"] = Test.ExecutionStatus.choices
         ctx["test_result_choices"] = Test.Result.choices
+        ctx["comments"] = test.comments.select_related("author", "resolved_by")
+        ctx["comment_form"] = CommentForm()
+        ctx["comment_target"] = "test"
+        ctx["can_manage"] = can_edit
         return ctx
 
 
@@ -2299,7 +2356,8 @@ def poc_graph_data(request, pk):
         Test.objects.filter(phase__poc=poc).select_related("phase")
     )
 
-    nodes = [{"id": "poc", "type": "poc", "label": poc.name, "status": poc.graph_status()}]
+    nodes = [{"id": "poc", "type": "poc", "label": poc.name, "status": poc.graph_status(),
+              "description": poc.description}]
     edges = []
 
     linked_req_ids = set()
@@ -2307,7 +2365,8 @@ def poc_graph_data(request, pk):
         nodes.append(
             {"id": f"uc-{uc.id}", "type": "usecase", "label": uc.title,
              "status": uc.graph_status(), "url": reverse("pocs:usecase_preview", args=[uc.id]),
-             "detailUrl": reverse("pocs:usecase_detail", args=[uc.id]), "detailLabel": "Go to Use Case"}
+             "detailUrl": reverse("pocs:usecase_detail", args=[uc.id]), "detailLabel": "Go to Use Case",
+             "description": uc.description}
         )
         edges.append({"source": "poc", "target": f"uc-{uc.id}"})
         for req in uc.requirements.all():
@@ -2319,7 +2378,8 @@ def poc_graph_data(request, pk):
         nodes.append(
             {"id": f"req-{req.id}", "type": "requirement", "label": req.code,
              "status": req.graph_status(), "url": reverse("pocs:requirement_preview", args=[req.id]),
-             "detailUrl": reverse("pocs:requirement_detail", args=[req.id]), "detailLabel": "Go to Requirement"}
+             "detailUrl": reverse("pocs:requirement_detail", args=[req.id]), "detailLabel": "Go to Requirement",
+             "description": req.description}
         )
         if req.id not in linked_req_ids:
             # Orphan requirement (no use case yet) — still shown, wired to the POC.
@@ -2333,7 +2393,8 @@ def poc_graph_data(request, pk):
             {"id": f"test-{t.id}", "type": "test", "label": t.test_code or t.title,
              "status": t.graph_status(), "url": reverse("pocs:test_preview", args=[t.id]),
              "detailUrl": f"{reverse('pocs:phase_detail', args=[t.phase_id])}#test-{t.id}",
-             "detailLabel": "Open in phase"}
+             "detailLabel": "Open in phase",
+             "description": t.description}
         )
         if t.id not in linked_test_ids:
             # Orphan test (no requirement linked yet) — still shown, wired to the POC.
@@ -2513,7 +2574,11 @@ class RequirementImportView(POCLeadRequiredMixin, View):
         )
 
     def post(self, request, pk):
-        from .requirements_import import import_requirements, parse_requirements_xlsx
+        from .requirements_import import (
+            import_requirements,
+            parse_requirements_md,
+            parse_requirements_xlsx,
+        )
 
         # Stage 2: confirm — import the previously-parsed valid rows.
         if request.POST.get("confirm"):
@@ -2537,11 +2602,13 @@ class RequirementImportView(POCLeadRequiredMixin, View):
             return render(
                 request, self.template_name, {"poc": self.poc, "form": form}
             )
+        uploaded = form.cleaned_data["file"]
+        parse_fn = parse_requirements_md if uploaded.name.lower().endswith(".md") else parse_requirements_xlsx
         try:
-            preview = parse_requirements_xlsx(form.cleaned_data["file"], self.poc)
+            preview = parse_fn(uploaded, self.poc)
         except Exception:  # noqa: BLE001
             logger.exception("Requirement import parse failed")
-            messages.error(request, "Could not read the file — is it a valid .xlsx?")
+            messages.error(request, "Could not read the file — is it a valid .xlsx or .md?")
             return render(
                 request, self.template_name, {"poc": self.poc, "form": RequirementImportForm()}
             )
@@ -2594,11 +2661,18 @@ def usecase_import_template(request, pk):
 
 
 def requirement_export(request, pk):
-    """Download every current Requirement of this POC as .xlsx — edit it and
-    re-upload via the importer (matched by ``code``) to update them in place."""
+    """Download every current Requirement of this POC as .xlsx or .md
+    (``?format=``, defaults to xlsx) — edit it and re-upload via the importer
+    (matched by ``code``) to update them in place."""
     poc = get_object_or_404(POC, pk=pk)
     if not user_is_poc_member(request.user, poc):
         raise PermissionDenied
+    if request.GET.get("format") == "md":
+        from .requirements_import import build_requirements_export_md
+
+        response = HttpResponse(build_requirements_export_md(poc), content_type="text/markdown")
+        response["Content-Disposition"] = 'attachment; filename="requirements_export.md"'
+        return response
     from .requirements_import import build_requirements_export_xlsx
 
     buf = build_requirements_export_xlsx(poc)
@@ -2611,11 +2685,18 @@ def requirement_export(request, pk):
 
 
 def usecase_export(request, pk):
-    """Download every current Use Case of this POC as .xlsx — edit it and
-    re-upload via the importer (matched by ``code``) to update them in place."""
+    """Download every current Use Case of this POC as .xlsx or .md
+    (``?format=``, defaults to xlsx) — edit it and re-upload via the importer
+    (matched by ``code``) to update them in place."""
     poc = get_object_or_404(POC, pk=pk)
     if not user_is_poc_member(request.user, poc):
         raise PermissionDenied
+    if request.GET.get("format") == "md":
+        from .requirements_import import build_usecases_export_md
+
+        response = HttpResponse(build_usecases_export_md(poc), content_type="text/markdown")
+        response["Content-Disposition"] = 'attachment; filename="usecases_export.md"'
+        return response
     from .requirements_import import build_usecases_export_xlsx
 
     buf = build_usecases_export_xlsx(poc)
@@ -2625,6 +2706,73 @@ def usecase_export(request, pk):
     )
     response["Content-Disposition"] = 'attachment; filename="usecases_export.xlsx"'
     return response
+
+
+# ---------------------------------------------------------------------------
+# Use Case × Requirement matrix (improvement brief item 3)
+# ---------------------------------------------------------------------------
+_MATRIX_PALETTE_SIZE = 4  # brand / info / warning / danger — see the template
+
+
+class UCRequirementMatrixView(POCMemberRequiredMixin, View):
+    """Grid of Use Cases (rows) × Requirements (columns) to quickly toggle
+    links, instead of editing one-by-one from either entity's form."""
+
+    template_name = "pocs/uc_requirement_matrix.html"
+
+    def get(self, request, pk):
+        poc = self.poc
+        use_cases = list(poc.use_cases.prefetch_related("requirements").order_by("code"))
+        requirements = list(
+            poc.requirements.order_by("req_category", "req_operation", "code")
+        )
+
+        # Colour/group columns by category (contiguous after the ordering
+        # above) — reuses the app's existing semantic tokens, cycled, never a
+        # new hardcoded palette (spec item 3).
+        palette_index = {}
+        for req in requirements:
+            if req.req_category not in palette_index:
+                palette_index[req.req_category] = len(palette_index) % _MATRIX_PALETTE_SIZE
+            req.color_token = palette_index[req.req_category]
+
+        linked_map = {uc.id: set() for uc in use_cases}
+        for uc in use_cases:
+            linked_map[uc.id] = {req.id for req in uc.requirements.all()}
+
+        sub_systems = sorted({r.sub_system for r in requirements if r.sub_system})
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "poc": poc,
+                "use_cases": use_cases,
+                "requirements": requirements,
+                "linked_map": linked_map,
+                "sub_systems": sub_systems,
+                "can_manage": user_can_lead_poc(request.user, poc) and not poc.is_closed,
+            },
+        )
+
+
+@require_POST
+def matrix_toggle_link(request, pk):
+    """Toggle the UC↔Requirement link for one cell of the matrix (JSON)."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    poc = get_object_or_404(POC, pk=pk)
+    if not user_can_lead_poc(request.user, poc) or poc.is_closed:
+        raise PermissionDenied
+    uc = get_object_or_404(UseCase, pk=request.POST.get("usecase_id"), poc=poc)
+    req = get_object_or_404(Requirement, pk=request.POST.get("requirement_id"), poc=poc)
+    if uc.requirements.filter(pk=req.pk).exists():
+        uc.requirements.remove(req)
+        linked = False
+    else:
+        uc.requirements.add(req)
+        linked = True
+    return JsonResponse({"linked": linked})
 
 
 class UseCaseImportView(POCLeadRequiredMixin, View):
@@ -2643,7 +2791,7 @@ class UseCaseImportView(POCLeadRequiredMixin, View):
         )
 
     def post(self, request, pk):
-        from .requirements_import import import_usecases, parse_usecases_xlsx
+        from .requirements_import import import_usecases, parse_usecases_md, parse_usecases_xlsx
 
         if request.POST.get("confirm"):
             rows = request.session.get(self._session_key())
@@ -2663,11 +2811,13 @@ class UseCaseImportView(POCLeadRequiredMixin, View):
         form = RequirementImportForm(request.POST, request.FILES)
         if not form.is_valid():
             return render(request, self.template_name, {"poc": self.poc, "form": form})
+        uploaded = form.cleaned_data["file"]
+        parse_fn = parse_usecases_md if uploaded.name.lower().endswith(".md") else parse_usecases_xlsx
         try:
-            preview = parse_usecases_xlsx(form.cleaned_data["file"], self.poc)
+            preview = parse_fn(uploaded, self.poc)
         except Exception:  # noqa: BLE001
             logger.exception("Use case import parse failed")
-            messages.error(request, "Could not read the file — is it a valid .xlsx?")
+            messages.error(request, "Could not read the file — is it a valid .xlsx or .md?")
             return render(
                 request, self.template_name, {"poc": self.poc, "form": RequirementImportForm()}
             )

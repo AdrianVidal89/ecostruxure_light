@@ -4,11 +4,16 @@ Usage:
   {% include "components/filedrop.html" with field=form.source_file hint="..." %}
 The field's widget must include the Tailwind class "hidden" so only the zone UI
 shows. A "browse" button remains as a fallback.
+
+For a raw (non-form-bound) input — e.g. an inline multipart form built by hand —
+pass `name` instead of `field` (optionally `multiple=True`); original filenames
+are preserved either way (the dropped File objects are used as-is).
+  {% include "components/filedrop.html" with name="evidence_files" multiple=True hint="..." %}
 {% endcomment %}
 <div data-filedrop
      class="filedrop relative border-2 border-dashed border-line rounded-xl p-6 text-center transition-soft cursor-default">
   <i data-lucide="upload-cloud" class="w-7 h-7 mx-auto text-brand"></i>
-  <p class="text-sm font-medium text-ink mt-2">Drag &amp; drop your file here</p>
+  <p class="text-sm font-medium text-ink mt-2">Drag &amp; drop your file{{ multiple|yesno:"s," }} here</p>
   {% if hint %}<p class="text-xs text-ink-muted mt-1">{{ hint }}</p>{% endif %}
   <p class="text-xs font-medium text-brand-dark mt-2" data-filedrop-name></p>
   <p class="text-xs text-ink-muted mt-2">
@@ -16,6 +21,10 @@ shows. A "browse" button remains as a fallback.
     <button type="button" data-filedrop-browse class="text-brand-dark hover:underline">browse files</button>
     <span class="text-ink-muted/70">(opens the system dialog — may be slow on managed PCs)</span>
   </p>
-  {{ field }}
+  {% if field %}
+    {{ field }}
+  {% else %}
+    <input type="file" name="{{ name }}" {% if multiple %}multiple{% endif %} class="hidden">
+  {% endif %}
 </div>
 {% for error in field.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}

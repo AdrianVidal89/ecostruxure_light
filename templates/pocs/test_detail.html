@@ -7,7 +7,7 @@
 Full-page detail for one Test (spec item 5 — "Acceso Flexible a Vistas de
 Detalle"). Reachable from the general Tests overview and from the phase page
 (partials/test_row.html header). Reuses partials/test_row.html for the body
-so execution/notes/parameters editing behaves identically to the phase page.
+so execution/notes/comments editing behaves identically to the phase page.
 {% endcomment %}
 
 {% block title %}{% if test.test_code %}{{ test.test_code }} — {% endif %}{{ test.title }} · {{ app_name }}{% endblock %}
@@ -31,7 +31,7 @@ so execution/notes/parameters editing behaves identically to the phase page.
     <h1 class="text-2xl font-semibold text-ink break-words" style="view-transition-name: test-{{ test.id }}">
       {% if test.test_code %}<span class="text-ink-muted font-mono text-lg mr-2">{{ test.test_code }}</span>{% endif %}{{ test.title }}
     </h1>
-    <p class="text-ink-muted mt-1 text-sm">Full detail for this test — execution, parameters and linked requirements.</p>
+    <p class="text-ink-muted mt-1 text-sm">Full detail for this test — execution, comments and linked requirements.</p>
   </div>
 
   {% include "pocs/partials/test_row.html" with expanded=True %}

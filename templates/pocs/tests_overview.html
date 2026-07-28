@@ -57,18 +57,29 @@
   </div>
 
   {% for group in groups %}
-    <div class="space-y-4">
-      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
-        <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
-        <span class="text-xs text-ink-muted">({{ group.tests|length }})</span>
-      </a>
+    <div class="space-y-4" x-data="{ open: true }">
+      <div class="flex items-center gap-2">
+        <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+          <i data-lucide="chevron-down" class="w-4 h-4 transition-soft" :class="!open && '-rotate-90'"></i>
+        </button>
+        <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
+          <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
+          <span class="text-xs text-ink-muted">({{ group.tests|length }})</span>
+        </a>
+      </div>
 
+      <div x-show="open" x-cloak class="space-y-4">
       {% for pgroup in group.phases %}
-        <div class="pl-2 space-y-2">
-          <a href="{% url 'pocs:phase_detail' pgroup.phase.pk %}" class="text-xs font-medium text-ink-muted uppercase tracking-wide hover:text-ink hover:underline">
-            {{ pgroup.phase.name }}
-          </a>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="pl-2 space-y-2" x-data="{ open: true }">
+          <div class="flex items-center gap-1.5">
+            <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-soft" :class="!open && '-rotate-90'"></i>
+            </button>
+            <a href="{% url 'pocs:phase_detail' pgroup.phase.pk %}" class="text-xs font-medium text-ink-muted uppercase tracking-wide hover:text-ink hover:underline">
+              {{ pgroup.phase.name }}
+            </a>
+          </div>
+          <div x-show="open" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {% for test in pgroup.tests %}
               {# view-transition-name pairs with test_detail.html's hero <h1> — the "zoom in" effect (spec item 3). #}
               <a href="{% url 'pocs:test_detail' test.pk %}" class="card card-hover p-4 flex flex-col gap-2"
@@ -105,6 +116,7 @@
           </div>
         </div>
       {% endfor %}
+      </div>
     </div>
   {% empty %}
     <div class="bg-surface border border-line rounded-xl p-12 text-center">

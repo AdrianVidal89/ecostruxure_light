@@ -20,6 +20,9 @@
       {% if test.target_date %}
         <span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="calendar" class="w-3.5 h-3.5"></i>Target {{ test.target_date }}</span>
       {% endif %}
+      {% if test.has_open_comment %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+      {% endif %}
     </div>
   </div>
 
@@ -56,24 +59,6 @@
       <p class="text-sm text-ink-muted italic">No linked requirements.</p>
     {% endif %}
   </div>
-
-  {% if test.parameters.exists %}
-    <div>
-      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Parameters</p>
-      <div class="max-h-48 overflow-y-auto rounded-lg border border-line">
-        <table class="w-full text-xs">
-          <tbody class="divide-y divide-line">
-            {% for p in test.parameters.all %}
-              <tr>
-                <td class="px-2.5 py-1.5 font-mono text-ink-muted whitespace-nowrap align-top">{{ p.name }}</td>
-                <td class="px-2.5 py-1.5 text-ink break-words">{{ p.value }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  {% endif %}
 
   <a href="{% url 'pocs:phase_detail' test.phase_id %}#test-{{ test.id }}"
      class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-dark hover:underline">

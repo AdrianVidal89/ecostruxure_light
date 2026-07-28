@@ -1,0 +1,18 @@
+{% comment %}
+"Export" button that opens a small .xlsx / .md format picker (spec item 1 —
+reused by item 3's matrix). Context: export_url (the view, format appended as
+?format=xlsx|md), label (what's being exported, for the title attr).
+{% endcomment %}
+<div class="relative" x-data="{ open: false }">
+  <button type="button" @click="open = !open" @click.outside="open = false"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+          title="Download all {{ label }} — edit and re-import to update them">
+    <i data-lucide="download" class="w-4 h-4"></i> Export
+    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+  </button>
+  <div x-show="open" x-cloak x-transition
+       class="absolute z-20 mt-1 w-44 bg-surface-elevated border border-line rounded-lg shadow-lg overflow-hidden">
+    <a href="{{ export_url }}?format=xlsx" class="block px-3 py-2 text-sm text-ink hover:bg-canvas">Excel (.xlsx)</a>
+    <a href="{{ export_url }}?format=md" class="block px-3 py-2 text-sm text-ink hover:bg-canvas">Markdown (.md)</a>
+  </div>
+</div>
