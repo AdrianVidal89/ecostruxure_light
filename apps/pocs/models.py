@@ -351,7 +351,7 @@ class POC(models.Model):
         if not total:
             return 0
         done = leaves.filter(
-            status__in=[Phase.Status.COMPLETED, Phase.Status.NOT_APPLICABLE]
+            status__in=[Phase.Status.COMPLETED, Phase.Status.NOT_APPLICABLE, Phase.Status.EXTERNAL]
         ).count()
         return round(done / total * 100)
 
@@ -541,6 +541,26 @@ class BasePhaseDocument(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Team — reusable catalog for Phase.mark_external (spec item 4)
+# ---------------------------------------------------------------------------
+class Team(models.Model):
+    """A named external team, shared across phases and POCs.
+
+    Assigned to a Phase marked External (``Phase.mark_external``) — a simple
+    reusable catalog, not scoped to any one POC.
+    """
+
+    name = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+# ---------------------------------------------------------------------------
 # Phase
 # ---------------------------------------------------------------------------
 class Phase(models.Model):
@@ -552,10 +572,16 @@ class Phase(models.Model):
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
         NOT_APPLICABLE = "not_applicable", "Not applicable"
+        # Coexists with NOT_APPLICABLE (spec: two distinct escape hatches) — the
+        # phase DOES apply, but the work is done by an external team rather than
+        # tracked here. See ``mark_external``/``unmark_external``.
+        EXTERNAL = "external", "External"
 
     # Statuses a user may pick from the click-to-set dropdown. ``NOT_APPLICABLE``
-    # is deliberately excluded — it can only be reached via ``mark_na()``, which
-    # requires a written justification (see ``phase_mark_na``).
+    # and ``EXTERNAL`` are deliberately excluded — each is only reachable via its
+    # own dedicated action (``mark_na()``/``mark_external()``), which requires a
+    # justification / a team assignment respectively (see ``phase_mark_na``/
+    # ``phase_mark_external``).
     MANUAL_STATUS_CHOICES = [
         (Status.PENDING, Status.PENDING.label),
         (Status.IN_PROGRESS, Status.IN_PROGRESS.label),
@@ -634,6 +660,18 @@ class Phase(models.Model):
         blank=True,
         related_name="marked_na_phases",
     )
+    # External (coexists with Not Applicable — see Status.EXTERNAL): the phase
+    # applies, but is executed by one or more external Team(s) rather than
+    # tracked with tasks/tests here.
+    teams = models.ManyToManyField("Team", blank=True, related_name="phases")
+    external_at = models.DateTimeField(null=True, blank=True)
+    external_by = models.ForeignKey(
+        USER,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marked_external_phases",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -702,6 +740,16 @@ class Phase(models.Model):
         return self.status == self.Status.NOT_APPLICABLE
 
     @property
+    def is_external(self):
+        """Marked External — applies, but done by an external Team (coexists
+        with Not Applicable; see Status.EXTERNAL)."""
+        return self.status == self.Status.EXTERNAL
+
+    @property
+    def can_be_marked_external(self):
+        return not self.is_external
+
+    @property
     def can_be_deleted(self):
         """Only lead-created phases (no blueprint provenance) may be deleted.
 
@@ -720,9 +768,17 @@ class Phase(models.Model):
         self.na_reason = reason
         self.na_at = timezone.now()
         self.na_by = user
+        # Clear any prior External marking — the two are mutually exclusive
+        # on a given phase even though both exist as options (coexist).
+        self.external_at = None
+        self.external_by = None
         self.save(
-            update_fields=["status", "na_reason", "na_at", "na_by", "updated_at"]
+            update_fields=[
+                "status", "na_reason", "na_at", "na_by",
+                "external_at", "external_by", "updated_at",
+            ]
         )
+        self.teams.clear()
         if self.parent_id:
             self.parent.recalculate_status(commit=True)
 
@@ -735,6 +791,37 @@ class Phase(models.Model):
         self.save(
             update_fields=["status", "na_reason", "na_at", "na_by", "updated_at"]
         )
+        self.recalculate_status(commit=True)
+
+    def mark_external(self, user, teams):
+        """Mark this phase External — it applies, but is executed by one or
+        more external Team(s) rather than tracked here (coexists with Not
+        Applicable, spec item 4)."""
+        self.status = self.Status.EXTERNAL
+        self.external_at = timezone.now()
+        self.external_by = user
+        self.na_reason = ""
+        self.na_at = None
+        self.na_by = None
+        self.save(
+            update_fields=[
+                "status", "external_at", "external_by",
+                "na_reason", "na_at", "na_by", "updated_at",
+            ]
+        )
+        self.teams.set(teams)
+        if self.parent_id:
+            self.parent.recalculate_status(commit=True)
+
+    def unmark_external(self):
+        """Revert an External phase back to a normally-derived status."""
+        self.external_at = None
+        self.external_by = None
+        self.status = self.Status.PENDING
+        self.save(
+            update_fields=["status", "external_at", "external_by", "updated_at"]
+        )
+        self.teams.clear()
         self.recalculate_status(commit=True)
 
     @property
@@ -813,10 +900,11 @@ class Phase(models.Model):
         status — recursive, bottom-up aggregation.
 
         A sub-phase counts as done once it's ``completed`` or marked ``Not
-        applicable``. So a phase becomes ``completed`` once every part of it is
-        done: its own tasks/tests (if any) *and* every sub-phase — including a
-        milestone sub-phase that was completed manually (via the click-to-set
-        status control) rather than by finishing real tasks/tests.
+        applicable``/``External``. So a phase becomes ``completed`` once every
+        part of it is done: its own tasks/tests (if any) *and* every
+        sub-phase — including a milestone sub-phase that was completed
+        manually (via the click-to-set status control) rather than by
+        finishing real tasks/tests.
         """
         parts = []
         own = self._own_work_status()
@@ -827,7 +915,7 @@ class Phase(models.Model):
         if not parts:
             return self.Status.PENDING
 
-        done_like = (self.Status.COMPLETED, self.Status.NOT_APPLICABLE)
+        done_like = (self.Status.COMPLETED, self.Status.NOT_APPLICABLE, self.Status.EXTERNAL)
         if all(p in done_like for p in parts):
             return self.Status.COMPLETED
         if all(p == self.Status.PENDING for p in parts):
@@ -837,11 +925,12 @@ class Phase(models.Model):
     def recalculate_status(self, commit=True):
         """Persist the derived status and bubble the recalculation to ancestors.
 
-        A phase marked Not Applicable is frozen — it keeps that status until a
-        lead/admin explicitly reverts it via ``unmark_na()`` — but ancestors are
-        still recalculated (see ``compute_status``, which excludes it).
+        A phase marked Not Applicable or External is frozen — it keeps that
+        status until a lead/admin explicitly reverts it via ``unmark_na()``/
+        ``unmark_external()`` — but ancestors are still recalculated (see
+        ``compute_status``, which counts either as done).
         """
-        if self.is_na:
+        if self.is_na or self.is_external:
             if self.parent_id and commit:
                 self.parent.recalculate_status(commit=True)
             return self.status
@@ -878,9 +967,10 @@ class Phase(models.Model):
         their progress, so 2 of 4 completed sub-phases reads as 50% (each
         sub-phase weighs the same regardless of how many items it holds).
         A **leaf** phase is the ratio of its settled tasks/tests. A phase marked
-        Not Applicable also reads 100% — there's nothing left to do on it.
+        Not Applicable or External also reads 100% — there's nothing left to
+        track here either way.
         """
-        if self.status in (self.Status.COMPLETED, self.Status.NOT_APPLICABLE):
+        if self.status in (self.Status.COMPLETED, self.Status.NOT_APPLICABLE, self.Status.EXTERNAL):
             return 100
         children = list(self.children.all())
         if children:
@@ -1083,6 +1173,7 @@ class Test(models.Model):
     RESULTS_REQUIRING_NOTES = (Result.NOT_PASSED, Result.PASSED_WITH_COMMENTS)
 
     phase = models.ForeignKey(Phase, on_delete=models.CASCADE, related_name="tests")
+    comments = GenericRelation("pocs.Comment")
     # Auto-generated on save, formatted {PHASE_ABBR}-{NNN} (e.g. UT-001, IT-002)
     # — see ``test_phase_abbreviation``/``_generate_test_code``. Must be unique
     # within the owning POC — that rule can't be expressed as a DB constraint
@@ -1153,6 +1244,15 @@ class Test(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def poc(self):
+        return self.phase.poc
+
+    @property
+    def has_open_comment(self):
+        """True while an un-Acked review comment is pending on this test."""
+        return self.comments.filter(status=Comment.Status.OPEN).exists()
 
     @property
     def is_settled(self):
@@ -1308,60 +1408,6 @@ class Test(models.Model):
             self.executed_by = None
             self.result = ""
         super().save(*args, **kwargs)
-
-    def replace_parameters_from_text(self, text):
-        """Bulk-replace this test's parameters from pasted lines.
-
-        Each non-blank line is ``name = value`` (``:`` or a tab also accepted
-        as the separator); a line with no separator becomes a name with a
-        blank value. Built for pasting hundreds of parameters at once instead
-        of adding them one row at a time — the whole set is replaced so the
-        pasted text is always the single source of truth.
-        """
-        rows = []
-        for line in (text or "").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            name, value = line, ""
-            for sep in ("\t", "=", ":"):
-                if sep in line:
-                    name, value = line.split(sep, 1)
-                    break
-            name = name.strip()
-            if not name:
-                continue
-            rows.append((name, value.strip()))
-        self.parameters.all().delete()
-        TestParameter.objects.bulk_create(
-            TestParameter(test=self, name=name, value=value, order=i)
-            for i, (name, value) in enumerate(rows)
-        )
-        return len(rows)
-
-    def parameters_as_text(self):
-        """Inverse of ``replace_parameters_from_text`` — for pre-filling the
-        bulk-edit textarea with the current parameters."""
-        return "\n".join(f"{p.name} = {p.value}" for p in self.parameters.all())
-
-
-class TestParameter(models.Model):
-    """A single named input/parameter of a Test (e.g. a config value the test
-    is run with). A test can carry hundreds of these — see
-    ``Test.replace_parameters_from_text`` for the bulk-paste path that makes
-    that practical instead of one row at a time."""
-
-    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name="parameters")
-    name = models.CharField(max_length=255)
-    value = models.TextField(blank=True)
-    order = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ["order", "id"]
-
-    def __str__(self):
-        return f"{self.name} = {self.value}"
-
 
 # ---------------------------------------------------------------------------
 # TestValidation — proposed test outcome awaiting a phase lead's approval (3b)

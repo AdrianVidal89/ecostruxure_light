@@ -17,6 +17,7 @@ from .models import (
     Requirement,
     RequirementFieldOption,
     Task,
+    Team,
     Test,
     UseCase,
 )
@@ -1032,7 +1033,7 @@ class CommentDecisionForm(forms.Form):
 
 
 class RequirementImportForm(forms.Form):
-    """Upload an .xlsx of Requirements to import (spec Fase 10c)."""
+    """Upload an .xlsx or .md of Requirements/Use Cases to import (spec Fase 10c)."""
 
     file = forms.FileField(
         widget=forms.ClearableFileInput(attrs={"class": "hidden"})
@@ -1040,8 +1041,8 @@ class RequirementImportForm(forms.Form):
 
     def clean_file(self):
         f = self.cleaned_data["file"]
-        if not f.name.lower().endswith(".xlsx"):
-            raise forms.ValidationError("Please upload an .xlsx file.")
+        if not f.name.lower().endswith((".xlsx", ".md")):
+            raise forms.ValidationError("Please upload an .xlsx or .md file.")
         return f
 
 
@@ -1060,6 +1061,44 @@ class PhaseMarkNAForm(forms.Form):
             }
         ),
     )
+
+
+class PhaseMarkExternalForm(forms.Form):
+    """Mark a phase External — assign one or more Team(s) from the shared
+    catalog (spec item 4, coexists with Not Applicable). ``new_teams`` lets
+    the user add team names to the catalog inline instead of requiring an
+    admin step first."""
+
+    teams = forms.ModelMultipleChoiceField(
+        queryset=Team.objects.all(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Team(s) doing this work",
+    )
+    new_teams = forms.CharField(
+        required=False,
+        label="Add new team(s)",
+        help_text="Comma-separated — added to the shared catalog and assigned to this phase.",
+        widget=forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "e.g. Vendor QA, Site Ops"}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("teams") and not cleaned.get("new_teams", "").strip():
+            raise forms.ValidationError("Select or add at least one team.")
+        return cleaned
+
+    def save(self):
+        """Return the full list of Team instances to assign (existing + newly created)."""
+        teams = list(self.cleaned_data.get("teams") or [])
+        for name in self.cleaned_data.get("new_teams", "").split(","):
+            name = name.strip()
+            if not name:
+                continue
+            team, _ = Team.objects.get_or_create(name=name)
+            if team not in teams:
+                teams.append(team)
+        return teams
 
 
 class POCCloseForm(forms.Form):

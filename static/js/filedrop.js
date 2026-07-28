@@ -12,7 +12,8 @@
  */
 (function () {
   function fileName(input) {
-    return input && input.files && input.files.length ? input.files[0].name : "";
+    if (!input || !input.files || !input.files.length) return "";
+    return Array.prototype.map.call(input.files, function (f) { return f.name; }).join(", ");
   }
 
   function wire(zone) {
@@ -54,7 +55,8 @@
       if (!files || !files.length) return;
       try {
         var dt = new DataTransfer();
-        dt.items.add(files[0]);
+        var toAdd = input.multiple ? files : [files[0]];
+        for (var i = 0; i < toAdd.length; i++) dt.items.add(toAdd[i]); // File objects keep their original name
         input.files = dt.files; // submits like a normal selection
       } catch (err) {
         /* very old browsers: nothing we can do, leave the input as-is */

@@ -136,6 +136,10 @@
     .dot-progress  { background: rgb(var(--color-warning)); box-shadow: 0 0 7px rgb(var(--color-warning) / .55); }
     .dot-completed { background: rgb(var(--color-brand)); box-shadow: 0 0 7px rgb(var(--color-brand) / .65); }
     .dot-blocked   { background: rgb(var(--color-danger)); box-shadow: 0 0 7px rgb(var(--color-danger) / .5); }
+    .dot-external  { background: rgb(var(--color-info)); box-shadow: 0 0 7px rgb(var(--color-info) / .55); }
+
+    /* UC×Requirement matrix (spec item 3) — row/column hover highlight. */
+    .matrix-hl { background: rgb(var(--color-brand) / .12) !important; }
 
     /* Progress bar — the fill carries the neon glow. */
     .progress-track { background: rgb(var(--color-line)); border-radius: 9999px; overflow: hidden; }
@@ -414,6 +418,11 @@
   {# Shared "view large without leaving the tool" popup for uploaded PDFs/SVGs (see static/js/file_preview.js). #}
   {% include "components/file_preview_modal.html" %}
   <script src="{% static 'js/file_preview.js' %}"></script>
+
+  {# Shared delayed hover-card (graph nodes + UC×Requirement matrix headers). #}
+  <script src="{% static 'js/hover_card.js' %}"></script>
+  {# Auto-wires the same hover-card onto every openEntityPreview(...) chip app-wide. #}
+  <script src="{% static 'js/entity_hover_preview.js' %}"></script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

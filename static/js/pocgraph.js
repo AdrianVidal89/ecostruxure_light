@@ -195,9 +195,14 @@
       return best;
     }
 
+    canvas.addEventListener("mouseleave", () => {
+      hovered = null;
+      if (window.HoverCard) window.HoverCard.cancel();
+    });
     canvas.addEventListener("mousedown", (e) => {
       const n = nodeAt(e.clientX, e.clientY);
       dragMoved = false;
+      if (window.HoverCard) window.HoverCard.cancel();
       if (n) {
         dragging = n;
       } else {
@@ -219,7 +224,15 @@
         offsetY = e.clientY - panStart.y;
       } else {
         const n = nodeAt(e.clientX, e.clientY);
-        hovered = n;
+        if (n !== hovered) {
+          hovered = n;
+          if (window.HoverCard) {
+            window.HoverCard.cancel();
+            if (n) window.HoverCard.scheduleShow(e.clientX, e.clientY, n.label, n.description);
+          }
+        } else if (n && window.HoverCard) {
+          window.HoverCard.reposition(e.clientX, e.clientY);
+        }
         canvas.style.cursor = n ? "pointer" : "grab";
       }
     });

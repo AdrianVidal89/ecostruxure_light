@@ -174,7 +174,7 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
     for node in nodes:
         node_tests = list(
             node.tests.select_related("assigned_to")
-            .prefetch_related("requirements", "parameters")
+            .prefetch_related("requirements")
             .all()
         )
         if not node_tests:
@@ -189,21 +189,8 @@ def build_phase_body_markdown(phase, base_level=1, include_title=True):
             lines += [f"**Target date:** {t.target_date or '—'}", ""]
             if t.description:
                 lines += ["**Description:**", "", t.description, ""]
-            # Parameters — always show the heading (even when empty) so the
-            # report never silently omits this decision-relevant section;
-            # the reader should never have to wonder if data is missing or
-            # just not rendered.
-            params = list(t.parameters.all())
-            lines += ["**Parameters:**", ""]
-            if params:
-                lines += ["| Name | Value |", "| --- | --- |"]
-                for p in params:
-                    lines.append(f"| {_cell(p.name)} | {_cell(p.value)} |")
-                lines.append("")
-            else:
-                lines += ["_No parameters defined for this test._", ""]
-            # Expected result — kept adjacent to Parameters (both are inputs
-            # the reader needs to judge the run), same "always show" rule.
+            # Expected result — always show the heading, even when empty, so
+            # the report never silently omits it.
             lines += ["**Expected result:**", ""]
             if t.expected_result:
                 lines += [t.expected_result, ""]
@@ -392,6 +379,15 @@ def _all_phases_preorder(poc):
     return nodes
 
 
+def _external_note(phase):
+    """Chapter-heading annotation for a phase marked External (spec item 4 —
+    the assigned team(s) must be visible in the final report)."""
+    if not phase.is_external:
+        return ""
+    teams = ", ".join(t.name for t in phase.teams.all()) or "unspecified team"
+    return f"  _(External — {teams})_"
+
+
 def build_final_report_markdown(poc, conclusion=""):
     """Assemble the whole-POC final report as a merge of the two dedicated
     per-kind reports, under exactly three Level-1 chapters: Functional
@@ -418,6 +414,7 @@ def build_final_report_markdown(poc, conclusion=""):
         if not (phase.is_functional_analysis and phase.is_leaf):
             continue
         note = "" if (phase.is_approved or not phase.has_own_items) else "  _(pending / not approved)_"
+        note += _external_note(phase)
         lines += [f"## {phase.name}{note}", ""]
         body = build_phase_documents_markdown(phase, base_level=3)
         if body:
@@ -428,6 +425,7 @@ def build_final_report_markdown(poc, conclusion=""):
         if not (phase.is_test and phase.is_leaf):
             continue
         note = "" if (phase.is_approved or not phase.has_own_items) else "  _(pending / not approved)_"
+        note += _external_note(phase)
         lines += [f"## {phase.name}{note}", ""]
         # base_level=2 (not 3): its own title is suppressed, so "Summary"/
         # sub-phase headings (base_level+1) land at H3, right under the "##

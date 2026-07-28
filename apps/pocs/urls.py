@@ -107,6 +107,16 @@ urlpatterns = [
         name="requirement_detail",
     ),
     path(
+        "<int:pk>/matrix/",
+        views.UCRequirementMatrixView.as_view(),
+        name="uc_requirement_matrix",
+    ),
+    path(
+        "<int:pk>/matrix/toggle/",
+        views.matrix_toggle_link,
+        name="matrix_toggle_link",
+    ),
+    path(
         "<int:pk>/use-cases/create/",
         views.UseCaseCreateView.as_view(),
         name="usecase_create",
@@ -236,6 +246,16 @@ urlpatterns = [
         name="phase_unmark_na",
     ),
     path(
+        "phases/<int:phase_pk>/mark-external/",
+        views.PhaseMarkExternalView.as_view(),
+        name="phase_mark_external",
+    ),
+    path(
+        "phases/<int:phase_pk>/unmark-external/",
+        views.phase_unmark_external,
+        name="phase_unmark_external",
+    ),
+    path(
         "phases/<int:phase_pk>/",
         views.PhaseDetailView.as_view(),
         name="phase_detail",
@@ -293,11 +313,6 @@ urlpatterns = [
         "tests/<int:test_pk>/requirements/<int:requirement_pk>/remove/",
         views.test_link_requirement_remove,
         name="test_link_requirement_remove",
-    ),
-    path(
-        "tests/<int:test_pk>/parameters/",
-        views.test_parameters_save,
-        name="test_parameters_save",
     ),
     # --- Phase documents (Documentation / Functional Analysis) ---
     path(

@@ -91,6 +91,13 @@ def navigation(request):
             "admin_only": True,
         },
         {
+            "label": "Backup",
+            "url_name": "core:db_backup",
+            "icon": "database",
+            "available": True,
+            "admin_only": True,
+        },
+        {
             "label": "Reports",
             "url_name": "reports:home",
             "icon": "file-text",

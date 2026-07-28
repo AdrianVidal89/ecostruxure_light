@@ -1,11 +1,15 @@
 {% load core_extras %}
 {% comment %}
-Comments / feedback accordion for a Requirement or Use Case.
-Context: target (the UseCase/Requirement instance), target_kind ("usecase" or
-"requirement"), comments (queryset, oldest first), comment_form.
+Comments / feedback accordion for a Requirement, Use Case, or Test.
+Context: target (the instance), target_kind ("usecase"/"requirement"/"test"),
+comment_form (optional — falls back to an unbound one). ``comments`` is
+optional too — falls back to target.comments.all (the GenericRelation) so
+this partial works even when included from a plain list row (test_row.html)
+without the view building it explicitly.
 Any POC member may add a comment; only a POC lead/admin can Ack one (from the
 central "Comments" page, pocs:comments) — this thread is read/append only.
 {% endcomment %}
+{% with comments=comments|default:target.comments.all %}
 <div class="bg-surface border border-line rounded-xl" x-data="{ open: {{ comments|length|yesno:'true,false' }} }">
   <button type="button" @click="open = !open" class="w-full flex items-center justify-between p-4">
     <span class="font-medium text-ink flex items-center gap-2">
@@ -60,3 +64,4 @@ central "Comments" page, pocs:comments) — this thread is read/append only.
     </form>
   </div>
 </div>
+{% endwith %}

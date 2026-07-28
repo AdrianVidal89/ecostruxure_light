@@ -6,10 +6,10 @@ Colours match the global legend: pending (grey) / in progress (amber glow) /
 completed (brand-green glow).
 {% endcomment %}
 <span {% if phase %}id="phase-dot-{{ phase.id }}"{% endif %}{% if oob %} hx-swap-oob="true"{% endif %} class="inline-flex items-center gap-1.5 shrink-0">
-  <span class="dot {% if status == 'completed' %}dot-completed{% elif status == 'in_progress' %}dot-progress{% elif status == 'blocked' %}dot-blocked{% else %}dot-pending{% endif %}"></span>
+  <span class="dot {% if status == 'completed' %}dot-completed{% elif status == 'in_progress' %}dot-progress{% elif status == 'external' %}dot-external{% elif status == 'blocked' %}dot-blocked{% else %}dot-pending{% endif %}"></span>
   {% if show_label %}
-    <span class="text-xs font-medium {% if status == 'completed' %}text-brand-dark{% elif status == 'in_progress' %}text-warning{% else %}text-ink-muted{% endif %}">
-      {% if status == 'completed' %}Completed{% elif status == 'in_progress' %}In progress{% else %}Pending{% endif %}
+    <span class="text-xs font-medium {% if status == 'completed' %}text-brand-dark{% elif status == 'in_progress' %}text-warning{% elif status == 'external' %}text-info{% else %}text-ink-muted{% endif %}">
+      {% if status == 'completed' %}Completed{% elif status == 'in_progress' %}In progress{% elif status == 'external' %}External{% elif status == 'not_applicable' %}Not applicable{% else %}Pending{% endif %}
     </span>
   {% endif %}
 </span>

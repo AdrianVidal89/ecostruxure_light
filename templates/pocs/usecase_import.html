@@ -16,7 +16,7 @@
   {# Upload #}
   <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
     <p class="text-sm text-ink-muted">
-      Upload an <code>.xlsx</code> with one use case per row. Expected columns
+      Upload an <code>.xlsx</code> or <code>.md</code> (Markdown table) with one use case per row. Expected columns
       (headers, case-insensitive): <code>external_code</code> (optional — this use case's
       own code in your source documentation, e.g. <code>UC001</code>), <code>title</code>
       (required, unique),
@@ -38,7 +38,7 @@
     <form method="post" enctype="multipart/form-data" class="space-y-3">
       {% csrf_token %}
       {% if form.non_field_errors %}<p class="text-xs text-danger">{{ form.non_field_errors }}</p>{% endif %}
-      {% include "components/filedrop.html" with field=form.file hint=".xlsx only" %}
+      {% include "components/filedrop.html" with field=form.file hint=".xlsx or .md" %}
       {% for error in form.file.errors %}<p class="text-xs text-danger">{{ error }}</p>{% endfor %}
       <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
         <i data-lucide="upload" class="w-4 h-4"></i> Upload &amp; preview

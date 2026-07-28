@@ -72,6 +72,15 @@ def user_can_mark_na(user, phase):
     return user_can_edit_phase(user, phase) and phase.can_be_marked_na
 
 
+def user_can_mark_external(user, phase):
+    """True if ``user`` may mark ``phase`` External (with team(s) assigned).
+
+    Coexists with Not Applicable — applicable to any phase (not restricted to
+    blueprint-sourced ones), unlike ``user_can_mark_na``.
+    """
+    return user_can_edit_phase(user, phase) and phase.can_be_marked_external
+
+
 def user_is_poc_member(user, poc):
     """True if ``user`` belongs to ``poc`` (any per-POC role) or is an admin."""
     if not getattr(user, "is_authenticated", False):
