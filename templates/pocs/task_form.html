@@ -3,10 +3,12 @@
 
 {% block title %}{{ title }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
-  <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
-  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% if phase %}
+    <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
+    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  {% endif %}
   <span class="text-ink font-medium">{{ title }}</span>
 {% endblock %}
 
@@ -18,14 +20,30 @@
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
   <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+  {% if parent_task %}
+    <p class="text-sm text-ink-muted -mt-4">
+      This is a sub-task — one of the steps needed to complete “<span class="font-medium text-ink">{{ parent_task.title }}</span>”.
+    </p>
+  {% endif %}
 
   <div class="bg-surface border border-line rounded-xl p-6">
-    <form method="post" class="space-y-4">
+    <form method="post" class="space-y-4" data-unsaved-guard>
       {% csrf_token %}
 
       {% if form.non_field_errors %}
         <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
           {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      {% if not phase %}
+        {# Only rendered when the view didn't already pin a phase from the URL (POC-level "+ Add Task", spec item 4) — see TaskCreateForPocView. #}
+        <div>
+          <label for="{{ form.phase.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            Phase <span class="text-danger">*</span>
+          </label>
+          {{ form.phase }}
+          {% for error in form.phase.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
@@ -45,7 +63,7 @@
         {% for error in form.description.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="{{ form.assigned_to.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Assigned to</label>
           {{ form.assigned_to }}
@@ -55,18 +73,60 @@
           {{ form.status }}
         </div>
         <div>
+          <label for="{{ form.start_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            Start date <span class="text-ink-muted font-normal">(Gantt bar's left edge)</span>
+          </label>
+          {{ form.start_date }}
+          {% for error in form.start_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+        </div>
+        <div>
           <label for="{{ form.due_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">Due date</label>
           {{ form.due_date }}
           {% for error in form.due_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
         </div>
       </div>
 
+      {% if form.requirements.field.queryset.exists or form.use_cases.field.queryset.exists %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-ink mb-1">Requirements <span class="text-ink-muted font-normal">(optional)</span></label>
+            {% if form.requirements.field.queryset.exists %}
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                {% for cb in form.requirements %}
+                  <div class="flex items-center gap-2 text-sm py-0.5">
+                    {{ cb.tag }}
+                    <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-sm text-ink-muted">No requirements yet.</p>
+            {% endif %}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-ink mb-1">Use cases <span class="text-ink-muted font-normal">(optional)</span></label>
+            {% if form.use_cases.field.queryset.exists %}
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+                {% for cb in form.use_cases %}
+                  <div class="flex items-center gap-2 text-sm py-0.5">
+                    {{ cb.tag }}
+                    <label for="{{ cb.id_for_label }}" class="flex-1 cursor-pointer">{{ cb.choice_label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-sm text-ink-muted">No use cases yet.</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
       <div class="flex items-center gap-3 pt-2">
         <button type="submit"
                 class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
           Save
         </button>
-        <a href="{% url 'pocs:phase_detail' phase.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+        <a href="{% if phase %}{% url 'pocs:phase_detail' phase.pk %}{% else %}{% url 'pocs:tasks' %}{% endif %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
       </div>
     </form>
   </div>
@@ -76,10 +136,17 @@
 {% block extra_body %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
   <script>
+    // Claims the textarea with the marker static/js/markdown_editor.js checks,
+    // so the app-wide mounter doesn't stack a second editor on this one.
     const descEl = document.getElementById('{{ form.description.id_for_label }}');
+    if (descEl) descEl.setAttribute('data-mde-mounted', 'true');
     if (descEl && window.EasyMDE) {
-      new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
+      const mde = new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
         toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
+      // CodeMirror never writes back to the original (now-hidden) textarea on
+      // its own — keep it live on every keystroke instead of only at submit,
+      // since a required field's native validation runs before 'submit' fires.
+      mde.codemirror.on('change', function () { mde.codemirror.save(); });
     }
   </script>
 {% endblock %}

@@ -3,7 +3,7 @@
 
 {% block title %}{{ title }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
@@ -16,7 +16,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto space-y-6">
+<div class="max-w-4xl mx-auto space-y-6">
   <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
 
   {% if form.instance.is_fa_section and form.instance.guidance %}
@@ -28,12 +28,21 @@
   {% endif %}
 
   <div class="bg-surface border border-line rounded-xl p-6">
-    <form method="post" class="space-y-4">
+    <form method="post" class="space-y-4" data-unsaved-guard>
       {% csrf_token %}
 
       {% if form.non_field_errors %}
         <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
           {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      {% if form.insert_after %}
+        <div>
+          <label for="{{ form.insert_after.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+            Place after <span class="text-ink-muted font-normal">(where in the list this section goes)</span>
+          </label>
+          {{ form.insert_after }}
         </div>
       {% endif %}
 
@@ -48,8 +57,11 @@
 
       <div>
         <label for="{{ form.content.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
-          Content <span class="text-ink-muted font-normal">(Markdown — paste image snippets anywhere)</span>
+          Content <span class="text-ink-muted font-normal">(Markdown — use the image button to upload &amp; insert one)</span>
         </label>
+        {% if form.instance.is_locked_section %}
+          <p class="text-xs text-ink-muted mb-1">Auto-filled from the POC's registry — not editable here.</p>
+        {% endif %}
         {{ form.content }}
         {% for error in form.content.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
       </div>
@@ -60,16 +72,98 @@
       </div>
     </form>
   </div>
+
+  {% if not form.instance.is_locked_section %}
+    {# ---- Images (same pool as the phase; the toolbar button also uploads + inserts) ---- #}
+    <section class="card p-4 space-y-3">
+      <h2 class="font-medium text-ink flex items-center gap-2">
+        <i data-lucide="image" class="w-4 h-4"></i> Images
+        <span class="text-ink-muted font-normal">({{ images|length }})</span>
+      </h2>
+      <p class="text-xs text-ink-muted">
+        Uploaded via the <i data-lucide="image" class="inline w-3.5 h-3.5 align-text-bottom"></i> button inside the editor (auto-inserted),
+        or click <strong>Insert</strong> below to drop one in.
+      </p>
+      {% if images %}
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {% for img in images %}
+            <div class="border border-line rounded-xl p-2 space-y-2">
+              <a href="{{ img.image.url }}" target="_blank" rel="noopener">
+                <img src="{{ img.image.url }}" alt="{{ img.caption }}" class="w-full h-24 object-cover rounded-lg border border-line">
+              </a>
+              {% if img.caption %}<p class="text-xs text-ink-muted truncate">{{ img.caption }}</p>{% endif %}
+              <button type="button" onclick="insertSnippet('{{ img.markdown_snippet|escapejs }}')"
+                      class="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-canvas hover:border-brand">
+                <i data-lucide="corner-down-left" class="w-3.5 h-3.5"></i> Insert
+              </button>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted">No images yet.</p>
+      {% endif %}
+    </section>
+  {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_body %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
   <script>
+  (function () {
     const contentEl = document.getElementById('{{ form.content.id_for_label }}');
-    if (contentEl && window.EasyMDE) {
-      new EasyMDE({ element: contentEl, spellChecker: false, status: false, minHeight: '260px',
-        toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','image','code','table','|','preview','guide'] });
+    // Claim it with the marker static/js/markdown_editor.js checks, before the
+    // early return below: this editor has a bespoke toolbar (image upload), and
+    // a locked section must stay a plain textarea — in both cases the app-wide
+    // mounter must keep its hands off.
+    if (contentEl) contentEl.setAttribute('data-mde-mounted', 'true');
+    // Locked (Use Cases/Requirements) sections keep the plain, disabled textarea —
+    // EasyMDE's own editing surface would otherwise ignore the disabled attribute.
+    if (!contentEl || contentEl.disabled || !window.EasyMDE) return;
+
+    const UPLOAD_URL = "{% url 'pocs:image_upload' phase.pk %}?ajax=1";
+    const csrf = document.querySelector('meta[name=csrf-token]').content;
+
+    function uploadAndInsert(editor) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+      input.onchange = function () {
+        const file = input.files[0];
+        if (!file) return;
+        const cm = editor.codemirror;
+        const placeholder = '![uploading…]()';
+        cm.replaceSelection(placeholder);
+        const fd = new FormData();
+        fd.append('image', file);
+        fetch(UPLOAD_URL, { method: 'POST', headers: { 'X-CSRFToken': csrf }, body: fd })
+          .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); }); })
+          .then(function (data) { cm.setValue(cm.getValue().replace(placeholder, data.snippet)); })
+          .catch(function (err) {
+            cm.setValue(cm.getValue().replace(placeholder, ''));
+            alert((err && err.error) || 'Image upload failed.');
+          });
+      };
+      input.click();
     }
+
+    const mde = new EasyMDE({
+      element: contentEl, spellChecker: false, status: false, minHeight: '640px',
+      toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'link',
+        { name: 'image-upload', className: 'fa fa-picture-o', title: 'Upload & insert image',
+          action: function (editor) { uploadAndInsert(editor); } },
+        'code', 'table', '|', 'preview', 'guide'],
+    });
+
+    // CodeMirror never writes back to the original (now-hidden) textarea on
+    // its own — keep it live on every keystroke instead of only at submit,
+    // since a required field's native validation runs before 'submit' fires.
+    mde.codemirror.on('change', function () { mde.codemirror.save(); });
+
+    window.insertSnippet = function (snippet) {
+      mde.codemirror.replaceSelection(snippet);
+      mde.codemirror.focus();
+    };
+  })();
   </script>
 {% endblock %}

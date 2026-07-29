@@ -15,6 +15,12 @@ openpyxl==3.1.5                 # read .xlsx POC exports (the .csv path is stdli
 python-docx==1.2.0              # build/read .docx
 mistune==3.3.2                  # Markdown → AST for the converter
 python-frontmatter==1.3.0       # YAML frontmatter parsing
+resvg-py==0.3.3                 # rasterize SVG -> PNG for Word embedding (Word has no native SVG support);
+                                 # ships prebuilt wheels incl. manylinux (Debian) and Windows, no system Cairo/Rust needed
+
+# --- AI tools (Mega Users) ---
+anthropic==0.120.2              # Claude Messages API client
+cryptography==49.0.0            # Fernet encryption for stored API keys
 
 # --- Database (PostgreSQL — used in production; optional for SQLite dev) ---
 psycopg[binary]==3.3.4          # PostgreSQL driver (psycopg 3)

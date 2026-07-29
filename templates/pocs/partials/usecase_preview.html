@@ -1,0 +1,75 @@
+{% load core_extras %}
+<div class="space-y-4">
+  <div>
+    <p class="text-xs font-mono text-ink-muted">
+      {{ usecase.code }}{% if usecase.external_code %} · <span title="External code (source documentation)">{{ usecase.external_code }}</span>{% endif %}
+    </p>
+    <h3 class="text-lg font-semibold text-ink break-words">{{ usecase.title }}</h3>
+    <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+      <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ usecase.get_priority_display }}</span>
+      {% if can_manage %}
+        <select name="status"
+                hx-post="{% url 'pocs:usecase_set_status' usecase.pk %}"
+                hx-target="#entity-preview-body" hx-swap="innerHTML"
+                title="Quick status change"
+                class="rounded-full border border-line px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand/40
+                  {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% elif usecase.status == 'rejected' %}bg-danger/10 text-danger{% else %}bg-info/10 text-info{% endif %}">
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if usecase.status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% elif usecase.status == 'rejected' %}bg-danger/10 text-danger{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
+      {% endif %}
+      {% if usecase.is_approved %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+      {% endif %}
+      {% if usecase.has_open_comment %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+      {% endif %}
+      {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
+    </div>
+    {% if can_manage %}
+      <button type="button"
+              hx-get="{% url 'pocs:usecase_edit' usecase.pk %}" hx-target="#entity-preview-body" hx-swap="innerHTML"
+              class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+        <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Edit
+      </button>
+    {% endif %}
+  </div>
+
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+    {% if usecase.description %}
+      <div class="prose prose-sm max-w-none text-ink">{{ usecase.description|markdownify }}</div>
+    {% else %}
+      <p class="text-sm text-ink-muted italic">No description.</p>
+    {% endif %}
+  </div>
+
+  <div>
+    <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked requirements</p>
+    {% if usecase.requirements.exists %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for r in usecase.requirements.all %}
+          <button type="button"
+                  onclick="openEntityPreview('{% url 'pocs:requirement_preview' r.pk %}', '{% url 'pocs:requirement_detail' r.pk %}', 'Go to Requirement')"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+            <i data-lucide="link" class="w-3 h-3"></i>{{ r.req_id }}{% if r.sub_system %} · {{ r.sub_system }}{% endif %}
+          </button>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-ink-muted italic">No linked requirements.</p>
+    {% endif %}
+  </div>
+
+  {% if usecase.remarks %}
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Remarks</p>
+      <div class="prose prose-sm max-w-none text-ink">{{ usecase.remarks|markdownify }}</div>
+    </div>
+  {% endif %}
+
+  {% include "pocs/partials/comment_thread.html" with target=usecase target_kind="usecase" comments=comments comment_form=comment_form %}
+</div>

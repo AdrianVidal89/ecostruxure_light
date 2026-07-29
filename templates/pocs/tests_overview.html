@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}Tests · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'core:dashboard' %}" class="hover:text-ink">Dashboard</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Tests</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-ink">{% if manager %}All tests{% else %}My tests{% endif %}</h1>
+    <p class="text-ink-muted mt-1">
+      {% if manager %}Every test in your POCs, grouped by POC and phase.{% else %}Tests assigned to you, grouped by POC and phase.{% endif %}
+    </p>
+  </div>
+
+  {# Stat tiles (spec item 7) — same counts the quick filters below narrow to. #}
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <a href="?{% if assignee_filter %}u={{ assignee_filter }}{% endif %}" class="bg-surface border border-line rounded-xl p-4 hover:border-brand/50 transition-soft">
+      <p class="text-xs text-ink-muted uppercase tracking-wide">Total</p>
+      <p class="text-2xl font-semibold text-ink mt-1">{{ stats.total }}</p>
+    </a>
+    <div class="bg-surface border border-line rounded-xl p-4">
+      <p class="text-xs text-ink-muted uppercase tracking-wide">Passed</p>
+      <p class="text-2xl font-semibold text-brand-dark mt-1">{{ stats.passed }}</p>
+    </div>
+    <a href="?f=pending{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="bg-surface border border-line rounded-xl p-4 hover:border-brand/50 transition-soft">
+      <p class="text-xs text-ink-muted uppercase tracking-wide">Pending</p>
+      <p class="text-2xl font-semibold text-ink mt-1">{{ stats.pending }}</p>
+    </a>
+    <a href="?f=awaiting{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="bg-surface border border-line rounded-xl p-4 hover:border-warning/50 transition-soft">
+      <p class="text-xs text-ink-muted uppercase tracking-wide">Awaiting validation</p>
+      <p class="text-2xl font-semibold text-warning mt-1">{{ stats.awaiting }}</p>
+    </a>
+  </div>
+
+  {# Filters #}
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="?{% if assignee_filter %}u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if not filter %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">All</a>
+    <a href="?f=pending{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'pending' %}border-brand text-brand-dark bg-brand/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Pending</a>
+    <a href="?f=awaiting{% if assignee_filter %}&u={{ assignee_filter }}{% endif %}" class="px-3 py-1.5 rounded-lg border {% if filter == 'awaiting' %}border-warning text-warning bg-warning/5{% else %}border-line text-ink-muted hover:bg-surface{% endif %} font-medium">Awaiting validation</a>
+    {% if users %}
+      <form method="get" class="ml-1">
+        {% if filter %}<input type="hidden" name="f" value="{{ filter }}">{% endif %}
+        <select name="u" onchange="this.form.submit()"
+                class="rounded-lg border border-line bg-surface text-ink px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+          <option value="">All assignees</option>
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if assignee_filter == u.id|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
+    <span class="text-xs text-ink-muted ml-auto">{{ total }} test{{ total|pluralize }}</span>
+  </div>
+
+  {% for group in groups %}
+    <div class="space-y-4" x-data="{ open: true }">
+      <div class="flex items-center gap-2">
+        <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+          <i data-lucide="chevron-down" class="w-4 h-4 transition-soft" :class="!open && '-rotate-90'"></i>
+        </button>
+        <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
+          <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
+          <span class="text-xs text-ink-muted">({{ group.tests|length }})</span>
+        </a>
+      </div>
+
+      <div x-show="open" x-cloak class="space-y-4">
+      {% for pgroup in group.phases %}
+        {% include "pocs/partials/tests_phase_group.html" %}
+      {% endfor %}
+      </div>
+    </div>
+  {% empty %}
+    <div class="bg-surface border border-line rounded-xl p-12 text-center">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-canvas flex items-center justify-center text-ink-muted">
+        <i data-lucide="flask-conical" class="w-6 h-6"></i>
+      </div>
+      <p class="mt-3 text-ink font-medium">Nothing here</p>
+      <p class="text-sm text-ink-muted mt-1">
+        {% if filter %}No tests match this filter.{% elif manager %}No tests in your POCs yet.{% else %}You have no tests assigned.{% endif %}
+      </p>
+    </div>
+  {% endfor %}
+
+  {% if stats.total %}
+    {# Footer summary (spec item 7) — overall pass rate across this scope. #}
+    <div class="bg-surface border border-line rounded-xl p-4 flex items-center gap-4">
+      <div class="flex-1">
+        <p class="text-xs text-ink-muted uppercase tracking-wide mb-1">Pass rate</p>
+        <div class="h-2 rounded-full bg-canvas overflow-hidden">
+          <div class="h-full bg-brand" style="width: {% widthratio stats.passed stats.total 100 %}%;"></div>
+        </div>
+      </div>
+      <span class="text-sm font-medium text-ink shrink-0">{{ stats.passed }} / {{ stats.total }} passed</span>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

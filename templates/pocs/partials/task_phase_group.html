@@ -1,0 +1,36 @@
+{% comment %}
+Recursive task-phase FOLDER for the Tasks view (spec item 4 — dedicated,
+foldable Tasks workspace). Context: entry ({phase, roots, children,
+can_add_task}), gantt (the shared per-POC Gantt object, for task_gantt.html
+bar positioning). Sub-phase entries nest as children so a phase's own tasks
+and its sub-phases' tasks read as one hierarchy instead of flat, unrelated
+sections. Starts expanded; the chevron/folder toggle lets a manager collapse
+a folder they aren't currently working in.
+{% endcomment %}
+<div x-data="{ open: true }">
+  <div class="flex items-center gap-1.5">
+    <button type="button" @click="open = !open" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+      <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-soft" :class="!open && '-rotate-90'"></i>
+    </button>
+    <i data-lucide="folder" class="w-3.5 h-3.5 text-ink-muted shrink-0"></i>
+    <a href="{% url 'pocs:phase_detail' entry.phase.pk %}" class="text-xs font-medium text-ink-muted uppercase tracking-wide hover:text-ink hover:underline">
+      {{ entry.phase.name }}
+    </a>
+    {% if entry.can_add_task %}
+      <a href="{% url 'pocs:task_create' entry.phase.pk %}"
+         class="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline shrink-0">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add task
+      </a>
+    {% endif %}
+  </div>
+  <div x-show="open" x-cloak class="pl-5 mt-1">
+    {% include "pocs/partials/task_gantt.html" with gantt=gantt roots=entry.roots can_add_task=entry.can_add_task %}
+    {% if entry.children %}
+      <div class="ml-6 border-l border-line pl-3 mt-2 space-y-3">
+        {% for child in entry.children %}
+          {% include "pocs/partials/task_phase_group.html" with entry=child gantt=gantt %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>

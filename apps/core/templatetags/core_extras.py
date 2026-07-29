@@ -6,11 +6,18 @@ is escaped (``safe_mode="escape"``) so user-authored Markdown cannot inject
 markup — important because Tasks/Tests/POC descriptions are user content.
 """
 
+import re
+
 import markdown2
 from django import template
+from django.utils.html import urlize as django_urlize
 from django.utils.safestring import mark_safe
 
+from apps.core.mixins import user_can_lead_poc
+
 register = template.Library()
+
+_URLIZED_LINK_RE = re.compile(r'<a href="([^"]*)"([^>]*)>(.*?)</a>')
 
 _MARKDOWN_EXTRAS = [
     "fenced-code-blocks",
@@ -21,13 +28,52 @@ _MARKDOWN_EXTRAS = [
 ]
 
 
+@register.filter(name="is_poc_lead")
+def is_poc_lead(user, poc):
+    """``{{ request.user|is_poc_lead:poc }}`` — True for an admin or a Lead
+    of ``poc`` (spec item 3: only they may Close a comment thread)."""
+    return bool(user and poc and user.is_authenticated and user_can_lead_poc(user, poc))
+
+
 @register.filter(name="get_item")
 def get_item(mapping, key):
-    """Dict lookup by a variable key in templates: ``{{ d|get_item:key }}``."""
+    """Dict lookup by a variable key in templates: ``{{ d|get_item:key }}``.
+
+    Tries ``key`` as given, then as a string, then as an int — template
+    callers don't always agree on whether a PK is an int or the string a
+    rendered form field gives back (e.g. ``BoundWidget.data.value``).
+    """
     try:
-        return mapping.get(key)
-    except AttributeError:
+        if key in mapping:
+            return mapping[key]
+        skey = str(key)
+        if skey in mapping:
+            return mapping[skey]
+        return mapping.get(int(key))
+    except (AttributeError, TypeError, ValueError):
         return None
+
+
+@register.filter(name="linkify")
+def linkify(value):
+    """Like the builtin ``urlize``, but the link reads as a link: blue,
+    underlined, with a small link icon right before it (comment text is
+    plain, not Markdown, so bare URLs otherwise render as plain text).
+    """
+    if not value:
+        return ""
+    html = django_urlize(str(value), autoescape=True)
+
+    def _style_link(match):
+        href, text = match.group(1), match.group(3)
+        return (
+            '<i data-lucide="link" class="inline-block w-3.5 h-3.5 align-text-bottom mr-0.5 text-brand-dark"></i>'
+            f'<a href="{href}" class="text-brand-dark underline hover:text-brand" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{text}</a>"
+        )
+
+    return mark_safe(_URLIZED_LINK_RE.sub(_style_link, html))
 
 
 @register.filter(name="markdownify")

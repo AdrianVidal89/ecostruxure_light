@@ -1,28 +1,46 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+{% comment %}
+``mega`` swaps the accent palette to the Mega User red (see the CSS below).
+It's a class on <html> for the same reason ``dark`` is: every colour in the app
+resolves through CSS variables, so re-theming is a variable swap and no
+component needs to know the Mega User feature exists.
+{% endcomment %}
+<html lang="en" class="h-full overflow-hidden{% if mega_theme %} mega{% endif %}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
+  {% comment %} Apply the saved/system theme before Tailwind & first paint, so there's no
+     flash of the wrong theme. Kept intentionally tiny + synchronous. {% endcomment %}
+  <script>
+    (function () {
+      var saved = localStorage.getItem('theme');
+      var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    })();
+  </script>
+
   {# --- Tailwind (served locally — corporate network blocks CDNs) --- #}
   <script src="{% static 'vendor/tailwind.js' %}"></script>
   <script>
-    // Schneider Electric palette mapped to Tailwind tokens.
+    // Every colour is a CSS variable (see :root / html.dark below) so the
+    // whole app re-themes at runtime — no component hardcodes a colour.
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            brand:   { DEFAULT: '#3DCD58', dark: '#1A7A2E' },
-            canvas:  '#F5F6F7',
-            surface: '#FFFFFF',
-            ink:     { DEFAULT: '#1A1A1A', muted: '#6B7280' },
-            line:    '#E5E7EB',
-            danger:  '#EF4444',
-            warning: '#F97316',
-            info:    '#3B82F6',
+            brand:   { DEFAULT: 'rgb(var(--color-brand) / <alpha-value>)', dark: 'rgb(var(--color-brand-dark) / <alpha-value>)' },
+            canvas:  'rgb(var(--color-canvas) / <alpha-value>)',
+            surface: 'rgb(var(--color-surface) / <alpha-value>)',
+            'surface-elevated': 'rgb(var(--color-surface-elevated) / <alpha-value>)',
+            ink:     { DEFAULT: 'rgb(var(--color-ink) / <alpha-value>)', muted: 'rgb(var(--color-ink-muted) / <alpha-value>)' },
+            line:    'rgb(var(--color-line) / <alpha-value>)',
+            danger:  'rgb(var(--color-danger) / <alpha-value>)',
+            warning: 'rgb(var(--color-warning) / <alpha-value>)',
+            info:    'rgb(var(--color-info) / <alpha-value>)',
           },
           fontFamily: {
             sans: ['Inter', 'system-ui', 'Segoe UI', 'sans-serif'],
@@ -32,25 +50,198 @@
     };
   </script>
 
-  {# Brand palette also exposed as CSS variables for raw CSS / future use. #}
+  {% comment %} Semantic colour tokens — light values, then dark-mode overrides.
+     Every value is an "R G B" triple (no hex) so both Tailwind's
+     rgb(var(--x) / <alpha-value>) utilities AND the plain-CSS rules below
+     can apply opacity. No pure black/white anywhere, per spec (section 6). {% endcomment %}
   <style>
     :root {
-      --color-primary: #3DCD58;
-      --color-primary-dark: #1A7A2E;
-      --color-bg: #F5F6F7;
-      --color-surface: #FFFFFF;
-      --color-text: #1A1A1A;
-      --color-text-muted: #6B7280;
-      --color-border: #E5E7EB;
-      --color-danger: #EF4444;
-      --color-warning: #F97316;
-      --color-info: #3B82F6;
+      color-scheme: light;
+      --color-brand: 61 205 88;         /* #3DCD58 — SE "Life Green" */
+      --color-brand-dark: 10 47 36;     /* #0A2F24 — SE "Dark Green", a readable accent tone on light surfaces */
+      --color-canvas: 245 246 247;      /* #F5F6F7 */
+      --color-surface: 255 255 255;     /* #FFFFFF */
+      --color-surface-elevated: 255 255 255; /* modals/popups already read as "elevated" via shadow on light */
+      --color-ink: 26 26 26;            /* #1A1A1A */
+      --color-ink-muted: 75 85 99;      /* #4B5563 — darker than the original #6B7280 to clear 4.5:1 on canvas */
+      --color-line: 229 231 235;        /* #E5E7EB */
+      --color-danger: 239 68 68;        /* #EF4444 */
+      --color-warning: 249 115 22;      /* #F97316 */
+      --color-info: 59 130 246;         /* #3B82F6 */
+    }
+    html.dark {
+      color-scheme: dark;
+      --color-brand: 94 255 89;         /* #5EFF59 — SE "Electric Green", softened role: an accent on dark surfaces */
+      --color-brand-dark: 231 255 217;  /* #E7FFD9 — SE "Light Green", a readable accent tone on DARK surfaces (lighter, not darker) */
+      --color-canvas: 18 18 18;         /* #121212 — dark, never pure black */
+      --color-surface: 30 30 30;        /* #1E1E1E — cards */
+      --color-surface-elevated: 38 38 38; /* #262626 — modals/popups, one tone lighter for hierarchy */
+      --color-ink: 224 224 224;         /* #E0E0E0 — light, never pure white */
+      --color-ink-muted: 156 163 175;   /* #9CA3AF */
+      --color-line: 110 110 120;        /* clears 3:1 against both canvas and surface (WCAG 1.4.11) */
+      --color-danger: 248 113 113;      /* desaturated */
+      --color-warning: 251 191 36;      /* desaturated */
+      --color-info: 96 165 250;         /* desaturated */
+    }
+    /* --- Mega User palette ------------------------------------------------
+       Only the accent moves: the whole design system already routes its glows,
+       focus rings and progress fills through --color-brand, so overriding two
+       variables re-themes every screen.
+
+       --color-danger deliberately moves to amber here. In the green theme, red
+       IS the destructive colour; leaving it red while the accent is also red
+       would make "Delete" read as just another accented button. Amber keeps
+       destructive actions distinguishable from the accent at a glance.
+    */
+    html.mega {
+      --color-brand: 220 38 38;         /* #DC2626 */
+      --color-brand-dark: 127 29 29;    /* #7F1D1D — readable accent on light surfaces */
+      --color-danger: 217 119 6;        /* #D97706 — amber, so "destructive" ≠ "accent" */
+    }
+    html.mega.dark {
+      --color-brand: 255 61 61;         /* #FF3D3D — the accent glow on dark surfaces */
+      --color-brand-dark: 255 214 214;  /* #FFD6D6 — readable accent tone on DARK surfaces */
+      --color-canvas: 20 14 15;         /* near-black with a red cast */
+      --color-surface: 32 22 24;
+      --color-surface-elevated: 42 29 31;
+      --color-line: 122 96 100;         /* keeps the 3:1 non-text contrast of the base theme */
+      --color-danger: 251 191 36;       /* amber, desaturated for dark */
     }
     [x-cloak] { display: none !important; }
     /* Subtle, non-distracting transitions only. */
     .transition-soft { transition: all .18s ease; }
+    /* Cross-document View Transitions (spec item 3 — "zoom" between the tests
+       list and a test's detail page): a no-op progressive enhancement in
+       browsers without support, so this is safe with no JS required. Elements
+       sharing a view-transition-name (see test_row.html / test_detail.html)
+       morph between the two pages instead of a generic cross-fade. */
+    @view-transition { navigation: auto; }
     /* Drag-and-drop file zone highlight. */
-    .filedrop.filedrop-active { border-color: var(--color-primary); background: rgba(61,205,88,.06); }
+    .filedrop.filedrop-active { border-color: rgb(var(--color-brand)); background: rgb(var(--color-brand) / .06); }
+
+    /* =====================================================================
+       Design system — "intensified brand green" accent (Tron-lite).
+       The institutional Schneider green stays for solid fills; the same green
+       is intensified with a subtle glow ONLY on active / hover / progress /
+       focus states, so the UI feels modern without a second colour or losing
+       its clean identity. Used with restraint — and desaturated slightly in
+       dark mode (see html.dark --color-brand above) so it doesn't glare.
+    ===================================================================== */
+
+    /* Cards — one consistent container everywhere. */
+    .card {
+      background: rgb(var(--color-surface));
+      border: 1px solid rgb(var(--color-line));
+      border-radius: .875rem;
+      transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+    }
+    .card-hover { cursor: pointer; }
+    .card-hover:hover {
+      border-color: rgb(var(--color-brand) / .55);
+      box-shadow: 0 1px 2px rgba(0,0,0,.04),
+                  0 0 0 1px rgb(var(--color-brand) / .22),
+                  0 8px 24px rgb(var(--color-brand) / .10);
+      transform: translateY(-2px);
+    }
+
+    /* Buttons — shared shape; primary glows on hover. */
+    .btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      border-radius: .625rem; font-weight: 600; font-size: .875rem;
+      padding: .5rem .9rem; transition: all .18s ease; white-space: nowrap;
+    }
+    .btn-primary { background: rgb(var(--color-brand)); color: #fff; }
+    .btn-primary:hover {
+      background: rgb(var(--color-brand-dark));
+      box-shadow: 0 0 0 1px rgb(var(--color-brand) / .40), 0 0 16px rgb(var(--color-brand) / .30);
+    }
+    .btn-secondary { background: rgb(var(--color-surface)); color: rgb(var(--color-ink)); border: 1px solid rgb(var(--color-line)); }
+    .btn-secondary:hover { border-color: rgb(var(--color-brand) / .5); box-shadow: 0 0 12px rgb(var(--color-brand) / .15); }
+    .btn-ghost { color: rgb(var(--color-ink-muted)); }
+    .btn-ghost:hover { color: rgb(var(--color-ink)); background: rgb(var(--color-canvas)); }
+
+    /* Status dots — one legend across phases/sub-phases. */
+    .dot { width: .625rem; height: .625rem; border-radius: 9999px; display: inline-block; flex: none; }
+    .dot-pending   { background: rgb(var(--color-line)); }
+    .dot-progress  { background: rgb(var(--color-warning)); box-shadow: 0 0 7px rgb(var(--color-warning) / .55); }
+    .dot-completed { background: rgb(var(--color-brand)); box-shadow: 0 0 7px rgb(var(--color-brand) / .65); }
+    .dot-blocked   { background: rgb(var(--color-danger)); box-shadow: 0 0 7px rgb(var(--color-danger) / .5); }
+    .dot-external  { background: rgb(var(--color-info)); box-shadow: 0 0 7px rgb(var(--color-info) / .55); }
+
+    /* UC×Requirement matrix (spec item 3) — row/column hover highlight. */
+    .matrix-hl { background: rgb(var(--color-brand) / .12) !important; }
+
+    /* Progress bar — the fill carries the neon glow. */
+    .progress-track { background: rgb(var(--color-line)); border-radius: 9999px; overflow: hidden; }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgb(var(--color-brand)), rgb(var(--color-brand) / .75));
+      box-shadow: 0 0 10px rgb(var(--color-brand) / .5);
+      transition: width .35s ease;
+    }
+    .progress-fill-info   { background: linear-gradient(90deg, rgb(var(--color-info)), rgb(var(--color-info) / .75));   box-shadow: 0 0 10px rgb(var(--color-info) / .5); }
+    .progress-fill-danger { background: linear-gradient(90deg, rgb(var(--color-danger)), rgb(var(--color-danger) / .75)); box-shadow: 0 0 10px rgb(var(--color-danger) / .5); }
+
+    /* Gantt task/duration bars — same solid-colour + glow language as the
+       status dots above. Unlike .progress-track (correctly invisible at 0%,
+       an overall-percent bar), a task's date-span bar must stay visible even
+       at 0% complete, so the whole span carries the colour+glow, not just
+       the completed-fraction fill. */
+    .gantt-bar-brand  { background: rgb(var(--color-brand) / .55);  box-shadow: 0 0 8px rgb(var(--color-brand) / .5); }
+    .gantt-bar-info   { background: rgb(var(--color-info) / .55);   box-shadow: 0 0 8px rgb(var(--color-info) / .5); }
+    .gantt-bar-danger { background: rgb(var(--color-danger) / .55); box-shadow: 0 0 8px rgb(var(--color-danger) / .5); }
+
+    /* A soft neon glow utility for active/selected surfaces. */
+    .neon-glow { box-shadow: 0 0 0 1px rgb(var(--color-brand) / .35), 0 0 14px rgb(var(--color-brand) / .16); }
+
+    /* =====================================================================
+       Markdown typography. Tailwind's Preflight resets headings/lists to
+       inherit, and the CDN build ships no typography plugin — so EasyMDE's
+       live preview and any markdownify output (.prose) render flat.
+       Restore a readable hierarchy for both.
+    ===================================================================== */
+    .editor-preview, .editor-preview-side, .prose { line-height: 1.6; color: rgb(var(--color-ink)); }
+    .editor-preview h1, .editor-preview-side h1, .prose h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.25; margin: .67em 0 .4em; }
+    .editor-preview h2, .editor-preview-side h2, .prose h2 { font-size: 1.4rem;  font-weight: 700; line-height: 1.3;  margin: .6em 0 .35em; }
+    .editor-preview h3, .editor-preview-side h3, .prose h3 { font-size: 1.2rem;  font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview h4, .editor-preview-side h4, .prose h4 { font-size: 1.05rem; font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview h5, .editor-preview-side h5, .prose h5,
+    .editor-preview h6, .editor-preview-side h6, .prose h6 { font-size: 1rem; font-weight: 600; margin: .5em 0 .3em; }
+    .editor-preview p, .editor-preview-side p, .prose p { margin: .5em 0; }
+    .editor-preview ul, .editor-preview-side ul, .prose ul { list-style: disc;    padding-left: 1.5em; margin: .5em 0; }
+    .editor-preview ol, .editor-preview-side ol, .prose ol { list-style: decimal; padding-left: 1.5em; margin: .5em 0; }
+    .editor-preview li, .editor-preview-side li, .prose li { margin: .2em 0; }
+    .editor-preview a, .editor-preview-side a, .prose a { color: rgb(var(--color-brand-dark)); text-decoration: underline; }
+    .editor-preview blockquote, .editor-preview-side blockquote, .prose blockquote {
+      border-left: 3px solid rgb(var(--color-line)); padding-left: 1em; color: rgb(var(--color-ink-muted)); margin: .5em 0; }
+    .editor-preview code, .editor-preview-side code, .prose code {
+      background: rgb(var(--color-canvas)); padding: .1em .35em; border-radius: .25rem; font-size: .9em; }
+    .editor-preview pre, .editor-preview-side pre, .prose pre {
+      background: rgb(var(--color-canvas)); padding: .75em; border-radius: .5rem; overflow-x: auto; margin: .5em 0; }
+    .editor-preview pre code, .prose pre code { background: none; padding: 0; }
+    .editor-preview table, .editor-preview-side table, .prose table { border-collapse: collapse; margin: .5em 0; }
+    .editor-preview th, .editor-preview td,
+    .editor-preview-side th, .editor-preview-side td,
+    .prose th, .prose td { border: 1px solid rgb(var(--color-line)); padding: .35em .6em; }
+    .editor-preview hr, .prose hr { border: 0; border-top: 1px solid rgb(var(--color-line)); margin: 1em 0; }
+    .editor-preview img, .editor-preview-side img, .prose img { max-width: 100%; height: auto; }
+
+    /* Dark-mode overrides for the EasyMDE EDITING pane (CodeMirror + toolbar).
+       vendor/easymde.min.css ships light-only colours with no theme hook —
+       the live preview pane above already adapts via the tokens; this covers
+       the editing pane, which was still forcing a white background/black
+       text/light toolbar regardless of theme. */
+    html.dark .CodeMirror { background: rgb(var(--color-surface)); color: rgb(var(--color-ink)); }
+    html.dark .CodeMirror-gutters { background: rgb(var(--color-canvas)); border-right-color: rgb(var(--color-line)); }
+    html.dark .CodeMirror-linenumber { color: rgb(var(--color-ink-muted)); }
+    html.dark .CodeMirror-cursor { border-left-color: rgb(var(--color-ink)); background: rgb(var(--color-brand) / .6); }
+    html.dark .CodeMirror-selected, html.dark .CodeMirror-focused .CodeMirror-selected { background: rgb(var(--color-brand) / .25); }
+    html.dark .CodeMirror-activeline-background { background: rgb(var(--color-surface-elevated)); }
+    html.dark .CodeMirror-scrollbar-filler { background: rgb(var(--color-surface)); }
+    html.dark .editor-toolbar { background: rgb(var(--color-surface)); border-color: rgb(var(--color-line)); color: rgb(var(--color-ink-muted)); }
+    html.dark .editor-toolbar button.active, html.dark .editor-toolbar button:hover { background: rgb(var(--color-canvas)); border-color: rgb(var(--color-line)); }
+    html.dark .editor-toolbar i.separator { border-left-color: rgb(var(--color-line)); border-right-color: rgb(var(--color-surface)); }
+    html.dark .editor-toolbar.fullscreen { background: rgb(var(--color-surface)); }
   </style>
 
   {# --- JS libraries (served locally — corporate network blocks CDNs) --- #}
@@ -66,52 +257,64 @@
     });
   </script>
 
+  {% comment %} EasyMDE (Markdown editor) vendor CSS/JS aren't loaded here —
+     most pages never show one. static/js/markdown_editor.js lazily injects
+     them (using these URLs — a plain .js file can't call {% static %} itself)
+     the first time it actually finds a .md-editor textarea to mount. {% endcomment %}
+  <script>
+    window.EASYMDE_CSS_URL = "{% static 'vendor/easymde.min.css' %}";
+    window.EASYMDE_JS_URL = "{% static 'vendor/easymde.min.js' %}";
+  </script>
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="h-full bg-canvas text-ink font-sans antialiased"
-      x-data="{ sidebarOpen: true }"
+<body class="h-full overflow-hidden bg-canvas text-ink font-sans antialiased"
+      x-data="{ sidebarOpen: {% block sidebar_default_open %}true{% endblock %} }"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
   <div class="flex h-full">
     {# ===================== SIDEBAR ===================== #}
     <aside x-cloak
            class="flex flex-col bg-surface border-r border-line transition-soft shrink-0"
-           :class="sidebarOpen ? 'w-64' : 'w-16'">
+           :class="sidebarOpen ? 'w-52' : 'w-14'">
 
       {# Brand / logo — the image leads; the wordmark is a small caption beside it. #}
-      <div class="flex items-center gap-2 h-28 px-3 border-b border-line">
+      <div class="flex items-center gap-2 h-14 px-2.5 border-b border-line">
         {% if branding and branding.logo %}
           <img src="{{ branding.logo.url }}" alt="Logo"
                class="object-contain shrink-0"
-               :class="sidebarOpen ? 'h-24 w-auto max-w-[170px]' : 'h-12 w-12'">
+               :class="sidebarOpen ? 'h-9 w-auto max-w-[120px]' : 'h-8 w-8'">
         {% else %}
           <div class="rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center shrink-0 shadow-sm"
-               :class="sidebarOpen ? 'w-16 h-16' : 'w-12 h-12'">
-            <span class="text-white font-extrabold text-3xl leading-none">E</span>
+               :class="sidebarOpen ? 'w-9 h-9' : 'w-8 h-8'">
+            <span class="text-white font-extrabold text-lg leading-none">O</span>
           </div>
         {% endif %}
         <div class="min-w-0 leading-tight" x-show="sidebarOpen">
-          <p class="text-sm font-semibold text-ink truncate">EcoStruxure <span class="text-brand-dark">Light</span></p>
+          <p class="text-sm font-semibold text-ink truncate">OSPI <span class="text-brand-dark">Light</span></p>
           <p class="text-[10px] text-ink-muted -mt-0.5">PoC management</p>
         </div>
       </div>
 
       {# Navigation #}
-      <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav class="flex-1 px-1.5 py-2.5 space-y-0.5 overflow-y-auto">
         {% for item in nav_items %}
           {% if item.available %}
             {% url item.url_name as item_url %}
             <a href="{{ item_url }}"
-               class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-soft
-                      {% if request.path == item_url %}bg-brand/10 text-brand-dark{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
-              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
-              <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
+               class="group relative flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-soft
+                      {% if request.path == item_url %}bg-brand/10 text-brand-dark neon-glow{% else %}text-ink-muted hover:bg-canvas hover:text-ink{% endif %}">
+              {% if request.path == item_url %}<span class="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-brand"></span>{% endif %}
+              <i data-lucide="{{ item.icon }}" class="w-4 h-4 shrink-0"></i>
+              <span x-show="sidebarOpen" class="truncate flex-1">{{ item.label }}</span>
+              {% if item.badge %}
+                <span x-show="sidebarOpen" class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-warning text-white text-xs font-semibold">{{ item.badge }}</span>
+              {% endif %}
             </a>
           {% else %}
-            <span class="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
+            <span class="group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-ink-muted/50 cursor-not-allowed"
                   title="Coming in a later build step">
-              <i data-lucide="{{ item.icon }}" class="w-5 h-5 shrink-0"></i>
+              <i data-lucide="{{ item.icon }}" class="w-4 h-4 shrink-0"></i>
               <span x-show="sidebarOpen" class="truncate">{{ item.label }}</span>
             </span>
           {% endif %}
@@ -119,12 +322,12 @@
       </nav>
 
       {# User info + menu (bottom) #}
-      <div class="border-t border-line p-3">
+      <div class="border-t border-line p-2">
         {% if user.is_authenticated %}
           <div class="relative" x-data="{ menuOpen: false }">
             <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
-                    class="w-full flex items-center gap-3 rounded-lg p-1 hover:bg-canvas transition-soft">
-              <div class="w-9 h-9 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
+                    class="w-full flex items-center gap-2.5 rounded-lg p-1 hover:bg-canvas transition-soft">
+              <div class="w-8 h-8 rounded-full bg-brand/15 text-brand-dark flex items-center justify-center font-semibold shrink-0">
                 {{ user.username|slice:":1"|upper }}
               </div>
               <div class="min-w-0 text-left flex-1" x-show="sidebarOpen">
@@ -136,7 +339,7 @@
 
             {# Dropdown menu (opens upward) #}
             <div x-show="menuOpen" x-cloak x-transition
-                 class="absolute bottom-full mb-2 left-0 right-0 bg-surface border border-line rounded-lg shadow-lg py-1 z-10">
+                 class="absolute bottom-full mb-2 left-0 right-0 bg-surface-elevated border border-line rounded-lg shadow-lg py-1 z-10">
               <a href="{% url 'accounts:profile' %}"
                  class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted hover:bg-canvas hover:text-ink">
                 <i data-lucide="user" class="w-4 h-4"></i> My profile
@@ -156,9 +359,9 @@
             </div>
           </div>
         {% else %}
-          <a href="{% url 'accounts:login' %}" class="flex items-center gap-3 text-ink-muted hover:text-ink">
-            <div class="w-9 h-9 rounded-full bg-canvas flex items-center justify-center shrink-0">
-              <i data-lucide="log-in" class="w-5 h-5"></i>
+          <a href="{% url 'accounts:login' %}" class="flex items-center gap-2.5 text-ink-muted hover:text-ink">
+            <div class="w-8 h-8 rounded-full bg-canvas flex items-center justify-center shrink-0">
+              <i data-lucide="log-in" class="w-4 h-4"></i>
             </div>
             <span class="text-sm" x-show="sidebarOpen">Sign in</span>
           </a>
@@ -182,22 +385,37 @@
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
+          {% comment %} Theme toggle — defaults to the system preference (see the inline
+             script in <head>), then remembers whatever the user picks. {% endcomment %}
+          <button type="button"
+                  x-data="{ dark: document.documentElement.classList.contains('dark') }"
+                  @click="dark = !dark; document.documentElement.classList.toggle('dark', dark); localStorage.setItem('theme', dark ? 'dark' : 'light');"
+                  class="p-2 rounded-lg text-ink-muted hover:bg-canvas transition-soft"
+                  :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'" title="Toggle light/dark theme">
+            <i data-lucide="moon" class="w-5 h-5" x-show="!dark"></i>
+            <i data-lucide="sun" class="w-5 h-5" x-show="dark" x-cloak></i>
+          </button>
           {% if user.is_authenticated %}
             <span class="text-sm text-ink-muted hidden sm:block">{{ user.get_full_name|default:user.username }}</span>
           {% endif %}
         </div>
       </header>
 
-      {# Messages #}
+      {# Messages — auto-dismiss after 10s, or close manually. #}
       {% if messages %}
         <div class="px-6 pt-4 space-y-2">
           {% for message in messages %}
-            <div class="px-4 py-3 rounded-lg text-sm border
+            <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 10000)"
+                 x-transition.opacity.duration.300ms
+                 class="flex items-start gap-3 px-4 py-3 rounded-lg text-sm border
                         {% if message.tags == 'error' %}bg-danger/10 border-danger/30 text-danger
                         {% elif message.tags == 'warning' %}bg-warning/10 border-warning/30 text-warning
                         {% elif message.tags == 'success' %}bg-brand/10 border-brand/30 text-brand-dark
                         {% else %}bg-info/10 border-info/30 text-info{% endif %}">
-              {{ message }}
+              <span class="flex-1">{{ message }}</span>
+              <button type="button" @click="show = false" class="shrink-0 opacity-70 hover:opacity-100">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
             </div>
           {% endfor %}
         </div>
@@ -205,6 +423,18 @@
 
       {# Page content #}
       <main class="flex-1 overflow-y-auto p-6">
+        {% if validation_count and request.resolver_match.url_name != 'validations' %}
+          <div x-data="{ show: true }" x-show="show"
+               class="max-w-6xl mx-auto mb-4 flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3">
+            <i data-lucide="shield-alert" class="w-5 h-5 text-warning shrink-0"></i>
+            <p class="text-sm text-ink flex-1">
+              You have <strong>{{ validation_count }}</strong> test outcome{{ validation_count|pluralize }} awaiting your validation.
+            </p>
+            <a href="{% url 'pocs:validations' %}"
+               class="text-sm font-medium text-warning hover:underline shrink-0">Review now</a>
+            <button @click="show = false" class="text-ink-muted hover:text-ink shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>
@@ -216,8 +446,53 @@
     renderIcons();
     document.body.addEventListener('htmx:afterSwap', renderIcons);
   </script>
+  {% comment %}
+    Quick-edits (htmx) update the current page only. Without this, using the
+    browser's Back button after such an edit can restore a stale snapshot
+    from bfcache instead of re-fetching the page, so the change appears
+    missing until a manual refresh.
+  {% endcomment %}
+  <script>
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) window.location.reload();
+    });
+  </script>
   {# Drag-and-drop file selection (avoids the blocked native file dialog). #}
   <script src="{% static 'js/filedrop.js' %}"></script>
+
+  {% comment %} EasyMDE mount helper (see the comment in <head>) — self-wiring,
+     loaded on every page (tiny, no vendor weight of its own): mounts on
+     DOMContentLoaded (spec_form.html) and after the entity-preview modal
+     swaps in an edit form via htmx (spec_form_fields.html). {% endcomment %}
+  <script src="{% static 'js/markdown_editor.js' %}"></script>
+
+  {# Shared read-only preview popup for Use Case / Requirement / Test / section links (see static/js/entity_preview.js). #}
+  {% include "pocs/partials/entity_preview_modal.html" %}
+  {% comment %}
+    ?v= bump this whenever entity_preview.js changes — WhiteNoise's storage here
+    is deliberately non-hashing (see config/settings/production.py), so without
+    a manual cache-buster a browser can keep serving a stale cached copy across
+    deploys (this is what made a just-shipped fix look like it "didn't appear").
+  {% endcomment %}
+  <script src="{% static 'js/entity_preview.js' %}?v=3"></script>
+
+  {# Shared "view large without leaving the tool" popup for uploaded PDFs/SVGs (see static/js/file_preview.js). #}
+  {% include "components/file_preview_modal.html" %}
+  <script src="{% static 'js/file_preview.js' %}"></script>
+
+  {# Cross-cutting Use Case + Requirement search on the POC detail tab. #}
+  <script src="{% static 'js/specs_search.js' %}?v=1"></script>
+
+  {# Shared delayed hover-card (graph nodes + UC×Requirement matrix headers). #}
+  <script src="{% static 'js/hover_card.js' %}"></script>
+  {# Auto-wires the same hover-card onto every openEntityPreview(...) chip app-wide. #}
+  <script src="{% static 'js/entity_hover_preview.js' %}?v=2"></script>
+  {# Warns before losing unsaved edits — auto-wires any form[data-unsaved-guard]. #}
+  <script src="{% static 'js/unsaved_changes_guard.js' %}"></script>
+  {# Drag-and-drop reordering for a phase's tests (spec item 10). #}
+  <script src="{% static 'vendor/sortable.min.js' %}"></script>
+  <script src="{% static 'js/test_reorder.js' %}"></script>
+  <script src="{% static 'js/test_order_modal.js' %}"></script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

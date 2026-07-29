@@ -16,13 +16,14 @@ TASK_TRANSITIONS = {
     "completed": {"in_progress"},  # reopen
 }
 
-# --- Test verdict: an outcome that can be (re)set to any other outcome ---
-TEST_TRANSITIONS = {
-    "pending": {"passed", "failed", "blocked", "skipped"},
-    "passed": {"pending", "failed", "blocked", "skipped"},
-    "failed": {"pending", "passed", "blocked", "skipped"},
-    "blocked": {"pending", "passed", "failed", "skipped"},
-    "skipped": {"pending", "passed", "failed", "blocked"},
+# --- Test execution status: any progress state can move to any other ---
+# (the "blocked" verdict was removed in Fase 3a; the terminal outcomes are now
+# governed by the result field + the validation flow, not by this table).
+TEST_EXECUTION_TRANSITIONS = {
+    "not_tested": {"in_progress", "test_completed", "skipped"},
+    "in_progress": {"not_tested", "test_completed", "skipped"},
+    "test_completed": {"not_tested", "in_progress", "skipped"},
+    "skipped": {"not_tested", "in_progress", "test_completed"},
 }
 
 
@@ -41,9 +42,5 @@ def task_allowed_statuses(current):
     return [current] + sorted(task_next_states(current))
 
 
-def test_next_verdicts(current):
-    return TEST_TRANSITIONS.get(current, set())
-
-
-def can_transition_test(current, new):
-    return new == current or new in TEST_TRANSITIONS.get(current, set())
+def can_transition_test_execution(current, new):
+    return new == current or new in TEST_EXECUTION_TRANSITIONS.get(current, set())

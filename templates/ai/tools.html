@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}AI tools · {{ app_name }}{% endblock %}
+{% block breadcrumb %}<span class="text-ink font-medium">AI tools</span>{% endblock %}
+
+{% block content %}
+{% comment %}
+The conversation card gets an explicit height rather than ``h-full``: <main> is
+a scrolling block container, so a percentage height here resolves against
+nothing and collapses the transcript to zero.
+{% endcomment %}
+<div class="max-w-4xl mx-auto space-y-6"
+     x-data="aiTools({{ connection.is_connected|yesno:'true,false' }})">
+
+  <div class="flex items-start justify-between gap-4 shrink-0">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink flex items-center gap-2">
+        <i data-lucide="atom" class="w-6 h-6 text-brand"></i> AI tools
+      </h1>
+      <p class="text-sm text-ink-muted mt-1">
+        Ask questions across
+        <strong class="text-ink">{{ scope.pocs }}</strong>
+        POC{{ scope.pocs|pluralize }} you have access to — cross-check use cases against
+        requirements, find untested requirements, or draft new content in the
+        style of what's already there.
+      </p>
+    </div>
+    <form method="post" action="{% url 'ai:toggle_theme' %}" class="shrink-0">
+      {% csrf_token %}
+      <button type="submit"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface"
+              title="Switch between the Mega User and standard palette">
+        <i data-lucide="palette" class="w-4 h-4"></i>
+        {% if user.mega_theme_enabled %}Standard theme{% else %}Mega theme{% endif %}
+      </button>
+    </form>
+  </div>
+
+  {# ---------- Connection ---------- #}
+  <div class="bg-surface border border-line rounded-xl p-4 shrink-0" x-data="{ open: {{ connection.is_connected|yesno:'false,true' }} }">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 min-w-0">
+        {% if connection.is_connected %}
+          <span class="w-2 h-2 rounded-full bg-brand shrink-0"></span>
+          <span class="text-sm text-ink">Connected to Anthropic</span>
+          <span class="text-xs font-mono text-ink-muted">{{ connection.key_hint }}</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ connection.get_model_id_display }}</span>
+        {% else %}
+          <span class="w-2 h-2 rounded-full bg-ink-muted shrink-0"></span>
+          <span class="text-sm text-ink">Not connected</span>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button type="button" @click="open = !open"
+                class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
+          <span x-text="open ? 'Close' : '{% if connection.is_connected %}Change{% else %}Connect{% endif %}'"></span>
+        </button>
+        {% if connection.is_connected %}
+          <form method="post" action="{% url 'ai:disconnect' %}"
+                onsubmit="return confirm('Remove the stored API key?');">
+            {% csrf_token %}
+            <button type="submit" class="px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5">
+              Disconnect
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <form method="post" action="{% url 'ai:connect' %}" x-show="open" x-cloak class="mt-4 space-y-3">
+      {% csrf_token %}
+      <div>
+        <label for="api_key" class="block text-sm font-medium text-ink mb-1">Anthropic API key</label>
+        <input type="password" name="api_key" id="api_key" autocomplete="off"
+               placeholder="{% if connection.is_connected %}Leave blank to keep the current key{% else %}sk-ant-…{% endif %}"
+               class="w-full px-3 py-2 rounded-lg border border-line bg-canvas text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+        <p class="text-xs text-ink-muted mt-1">
+          Encrypted before storage and never shown again — only the last four characters are kept.
+          The key is yours: spend and rate limits stay on your own Anthropic account.
+          Get one at <span class="font-mono">console.anthropic.com</span>.
+        </p>
+      </div>
+      <div>
+        <label for="model_id" class="block text-sm font-medium text-ink mb-1">Model</label>
+        <select name="model_id" id="model_id"
+                class="w-full px-3 py-2 rounded-lg border border-line bg-canvas text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">
+          {% for value, label in model_choices %}
+            <option value="{{ value }}" {% if connection.model_id == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit"
+              class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="plug" class="w-4 h-4"></i> Verify &amp; save
+      </button>
+    </form>
+  </div>
+
+  {# ---------- Conversation ---------- #}
+  <div class="bg-surface border border-line rounded-xl flex flex-col h-[32rem]">
+    <div class="flex items-center justify-between px-4 py-2 border-b border-line shrink-0">
+      <p class="text-xs text-ink-muted">
+        Grounded in {{ scope.pocs }} POC{{ scope.pocs|pluralize }} · {{ scope.chars }} characters of context
+      </p>
+      <button type="button" @click="resetChat()" x-show="turns.length > 0" x-cloak
+              class="text-xs font-medium text-ink-muted hover:text-ink">Clear conversation</button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-4 space-y-4" x-ref="log">
+      <template x-for="(turn, i) in turns" :key="i">
+        <div :class="turn.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+          <div class="max-w-[85%] rounded-xl px-4 py-2.5 text-sm"
+               :class="turn.role === 'user'
+                 ? 'bg-brand/10 text-ink'
+                 : (turn.error ? 'bg-danger/10 text-danger' : 'bg-canvas border border-line text-ink')">
+            <template x-if="turn.role === 'user' || turn.error">
+              <span class="whitespace-pre-wrap" x-text="turn.content"></span>
+            </template>
+            <template x-if="turn.role === 'assistant' && !turn.error">
+              <div class="prose prose-sm max-w-none" x-html="turn.html"></div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <div x-show="turns.length === 0" class="text-center py-10 text-sm text-ink-muted space-y-3">
+        <i data-lucide="atom" class="w-8 h-8 mx-auto opacity-40"></i>
+        <p>Ask anything about your POCs. For example:</p>
+        <div class="flex flex-wrap justify-center gap-2">
+          <template x-for="s in suggestions" :key="s">
+            <button type="button" @click="draft = s; send()"
+                    class="px-3 py-1.5 rounded-full border border-line text-xs hover:border-brand hover:text-brand-dark transition-soft"
+                    x-text="s"></button>
+          </template>
+        </div>
+      </div>
+
+      <div x-show="busy" class="flex justify-start">
+        <div class="bg-canvas border border-line rounded-xl px-4 py-2.5 text-sm text-ink-muted">Thinking…</div>
+      </div>
+    </div>
+
+    <form @submit.prevent="send()" class="border-t border-line p-3 flex items-end gap-2 shrink-0">
+      <textarea x-model="draft" rows="1" x-ref="input"
+                @keydown.enter.exact.prevent="send()"
+                :disabled="!connected || busy"
+                :placeholder="connected ? 'Ask about your POCs…' : 'Connect an API key to start'"
+                class="flex-1 resize-none px-3 py-2 rounded-lg border border-line bg-canvas text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand disabled:opacity-60"></textarea>
+      <button type="submit" :disabled="!connected || busy || !draft.trim()"
+              class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-soft disabled:opacity-40 disabled:cursor-not-allowed">
+        <i data-lucide="send" class="w-4 h-4"></i>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_body %}
+<script>
+  function aiTools(connected) {
+    return {
+      connected: connected,
+      busy: false,
+      draft: '',
+      turns: [],
+      suggestions: [
+        'Which requirements have no test covering them?',
+        'Find use cases whose description contradicts their requirements',
+        'Draft a requirement for BESS failover in the style of the existing ones',
+      ],
+      scrollDown() {
+        this.$nextTick(() => { this.$refs.log.scrollTop = this.$refs.log.scrollHeight; });
+      },
+      async send() {
+        const message = this.draft.trim();
+        if (!message || this.busy || !this.connected) return;
+        this.turns.push({ role: 'user', content: message });
+        this.draft = '';
+        this.busy = true;
+        this.scrollDown();
+        try {
+          const response = await fetch('{% url "ai:chat" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ message: message }),
+          });
+          const data = await response.json();
+          if (data.error) {
+            this.turns.push({ role: 'assistant', content: data.error, error: true });
+          } else {
+            this.turns.push({ role: 'assistant', content: data.reply, html: data.reply_html });
+          }
+        } catch (e) {
+          this.turns.push({ role: 'assistant', content: 'Could not reach the server.', error: true });
+        }
+        this.busy = false;
+        this.scrollDown();
+      },
+      async resetChat() {
+        await fetch('{% url "ai:reset" %}', {
+          method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        });
+        this.turns = [];
+      },
+    };
+  }
+</script>
+{% endblock %}

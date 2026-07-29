@@ -1,0 +1,48 @@
+{% load core_extras %}
+{% comment %}
+Comments / feedback accordion for a Requirement, Use Case, or Test — a list
+of THREADS (spec item 3), each with its own opening message + replies. Any
+POC member may open a new thread (form at the bottom) or reply to an open
+one; only a POC lead/admin may Close a thread.
+Context: target (the instance), target_kind ("usecase"/"requirement"/"test"),
+comment_form (optional — falls back to an unbound one). ``comments`` is
+optional too — falls back to target.comments.all (the GenericRelation) so
+this partial works even when included from a plain list row (test_row.html)
+without the view building it explicitly.
+{% endcomment %}
+{% with comments=comments|default:target.comments.all can_close=request.user|is_poc_lead:target.poc %}
+<div id="comment-thread-{{ target_kind }}-{{ target.pk }}" class="bg-surface border border-line rounded-xl" x-data="{ open: {{ comments|length|yesno:'true,false' }} }">
+  <button type="button" @click="open = !open" class="w-full flex items-center justify-between p-4">
+    <span class="font-medium text-ink flex items-center gap-2">
+      <i data-lucide="message-square-text" class="w-4 h-4"></i> Comments
+      <span class="text-ink-muted font-normal">({{ comments|length }})</span>
+      {% if target.has_open_comment %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-warning/10 text-warning">
+          <i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Open thread
+        </span>
+      {% endif %}
+    </span>
+    <i data-lucide="chevron-down" class="w-4 h-4 text-ink-muted" :class="open && 'rotate-180'"></i>
+  </button>
+
+  <div x-show="open" x-cloak class="px-4 pb-4 space-y-3 border-t border-line pt-3">
+    {% for c in comments %}
+      {% include "pocs/partials/comment_thread_item.html" with c=c can_close=can_close %}
+    {% empty %}
+      <p class="text-sm text-ink-muted">No comments yet.</p>
+    {% endfor %}
+
+    <form hx-post="{% url 'pocs:comment_create' target_kind target.pk %}"
+          hx-target="#comment-thread-{{ target_kind }}-{{ target.pk }}" hx-swap="outerHTML"
+          class="space-y-2 pt-2">
+      {% csrf_token %}
+      <textarea name="text" rows="2" placeholder="Start a new thread…" required
+                class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand">{{ comment_form.text.value|default:"" }}</textarea>
+      {% if comment_form.text.errors %}<p class="text-xs text-danger">{{ comment_form.text.errors.0 }}</p>{% endif %}
+      <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-sm transition-soft">
+        <i data-lucide="send" class="w-3.5 h-3.5"></i> New thread
+      </button>
+    </form>
+  </div>
+</div>
+{% endwith %}

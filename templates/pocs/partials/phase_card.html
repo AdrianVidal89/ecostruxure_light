@@ -1,0 +1,120 @@
+{% comment %}
+A main-phase "card" for the POC Phases tab (replaces the flat tree).
+Context: node (a root Phase), is_admin, is_lead_member, phase_status_choices.
+
+The card header links to the phase; its sub-phases render as clickable rows,
+each with a coloured status dot. Editors get the click-to-set status control.
+{% endcomment %}
+{% with children=node.children.all %}
+<div class="card {% if not children %}card-hover{% endif %} overflow-hidden">
+
+  {# ---- Header ---- #}
+  <div class="p-4 flex items-start gap-3">
+    <span class="w-11 h-11 rounded-xl bg-brand/10 text-brand-dark flex items-center justify-center shrink-0">
+      <i data-lucide="layers" class="w-5 h-5"></i>
+    </span>
+    <div class="min-w-0 flex-1">
+      <a href="{% url 'pocs:phase_detail' node.pk %}"
+         class="font-semibold text-ink hover:text-brand-dark truncate block">{{ node.name }}</a>
+      {% if node.description %}<p class="text-xs text-ink-muted line-clamp-1 mt-0.5">{{ node.description }}</p>{% endif %}
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
+        {% if is_admin or is_lead_member %}
+          {% include "pocs/partials/phase_status_control.html" with phase=node editable=True %}
+        {% else %}
+          {% include "pocs/partials/phase_status_control.html" with phase=node editable=False %}
+        {% endif %}
+        {% if node.report_template %}
+          <span class="inline-flex items-center gap-1 text-xs text-info" title="Report template available">
+            <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+          </span>
+        {% endif %}
+        {% if node.subtree_has_tasks %}
+          <span class="inline-flex items-center gap-1 text-xs text-brand-dark" title="Has tasks (including sub-phases)">
+            <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+          </span>
+        {% endif %}
+        {% if children %}
+          <span class="text-xs text-ink-muted">{{ children|length }} sub-phase{{ children|length|pluralize }}</span>
+        {% endif %}
+        {% with task_summary=node.own_task_summary %}
+          {% if task_summary.total %}
+            <span class="inline-flex items-center gap-1 text-xs text-ink-muted" title="Own tasks">
+              <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+              {{ task_summary.completed }}/{{ task_summary.total }} tasks
+              {% if task_summary.start %}· {{ task_summary.start|date:"M j" }} – {{ task_summary.end|date:"M j" }}{% endif %}
+            </span>
+          {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+    <div class="text-right shrink-0 w-14">
+      <p class="text-2xl font-semibold text-ink leading-none">{{ node.progress_percent }}<span class="text-sm text-ink-muted">%</span></p>
+      <p class="text-[10px] uppercase tracking-wide text-ink-muted mt-1">Done</p>
+    </div>
+  </div>
+
+  {# ---- Progress bar (neon fill) ---- #}
+  <div class="progress-track h-1 mx-4 mb-3">
+    <div class="progress-fill h-full rounded-full" style="width: {{ node.progress_percent }}%"></div>
+  </div>
+
+  {# ---- Sub-phases, or a "start" CTA for a leaf root ---- #}
+  {% if children %}
+    <div class="border-t border-line divide-y divide-line">
+      {% for child in children %}
+        <div>
+          <div class="flex items-center gap-3 px-4 py-3 hover:bg-canvas transition-soft group">
+            {% include "pocs/partials/status_dot.html" with phase=child status=child.status %}
+            <a href="{% url 'pocs:phase_detail' child.pk %}"
+               class="flex-1 min-w-0 flex items-center gap-2 text-sm font-medium text-ink group-hover:text-brand-dark">
+              <span class="truncate">{{ child.name }}</span>
+              {% if child.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info shrink-0" title="Report available"></i>{% endif %}
+              {% if child.subtree_has_tasks %}<i data-lucide="list-checks" class="w-3.5 h-3.5 text-brand-dark shrink-0" title="Has tasks (including sub-phases)"></i>{% endif %}
+              {% if child.children.exists %}<span class="text-xs text-ink-muted shrink-0">· {{ child.children.count }} sub</span>{% endif %}
+            </a>
+            {% if is_admin or is_lead_member %}
+              {% include "pocs/partials/phase_status_control.html" with phase=child editable=True %}
+            {% else %}
+              {% include "pocs/partials/phase_status_control.html" with phase=child editable=False %}
+            {% endif %}
+            <a href="{% url 'pocs:phase_detail' child.pk %}" class="shrink-0 text-ink-muted group-hover:text-brand-dark">
+              <i data-lucide="chevron-right" class="w-4 h-4 transition-soft group-hover:translate-x-0.5"></i>
+            </a>
+          </div>
+          {# ---- Level 3: same status control, one level down ---- #}
+          {% with grandchildren=child.children.all %}
+            {% if grandchildren %}
+              <div class="bg-canvas/50 divide-y divide-line/70 border-t border-line/70">
+                {% for grandchild in grandchildren %}
+                  <div class="flex items-center gap-3 pl-9 pr-4 py-2 hover:bg-canvas transition-soft group">
+                    {% include "pocs/partials/status_dot.html" with phase=grandchild status=grandchild.status %}
+                    <a href="{% url 'pocs:phase_detail' grandchild.pk %}"
+                       class="flex-1 min-w-0 flex items-center gap-2 text-xs font-medium text-ink group-hover:text-brand-dark">
+                      <span class="truncate">{{ grandchild.name }}</span>
+                      {% if grandchild.report_template %}<i data-lucide="file-text" class="w-3.5 h-3.5 text-info shrink-0" title="Report available"></i>{% endif %}
+                      {% if grandchild.subtree_has_tasks %}<i data-lucide="list-checks" class="w-3.5 h-3.5 text-brand-dark shrink-0" title="Has tasks (including sub-phases)"></i>{% endif %}
+                    </a>
+                    {% if is_admin or is_lead_member %}
+                      {% include "pocs/partials/phase_status_control.html" with phase=grandchild editable=True %}
+                    {% else %}
+                      {% include "pocs/partials/phase_status_control.html" with phase=grandchild editable=False %}
+                    {% endif %}
+                    <a href="{% url 'pocs:phase_detail' grandchild.pk %}" class="shrink-0 text-ink-muted group-hover:text-brand-dark">
+                      <i data-lucide="chevron-right" class="w-3.5 h-3.5 transition-soft group-hover:translate-x-0.5"></i>
+                    </a>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <a href="{% url 'pocs:phase_detail' node.pk %}"
+       class="flex items-center justify-center gap-2 border-t border-line px-4 py-3 text-sm font-medium text-brand-dark hover:bg-brand/5 transition-soft">
+      <i data-lucide="arrow-right" class="w-4 h-4"></i> Open phase
+    </a>
+  {% endif %}
+</div>
+{% endwith %}

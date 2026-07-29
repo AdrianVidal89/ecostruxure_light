@@ -1,14 +1,21 @@
 {% load core_extras %}
 {% comment %}
-Single task row (#task-<id>). Re-rendered by HTMX on inline status/notes saves.
-Context: task, can_lead, task_status_choices. `request` is available.
+Single task row — the expanded "detail" panel under a Gantt tree row (see
+task_gantt_row.html), or a standalone HTMX swap target (#task-<id>) after an
+inline status/notes save. Context: task (.can_lead/.can_execute set by the
+view — per-task, since the global Tasks page spans several POCs/phases with
+different permissions), task_status_choices. `request` is available.
 
 can_execute = leads/admins, or the assigned team member — they get the inline
 status control and notes editor; everyone else sees read-only.
 {% endcomment %}
-{% with can_execute=task.can_execute %}
+{% with can_execute=task.can_execute can_lead=task.can_lead %}
 <div id="task-{{ task.id }}" class="border border-line rounded-xl p-4 bg-surface"
      x-data="{ editNotes: false }">
+
+  {% if error %}
+    <p class="mb-3 px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">{{ error }}</p>
+  {% endif %}
 
   <div class="flex items-start gap-3">
     <div class="min-w-0 flex-1">
@@ -18,22 +25,25 @@ status control and notes editor; everyone else sees read-only.
           <i data-lucide="user" class="w-3.5 h-3.5"></i>
           {% if task.assigned_to %}{{ task.assigned_to.get_full_name|default:task.assigned_to.username }}{% else %}Unassigned{% endif %}
         </span>
-        {% if task.due_date %}
-          <span class="inline-flex items-center gap-1"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Due {{ task.due_date }}</span>
+        {% if task.start_date or task.due_date %}
+          <span class="inline-flex items-center gap-1">
+            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+            {% if task.start_date %}{{ task.start_date }} → {% endif %}{% if task.due_date %}{{ task.due_date }}{% else %}?{% endif %}
+          </span>
         {% endif %}
         {% if task.completed_at %}
           <span class="inline-flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> {{ task.completed_at|date:"Y-m-d H:i" }}{% if task.completed_by %} by {{ task.completed_by.username }}{% endif %}</span>
+        {% endif %}
+        {% if task.child_list %}
+          <span class="inline-flex items-center gap-1" title="Sub-tasks completed">
+            <i data-lucide="list-tree" class="w-3.5 h-3.5"></i> {{ task.subtask_progress_percent }}% of {{ task.child_list|length }} sub-task{{ task.child_list|length|pluralize }} done
+          </span>
         {% endif %}
       </div>
     </div>
 
     {# Status control / badge #}
     <div class="shrink-0 flex items-center gap-2">
-      {% if can_lead and bulk_enabled %}
-        {# Bulk-select checkbox (ties to the phase's bulk form). #}
-        <input type="checkbox" name="task_ids" value="{{ task.id }}" form="task-bulk"
-               class="h-4 w-4 rounded border-line text-brand focus:ring-brand/40" title="Select for bulk update">
-      {% endif %}
       {% if can_execute %}
         {% comment %}
           Always shows the current status as selected, plus only the valid next
@@ -84,6 +94,26 @@ status control and notes editor; everyone else sees read-only.
     </div>
   {% endif %}
 
+  {% if task.requirements.exists or task.use_cases.exists %}
+    <div class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-line">
+      {% for req in task.requirements.all %}
+        <button type="button"
+                onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
+                class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-full text-sm bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+          <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
+          <span class="truncate min-w-0"><strong>{{ req.req_id }}</strong>{% if req.description %} · {{ req.description|truncatechars:28 }}{% endif %}</span>
+        </button>
+      {% endfor %}
+      {% for uc in task.use_cases.all %}
+        <button type="button"
+                onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+          <i data-lucide="link" class="w-3 h-3"></i>{{ uc.code }}
+        </button>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {# Notes (Markdown) — editable by the assignee/lead #}
   <div class="mt-3 pt-3 border-t border-line">
     <div class="flex items-center justify-between">
@@ -119,5 +149,16 @@ status control and notes editor; everyone else sees read-only.
       </form>
     {% endif %}
   </div>
+
+  {% comment %} Sub-tasks — listed as their own indented rows in the Gantt tree above;
+     this is just the "add" action, kept here since it's an edit on THIS task. {% endcomment %}
+  {% if can_lead %}
+    <div class="mt-3 pt-3 border-t border-line">
+      <a href="{% url 'pocs:task_create' task.phase_id %}?parent={{ task.id }}"
+         class="text-xs font-medium text-brand-dark hover:underline inline-flex items-center gap-1">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add sub-task
+      </a>
+    </div>
+  {% endif %}
 </div>
 {% endwith %}

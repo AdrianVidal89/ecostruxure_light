@@ -92,6 +92,7 @@ class GeneratedReport(models.Model):
         PHASE = "phase", "Phase report"
         CUSTOM = "custom", "Custom report"
         UPLOADED = "uploaded", "Uploaded report"
+        FINAL = "final", "Final report"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -143,8 +144,27 @@ class GeneratedReport(models.Model):
     )
     requested_at = models.DateTimeField(auto_now_add=True)
 
+    # Digital signature for a "late" document (spec Fase 6b): set when the report
+    # is created after the owning POC's official closure.
+    after_closure = models.BooleanField(default=False)
+
+    # Extensions the in-tool preview modal (static/js/file_preview.js) can
+    # render directly — PDFs in an <iframe>, these images in an <img>.
+    PREVIEWABLE_IMAGE_EXTS = {"svg", "png", "jpg", "jpeg", "gif", "webp"}
+
     class Meta:
         ordering = ["-requested_at"]
 
     def __str__(self):
         return f"{self.title} ({self.get_kind_display()})"
+
+    @property
+    def output_ext(self):
+        name = self.output_file.name if self.output_file else ""
+        return name.rsplit(".", 1)[-1].lower() if "." in name else ""
+
+    @property
+    def is_previewable(self):
+        """Whether the in-tool preview modal can render this file inline."""
+        ext = self.output_ext
+        return ext == "pdf" or ext in self.PREVIEWABLE_IMAGE_EXTS

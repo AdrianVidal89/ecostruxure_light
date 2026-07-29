@@ -44,15 +44,26 @@ def _audit_generated(report, user, action="report_generated"):
 
 ACCEPTED_SOURCE_EXTS = {"md", "markdown", "txt", "docx"}
 
-# Test verdict → cell text used in the summary table (PASS/FAIL get coloured
-# by the builder).
-_VERDICT_TOKEN = {
+# Test outcome → cell text used in the summary table. Tokens starting with
+# PASS / NOT PASSED get coloured green / red by the builder.
+_RESULT_TOKEN = {
     "passed": "PASS",
-    "failed": "FAIL",
-    "blocked": "BLOCKED",
-    "skipped": "SKIPPED",
-    "pending": "PENDING",
+    "passed_with_comments": "PASS (with comments)",
+    "not_passed": "NOT PASSED",
 }
+_EXECUTION_TOKEN = {
+    "not_tested": "NOT TESTED",
+    "in_progress": "IN PROGRESS",
+    "test_completed": "COMPLETED",
+    "skipped": "SKIPPED",
+}
+
+
+def _test_token(test):
+    """Cell text for a test: its result if decided, else its execution status."""
+    if test.result:
+        return _RESULT_TOKEN.get(test.result, test.result.upper())
+    return _EXECUTION_TOKEN.get(test.execution_status, test.execution_status.upper())
 
 
 # ---------------------------------------------------------------------------
@@ -125,45 +136,83 @@ def _preorder(phase):
     return nodes
 
 
-def build_phase_body_markdown(phase):
+def build_phase_body_markdown(phase, base_level=1, include_title=True):
     """Build the Markdown body (no frontmatter) for a phase's test report.
 
     Aggregates the whole subtree: a summary table across every test, then a
-    section per sub-phase that has tests.
+    section per sub-phase that has tests. ``base_level`` shifts every heading
+    down by ``base_level - 1`` levels (default 1 = its own standalone report);
+    the final report embeds this under a chapter, passing a deeper level and
+    ``include_title=False`` to drop the phase's own title line.
     """
     nodes = _preorder(phase)
     summary_rows = []
     for node in nodes:
-        for t in node.tests.select_related("assigned_to").all():
-            token = _VERDICT_TOKEN.get(t.verdict, t.verdict.upper())
-            summary_rows.append((t, node, token))
+        for t in node.tests.select_related("assigned_to").prefetch_related("requirements").all():
+            summary_rows.append((t, node, _test_token(t)))
 
-    lines = [f"# {phase.name} — Test Report", ""]
+    h1 = "#" * base_level
+    h2 = "#" * (base_level + 1)
+    h3 = "#" * (base_level + 2)
 
-    # Summary table (verdict tokens drive PASS/FAIL colouring).
-    lines += ["## Summary", "", "| Test | Phase | Verdict |", "| --- | --- | --- |"]
+    lines = []
+    if include_title:
+        lines += [f"{h1} {phase.name} — Test Report", ""]
+
+    # Summary table (result tokens drive PASS/FAIL colouring). Leading "ID"
+    # column is the test's own code (e.g. UT-001) so rows are traceable back
+    # to the test even once sorted/exported out of the report.
+    lines += [f"{h2} Summary", "", "| ID | Test | Phase | Result |", "| --- | --- | --- | --- |"]
     if summary_rows:
         for t, node, token in summary_rows:
-            lines.append(f"| {_cell(t.title)} | {_cell(node.name)} | {token} |")
+            lines.append(f"| {_cell(t.test_code)} | {_cell(t.title)} | {_cell(node.name)} | {token} |")
     else:
-        lines.append("| _No tests_ |  |  |")
+        lines.append("| _No tests_ |  |  |  |")
     lines.append("")
 
     # Detail, grouped per sub-phase that has tests.
     for node in nodes:
-        node_tests = list(node.tests.select_related("assigned_to").all())
+        node_tests = list(
+            node.tests.select_related("assigned_to")
+            .prefetch_related("requirements")
+            .all()
+        )
         if not node_tests:
             continue
-        lines += [f"## {node.name}", ""]
+        lines += [f"{h2} {node.name}", ""]
         for t in node_tests:
-            token = _VERDICT_TOKEN.get(t.verdict, t.verdict.upper())
-            lines += [f"### {t.title}", "", f"**Verdict:** {token}", ""]
+            token = _test_token(t)
+            # ID + Title in every chapter heading (never title alone), so a
+            # reader can always trace a chapter back to its test.
+            heading = f"{t.test_code} — {t.title}" if t.test_code else t.title
+            lines += [f"{h3} {heading}", "", f"**Result:** {token}", ""]
+            lines += [f"**Target date:** {t.target_date or '—'}", ""]
+            if t.description:
+                lines += ["**Description:**", "", t.description, ""]
+            # Expected result — always show the heading, even when empty, so
+            # the report never silently omits it.
+            lines += ["**Expected result:**", ""]
+            if t.expected_result:
+                lines += [t.expected_result, ""]
+            else:
+                lines += ["_Not defined._", ""]
+            reqs = list(t.requirements.all())
+            if reqs:
+                lines += ["**Functional requirements:**", ""]
+                for r in reqs:
+                    label = f"{r.code}" + (f" — {r.description}" if r.description else "")
+                    lines.append(f"- {_cell(label)}")
+                lines.append("")
             if t.acceptance_criteria:
                 lines += ["**Acceptance criteria:**", "", t.acceptance_criteria, ""]
-            if t.expected_result:
-                lines += ["**Expected result:**", "", t.expected_result, ""]
             if t.actual_result:
                 lines += ["**Actual result:**", "", t.actual_result, ""]
+            for ev in t.evidence_files.all():
+                fname = ev.file.name.rsplit("/", 1)[-1]
+                if ev.is_image:
+                    lines += [f"![evidence]({ev.file.url})", ""]
+                else:
+                    lines += [f'_For evidence see attachment "{fname}"_', ""]
             if t.evidence_url:
                 lines += [f"**Evidence:** [{t.evidence_url}]({t.evidence_url})", ""]
             if t.executed_by:
@@ -175,6 +224,12 @@ def build_phase_body_markdown(phase):
 def _cell(text):
     """Escape pipe characters so table cells don't break."""
     return (text or "").replace("|", "\\|")
+
+
+def mark_after_closure(report, poc):
+    """Flag a report as a post-closure "late" document (spec Fase 6b)."""
+    if poc is not None and getattr(poc, "is_closed", False):
+        report.after_closure = True
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +253,10 @@ def generate_phase_report(phase, user):
         }
         _, blocks = parse(build_phase_body_markdown(phase))
         docx_bytes = build_docx(
-            blocks, metadata, template_path=resolve_phase_template_path(phase)
+            blocks,
+            metadata,
+            template_path=resolve_phase_template_path(phase),
+            image_resolver=make_test_evidence_resolver(phase),
         )
         fname = f"{slugify(poc.name)}-{slugify(phase.name)}-report.docx"
         report.output_file.save(fname, ContentFile(docx_bytes), save=False)
@@ -206,9 +264,30 @@ def generate_phase_report(phase, user):
     except Exception as exc:  # noqa: BLE001 — surface the failure to the user
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
+    mark_after_closure(report, report.poc)
     report.save()
     _audit_generated(report, user)
     return report
+
+
+def make_test_evidence_resolver(phase):
+    """Return a ``url -> path`` resolver for evidence images across a phase's
+    subtree of tests, mirroring ``make_phase_image_resolver``."""
+    from apps.pocs.models import EvidenceFile
+
+    by_url = {}
+    for ev in EvidenceFile.objects.filter(test__phase__in=[n.pk for n in _preorder(phase)], test__isnull=False):
+        if not ev.is_image:
+            continue
+        try:
+            by_url[ev.file.url] = ev.file.path
+        except ValueError:
+            continue
+
+    def resolver(url):
+        return by_url.get(url) or by_url.get((url or "").split("?", 1)[0])
+
+    return resolver
 
 
 def resolve_phase_template_path(phase):
@@ -251,20 +330,148 @@ def make_phase_image_resolver(phase):
     return resolver
 
 
-def build_phase_documents_markdown(phase):
+def build_phase_documents_markdown(phase, base_level=1):
     """Concatenate a phase's documents (by order) into one Markdown body.
 
-    Each document becomes a ``# Title`` section followed by its content. Used by
-    both Documentation and Functional Analysis phases.
+    Each document becomes a ``# Title`` section (shifted to ``base_level``, so
+    the final report can nest it under a chapter/phase heading) followed by
+    its content. Used by both Documentation and Functional Analysis phases.
     """
+    h1 = "#" * base_level
     lines = []
     for doc in phase.documents.all():
-        lines.append(f"# {doc.title}")
+        lines.append(f"{h1} {doc.title}")
         lines.append("")
         if doc.content:
             lines.append(doc.content)
             lines.append("")
     return "\n".join(lines)
+
+
+def _make_poc_image_resolver(poc):
+    """A ``url -> path`` resolver spanning every image of the POC's phases
+    plus any images uploaded directly to the POC (closure conclusion)."""
+    from apps.pocs.models import PhaseImage, POCImage
+
+    by_url = {}
+    for img in PhaseImage.objects.filter(phase__poc=poc):
+        try:
+            by_url[img.image.url] = img.image.path
+        except ValueError:
+            continue
+    for img in POCImage.objects.filter(poc=poc):
+        try:
+            by_url[img.image.url] = img.image.path
+        except ValueError:
+            continue
+
+    def resolver(url):
+        return by_url.get(url) or by_url.get((url or "").split("?", 1)[0])
+
+    return resolver
+
+
+def _all_phases_preorder(poc):
+    """Every phase of a POC, depth-first, walking each root in order."""
+    nodes = []
+    for root in poc.phases.filter(parent__isnull=True).order_by("order", "id"):
+        nodes.extend(_preorder(root))
+    return nodes
+
+
+def _external_note(phase):
+    """Chapter-heading annotation for a phase marked External (spec item 4 —
+    the assigned team(s) must be visible in the final report)."""
+    if not phase.is_external:
+        return ""
+    teams = ", ".join(t.name for t in phase.teams.all()) or "unspecified team"
+    return f"  _(External — {teams})_"
+
+
+def build_final_report_markdown(poc, conclusion=""):
+    """Assemble the whole-POC final report as a merge of the two dedicated
+    per-kind reports, under exactly three Level-1 chapters: Functional
+    Analysis, Testing and Validation, Conclusions. Documentation-kind phases
+    are not part of the final report (still available via their own report).
+
+    Each Functional Analysis phase becomes an H2 (its documents reusing
+    ``build_phase_documents_markdown``'s structure, shifted under it); each
+    Test phase becomes an H2 (its tests reusing ``build_phase_body_markdown``'s
+    summary + detail, shifted under it) — matching each phase's own dedicated
+    report, just nested one level deeper so headings never skip a level.
+    """
+    lines = [f"# {poc.name} — Final Report", ""]
+    if poc.closure_date:
+        lines += [f"_Official closure date: {poc.closure_date.isoformat()}_", ""]
+
+    all_phases = _all_phases_preorder(poc)
+
+    # Only leaf phases actually own documents/tests — a non-leaf phase of the
+    # same kind has no content of its own (its leaves are visited separately),
+    # so restricting to leaves avoids double-counting a subtree twice.
+    lines += ["# Functional Analysis", ""]
+    for phase in all_phases:
+        if not (phase.is_functional_analysis and phase.is_leaf):
+            continue
+        note = "" if (phase.is_approved or not phase.has_own_items) else "  _(pending / not approved)_"
+        note += _external_note(phase)
+        lines += [f"## {phase.name}{note}", ""]
+        body = build_phase_documents_markdown(phase, base_level=3)
+        if body:
+            lines += [body, ""]
+
+    lines += ["# Testing and Validation", ""]
+    for phase in all_phases:
+        if not (phase.is_test and phase.is_leaf):
+            continue
+        note = "" if (phase.is_approved or not phase.has_own_items) else "  _(pending / not approved)_"
+        note += _external_note(phase)
+        lines += [f"## {phase.name}{note}", ""]
+        # base_level=2 (not 3): its own title is suppressed, so "Summary"/
+        # sub-phase headings (base_level+1) land at H3, right under the "##
+        # {phase.name}" (H2) emitted above — no level is skipped.
+        body = build_phase_body_markdown(phase, base_level=2, include_title=False)
+        if body:
+            lines += [body, ""]
+
+    if (conclusion or "").strip():
+        lines += ["# Conclusions", "", conclusion, ""]
+    return "\n".join(lines)
+
+
+def generate_final_report(poc, user, conclusion=""):
+    """Generate & seal the POC's final report (spec Fase 6b)."""
+    from .models import ReportSettings
+
+    report = GeneratedReport(
+        kind=GeneratedReport.Kind.FINAL,
+        title=f"{poc.name} — Final Report",
+        poc=poc,
+        requested_by=user,
+        status=GeneratedReport.Status.PROCESSING,
+    )
+    try:
+        template = ReportSettings.load().default_template
+        metadata = {
+            "owner": (user.get_full_name() or user.username) if user else "",
+            "date": timezone.now().date().isoformat(),
+        }
+        _, blocks = parse(build_final_report_markdown(poc, conclusion))
+        docx_bytes = build_docx(
+            blocks,
+            metadata,
+            template_path=template.path if template else None,
+            image_resolver=_make_poc_image_resolver(poc),
+        )
+        fname = f"{slugify(poc.name)}-final-report.docx"
+        report.output_file.save(fname, ContentFile(docx_bytes), save=False)
+        report.status = GeneratedReport.Status.READY
+    except Exception as exc:  # noqa: BLE001
+        report.status = GeneratedReport.Status.ERROR
+        report.error_message = str(exc)
+    report.save()
+    _audit_generated(report, user, action="final_report_generated")
+    return report
 
 
 def generate_phase_report_from_documents(phase, user):
@@ -297,6 +504,7 @@ def generate_phase_report_from_documents(phase, user):
     except Exception as exc:  # noqa: BLE001
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
+    mark_after_closure(report, report.poc)
     report.save()
     _audit_generated(report, user)
     return report
@@ -331,6 +539,7 @@ def generate_custom_report(report_type, source_file, user, poc=None):
     except Exception as exc:  # noqa: BLE001
         report.status = GeneratedReport.Status.ERROR
         report.error_message = str(exc)
+    mark_after_closure(report, report.poc)
     report.save()
     _audit_generated(report, user)
     return report

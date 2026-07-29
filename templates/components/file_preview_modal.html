@@ -1,0 +1,25 @@
+{% comment %}
+Single shared file-preview popup — the only copy of this modal shell (included
+once, in base.html). Any link to an uploaded PDF/SVG calls
+window.openFilePreview(url, label) (see static/js/file_preview.js) instead of
+opening a new tab, so the file is viewed large without leaving the tool.
+Other file types fall back to a "Download instead" message.
+{% endcomment %}
+<div id="file-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+     onclick="if (event.target === this) closeFilePreview();">
+  <div class="bg-surface-elevated rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6" onclick="event.stopPropagation();">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <p id="file-preview-title" class="text-sm font-medium text-ink truncate"></p>
+      <div class="flex items-center gap-2 shrink-0">
+        <a id="file-preview-download" href="#" download
+           class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-dark hover:underline">
+          <i data-lucide="download" class="w-4 h-4"></i> Download
+        </a>
+        <button type="button" onclick="closeFilePreview();" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+    <div id="file-preview-body"></div>
+  </div>
+</div>

@@ -16,7 +16,7 @@ User = get_user_model()
 
 # Shared Tailwind classes for form controls.
 INPUT_CLASS = (
-    "w-full rounded-lg border border-line px-3 py-2 text-sm text-ink "
+    "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink "
     "focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
 )
 CHECKBOX_CLASS = "h-4 w-4 rounded border-line text-brand focus:ring-brand/40"
@@ -72,7 +72,7 @@ class AdminUserCreateForm(UserCreationForm):
 
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ("username", "first_name", "last_name", "email", "role")
+        fields = ("username", "first_name", "last_name", "email", "role", "is_mega_user")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -94,6 +94,7 @@ class AdminUserUpdateForm(forms.ModelForm):
             "last_name",
             "email",
             "role",
+            "is_mega_user",
             "is_active",
         )
 

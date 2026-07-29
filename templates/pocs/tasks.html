@@ -4,6 +4,29 @@
 {% block breadcrumb %}<span class="text-ink font-medium">Tasks</span>{% endblock %}
 
 {% block content %}
+{% comment %}
+Remembers which POC folders are collapsed across visits (localStorage), so
+e.g. creating a task and landing back here (spec item 4 follow-up) doesn't
+re-expand every other POC the user had deliberately collapsed.
+{% endcomment %}
+<script>
+  function tasksCollapseState(pocId) {
+    return {
+      open: true,
+      init() {
+        const collapsed = JSON.parse(localStorage.getItem("tasksCollapsedPocs") || "[]");
+        this.open = !collapsed.includes(pocId);
+      },
+      toggle() {
+        this.open = !this.open;
+        let collapsed = JSON.parse(localStorage.getItem("tasksCollapsedPocs") || "[]");
+        collapsed = collapsed.filter((id) => id !== pocId);
+        if (!this.open) collapsed.push(pocId);
+        localStorage.setItem("tasksCollapsedPocs", JSON.stringify(collapsed));
+      },
+    };
+  }
+</script>
 <div class="max-w-5xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-semibold text-ink">{% if manager %}All tasks{% else %}My tasks{% endif %}</h1>
@@ -21,7 +44,7 @@
       <form method="get" class="ml-1">
         {% if filter %}<input type="hidden" name="f" value="{{ filter }}">{% endif %}
         <select name="u" onchange="this.form.submit()"
-                class="rounded-lg border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+                class="rounded-lg border border-line bg-surface text-ink px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
           <option value="">All assignees</option>
           {% for u in users %}
             <option value="{{ u.id }}" {% if assignee_filter == u.id|stringformat:'s' %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
@@ -33,27 +56,27 @@
   </div>
 
   {% for group in groups %}
-    <div>
-      <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark mb-2">
-        <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
-        <span class="text-xs text-ink-muted">({{ group.tasks|length }})</span>
-      </a>
-      <div class="bg-surface border border-line rounded-xl divide-y divide-line">
-        {% for task in group.tasks %}
-          <div class="flex items-center gap-3 p-4">
-            <a href="{% url 'pocs:phase_detail' task.phase.pk %}" class="min-w-0 flex-1">
-              <p class="font-medium text-ink truncate">{{ task.title }}</p>
-              <p class="text-xs text-ink-muted truncate">
-                {{ task.phase.name }}
-                {% if manager %} · {% if task.assigned_to %}{{ task.assigned_to.get_full_name|default:task.assigned_to.username }}{% else %}Unassigned{% endif %}{% endif %}
-                {% if task.due_date %} · <span class="{% if task.is_overdue %}text-danger font-medium{% endif %}">due {{ task.due_date }}{% if task.is_overdue %} (overdue){% endif %}</span>{% endif %}
-              </p>
-            </a>
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0
-              {% if task.status == 'completed' %}bg-brand/10 text-brand-dark
-              {% elif task.status == 'in_progress' %}bg-info/10 text-info
-              {% elif task.status == 'blocked' %}bg-warning/10 text-warning
-              {% else %}bg-line text-ink-muted{% endif %}">{{ task.get_status_display }}</span>
+    {# POC-level folder — collapses just like the phase folders below it (task_phase_group.html), and carries its own "+ Add Task" entry point (spec item 4): the phase is picked in-form, so this works even for a phase that has zero tasks yet (see TaskCreateForPocView). Collapsed state persists across visits (localStorage — see tasksCollapseState above). #}
+    <div class="space-y-3" x-data="tasksCollapseState({{ group.poc.pk }})">
+      <div class="flex items-center gap-2">
+        <button type="button" @click="toggle()" class="shrink-0 text-ink-muted hover:text-ink p-0.5">
+          <i data-lucide="chevron-down" class="w-4 h-4 transition-soft" :class="!open && '-rotate-90'"></i>
+        </button>
+        <a href="{% url 'pocs:detail' group.poc.pk %}" class="inline-flex items-center gap-2 font-medium text-ink hover:text-brand-dark">
+          <i data-lucide="folder" class="w-4 h-4 text-ink-muted"></i> {{ group.poc.name }}
+          <span class="text-xs text-ink-muted">({{ group.tasks|length }})</span>
+        </a>
+        {% if group.can_add_task %}
+          <a href="{% url 'pocs:task_create_for_poc' group.poc.pk %}"
+             class="ml-auto inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-2.5 py-1 text-xs transition-soft shrink-0">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add task
+          </a>
+        {% endif %}
+      </div>
+      <div x-show="open" x-cloak class="space-y-3">
+        {% for entry in group.phases %}
+          <div class="pl-2">
+            {% include "pocs/partials/task_phase_group.html" with entry=entry gantt=group.gantt %}
           </div>
         {% endfor %}
       </div>

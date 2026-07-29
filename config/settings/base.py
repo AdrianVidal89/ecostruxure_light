@@ -55,6 +55,7 @@ LOCAL_APPS = [
     "apps.accounts",
     "apps.pocs",
     "apps.reports",
+    "apps.ai",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -70,9 +71,17 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Capture the current user for audit-log signals (must follow auth).
     "apps.core.middleware.CurrentUserMiddleware",
+    # Prevent the browser's back/forward cache from showing stale pages after
+    # data changes elsewhere (must follow auth to see request.user).
+    "apps.core.middleware.NoBackCacheMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# SAMEORIGIN (Django's own default is DENY): the in-tool file-preview modal
+# embeds PDFs/reports from this same app in an <iframe> — DENY blocks that
+# framing too, even though it's same-origin, breaking PDF preview entirely.
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 ROOT_URLCONF = "config.urls"
 

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    {% include "pocs/partials/spec_form_fields.html" %}
+  </div>
+</div>
+{% endblock %}

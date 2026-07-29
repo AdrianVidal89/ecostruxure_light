@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Import use cases · {{ poc.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Import use cases</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">Import use cases — {{ poc.name }}</h1>
+
+  {# Upload #}
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-3">
+    <p class="text-sm text-ink-muted">
+      Upload an <code>.xlsx</code> or <code>.md</code> (Markdown table) with one use case per row. Expected columns
+      (headers, case-insensitive): <code>external_code</code> (optional — this use case's
+      own code in your source documentation, e.g. <code>UC001</code>), <code>title</code>
+      (required, unique),
+      <code>description</code>, <code>actor</code>, <code>priority</code>,
+      <code>status</code>, <code>remarks</code>, <code>requirements</code>
+      (existing requirement codes, comma-separated). Light's own <code>code</code> is
+      generated automatically; priority defaults to Medium and status to Draft when blank.
+    </p>
+    <p class="text-sm text-ink-muted">
+      <strong>To update existing use cases:</strong> use “Export” on the Use Cases
+      section to download everything already in this POC (it includes Light's own
+      <code>code</code> column) — edit any cell except <code>code</code> and re-upload it
+      here; a row whose <code>code</code> matches an existing use case UPDATES it
+      instead of creating a new one.
+    </p>
+    <a href="{% url 'pocs:usecase_import_template' poc.pk %}" class="inline-flex items-center gap-2 text-sm text-brand-dark hover:underline">
+      <i data-lucide="download" class="w-4 h-4"></i> Download blank .xlsx template
+    </a>
+    <form method="post" enctype="multipart/form-data" class="space-y-3">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<p class="text-xs text-danger">{{ form.non_field_errors }}</p>{% endif %}
+      {% include "components/filedrop.html" with field=form.file hint=".xlsx or .md" %}
+      {% for error in form.file.errors %}<p class="text-xs text-danger">{{ error }}</p>{% endfor %}
+      <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+        <i data-lucide="upload" class="w-4 h-4"></i> Upload &amp; preview
+      </button>
+    </form>
+  </div>
+
+  {# Preview #}
+  {% if preview %}
+    <div class="bg-surface border border-line rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-medium text-ink">Preview</h2>
+        <p class="text-sm">
+          <span class="text-brand-dark font-medium">{{ valid_count }} valid</span>
+          {% if error_count %}· <span class="text-danger font-medium">{{ error_count }} with errors</span>{% endif %}
+        </p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-left text-xs text-ink-muted uppercase tracking-wide">
+              <th class="px-2 py-2 border-b border-line">Row</th>
+              <th class="px-2 py-2 border-b border-line">Status</th>
+              <th class="px-2 py-2 border-b border-line">Title</th>
+              <th class="px-2 py-2 border-b border-line">Priority</th>
+              <th class="px-2 py-2 border-b border-line">Use-case status</th>
+              <th class="px-2 py-2 border-b border-line">Reqs</th>
+              <th class="px-2 py-2 border-b border-line">Issues</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in preview %}
+              <tr class="{% if not r.valid %}bg-danger/5{% endif %}">
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.row }}</td>
+                <td class="px-2 py-2 border-b border-line">
+                  {% if r.valid %}
+                    <span class="inline-flex items-center gap-1 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Valid</span>
+                  {% else %}
+                    <span class="inline-flex items-center gap-1 text-danger"><i data-lucide="x" class="w-3.5 h-3.5"></i> Error</span>
+                  {% endif %}
+                </td>
+                <td class="px-2 py-2 border-b border-line text-ink">{{ r.data.title|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.priority|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.status|default:"—" }}</td>
+                <td class="px-2 py-2 border-b border-line text-ink-muted">{{ r.data.requirement_ids|length }}</td>
+                <td class="px-2 py-2 border-b border-line text-danger text-xs">
+                  {% for e in r.errors %}{{ e }}{% if not forloop.last %}; {% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if valid_count %}
+        <form method="post" class="pt-2">
+          {% csrf_token %}
+          <input type="hidden" name="confirm" value="1">
+          <button type="submit" class="inline-flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+            <i data-lucide="check-check" class="w-4 h-4"></i> Import {{ valid_count }} valid use case(s)
+          </button>
+          {% if error_count %}<span class="text-xs text-ink-muted ml-2">Rows with errors are skipped.</span>{% endif %}
+        </form>
+      {% else %}
+        <p class="text-sm text-danger">No valid rows to import — fix the file and upload again.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

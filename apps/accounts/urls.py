@@ -27,4 +27,9 @@ urlpatterns = [
         views.UserToggleActiveView.as_view(),
         name="user_toggle_active",
     ),
+    path(
+        "users/<int:pk>/delete/",
+        views.UserDeleteView.as_view(),
+        name="user_delete",
+    ),
 ]

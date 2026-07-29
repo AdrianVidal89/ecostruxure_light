@@ -1,0 +1,67 @@
+{% load core_extras %}
+{% comment %}
+One thread's card in the inline Comments accordion (spec item 3) — opening
+message + replies + Reply/Close Thread controls. Any POC member may reply to
+an open thread; only a POC lead/admin (``can_close``) may close it.
+Re-rendered standalone (outerHTML swap) after a reply/close, via
+comment_reply/comment_close?render=inline — same partial used in the
+initial {% for c in comments %} loop (comment_thread.html), so there's one
+source of truth for this markup.
+Context: c, can_close.
+{% endcomment %}
+<div class="rounded-lg border p-3 text-sm {% if c.is_open %}border-warning/40 bg-warning/5{% else %}border-line bg-canvas{% endif %}" x-data="{ replyOpen: false }">
+  <div class="flex items-center justify-between gap-2 text-xs text-ink-muted">
+    <span class="font-medium text-ink">{{ c.author.get_full_name|default:c.author.username }}</span>
+    <span>{{ c.created_at|date:"Y-m-d H:i" }}</span>
+  </div>
+  <p class="text-ink mt-1 whitespace-pre-wrap">{{ c.text|linkify }}</p>
+
+  {% for m in c.messages.all %}
+    <div class="mt-2 pt-2 border-t border-line/60 pl-3 border-l-2 border-l-line">
+      <div class="flex items-center justify-between gap-2 text-xs text-ink-muted">
+        <span class="font-medium text-ink">{{ m.author.get_full_name|default:m.author.username }}</span>
+        <span>{{ m.created_at|date:"Y-m-d H:i" }}</span>
+      </div>
+      <p class="text-ink mt-1 whitespace-pre-wrap">{{ m.text|linkify }}</p>
+    </div>
+  {% endfor %}
+
+  <div class="mt-2 flex items-center gap-2">
+    {% if c.is_open %}
+      <span class="px-2 py-0.5 rounded-full text-xs bg-warning/10 text-warning">Open</span>
+    {% else %}
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-line text-ink-muted"><i data-lucide="lock" class="w-3 h-3"></i> Closed</span>
+    {% endif %}
+  </div>
+
+  {% if not c.is_open %}
+    <div class="mt-2 pt-2 border-t border-line/60 text-xs text-ink-muted">
+      Closed by <span class="text-ink font-medium">{{ c.closed_by.get_full_name|default:c.closed_by.username }}</span>
+      {% if c.closed_at %}· {{ c.closed_at|date:"Y-m-d H:i" }}{% endif %}
+    </div>
+  {% else %}
+    <div class="mt-2 pt-2 border-t border-line/60">
+      <button type="button" @click="replyOpen = !replyOpen" class="text-xs font-medium text-brand-dark hover:underline">
+        <span x-show="!replyOpen">Reply</span><span x-show="replyOpen" x-cloak>Cancel</span>
+      </button>
+      <div x-show="replyOpen" x-cloak class="mt-2 space-y-2">
+        <form hx-post="{% url 'pocs:comment_reply' c.pk %}?render=inline" hx-target="closest .rounded-lg" hx-swap="outerHTML" class="space-y-2">
+          {% csrf_token %}
+          <textarea name="text" rows="2" required placeholder="Reply…"
+                    class="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"></textarea>
+          <div class="flex items-center justify-end gap-2">
+            {% if can_close %}
+              <button type="button" hx-post="{% url 'pocs:comment_close' c.pk %}?render=inline" hx-target="closest .rounded-lg" hx-swap="outerHTML"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-canvas">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Close Thread
+              </button>
+            {% endif %}
+            <button type="submit" class="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-3 py-1.5 text-xs transition-soft">
+              <i data-lucide="send" class="w-3.5 h-3.5"></i> Reply
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+</div>

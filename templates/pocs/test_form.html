@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static core_extras %}
 
 {% block title %}{{ title }} · {{ app_name }}{% endblock %}
 {% block breadcrumb %}
-  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="hover:text-ink truncate max-w-[10rem]">{{ poc.name }}</a>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
   <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
   <i data-lucide="chevron-right" class="w-4 h-4"></i>
@@ -17,15 +17,27 @@
 
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
-  <h1 class="text-2xl font-semibold text-ink">{{ title }}</h1>
+  <h1 class="text-2xl font-semibold text-ink flex items-center gap-2">
+    {{ title }}
+    {% if form.instance.test_code %}
+      <span class="text-sm font-mono font-normal px-2 py-0.5 rounded-lg bg-canvas text-ink-muted" title="Auto-generated test code">{{ form.instance.test_code }}</span>
+    {% endif %}
+  </h1>
 
   <div class="bg-surface border border-line rounded-xl p-6">
-    <form method="post" class="space-y-4">
+    <form method="post" class="space-y-4" data-unsaved-guard>
       {% csrf_token %}
 
       {% if form.non_field_errors %}
         <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
           {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      {% if preselected_requirement_count %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-brand/10 border border-brand/20 text-brand-dark flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+          {{ preselected_requirement_count }} requirement{{ preselected_requirement_count|pluralize }} pre-selected below — check the Requirements list to confirm.
         </div>
       {% endif %}
 
@@ -58,6 +70,42 @@
         <p class="text-xs text-ink-muted">This test will be assigned to you so you can record its result.</p>
       {% endif %}
 
+      <div>
+        <label for="{{ form.target_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          Target date <span class="text-ink-muted font-normal">(planned execution — shown on the testing roadmap)</span>
+        </label>
+        {{ form.target_date }}
+        {% for error in form.target_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      {# Requirements this test responds to (optional; spec 4/user) #}
+      <div>
+        <label class="block text-sm font-medium text-ink mb-1">Requirements <span class="text-ink-muted font-normal">(optional — which requirement(s) this test validates)</span></label>
+        {% if form.requirements.field.queryset.exists %}
+          <div class="max-h-48 overflow-y-auto rounded-lg border border-line p-2 space-y-1">
+            {% for cb in form.requirements %}
+              {% with owner=form.requirement_locks|get_item:cb.data.value %}
+                <div class="flex items-center gap-2 text-sm py-0.5 {% if owner %}opacity-50{% endif %}"
+                     {% if owner %}title="Already covered by {{ owner.test_code|default:owner.title }} — a requirement can only be linked to one test."{% endif %}>
+                  {{ cb.tag }}
+                  <label for="{{ cb.id_for_label }}" class="flex-1 {% if owner %}cursor-not-allowed{% else %}cursor-pointer{% endif %}">
+                    {{ cb.choice_label }}
+                    {% if owner %}<span class="text-xs italic">(covered by {{ owner.test_code|default:owner.title }})</span>{% endif %}
+                  </label>
+                  <button type="button" class="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas shrink-0"
+                          onclick="openEntityPreview('{% url 'pocs:requirement_preview' cb.data.value %}', '{% url 'pocs:requirement_detail' cb.data.value %}', 'Go to Requirement')" aria-label="View">
+                    <i data-lucide="eye" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              {% endwith %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-ink-muted">This POC has no requirements yet. Create them in the POC’s “Use Cases &amp; Requirements” tab first.</p>
+        {% endif %}
+        {% for error in form.requirements.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
       <div class="flex items-center gap-3 pt-2">
         <button type="submit"
                 class="bg-brand hover:bg-brand-dark text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
@@ -71,14 +119,12 @@
 {% endblock %}
 
 {% block extra_body %}
+  {% comment %}
+  Only the vendor bundle: static/js/markdown_editor.js (loaded app-wide from
+  base.html) does the mounting for every ``.md-editor`` textarea. Mounting them
+  here as well produced TWO stacked editors per field — EasyMDE happily builds a
+  second CodeMirror on the same textarea, and its own guard lives in the shared
+  script, not here.
+  {% endcomment %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
-  <script>
-    // Mount EasyMDE on every Markdown textarea (.md-editor).
-    if (window.EasyMDE) {
-      document.querySelectorAll('textarea.md-editor').forEach(function (el) {
-        new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '120px',
-          toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
-      });
-    }
-  </script>
 {% endblock %}

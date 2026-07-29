@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Mark as External · {{ phase.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=phases" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:phase_detail' phase.pk %}" class="hover:text-ink truncate max-w-[10rem]">{{ phase.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Mark as External</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">Mark “{{ phase.name }}” as External</h1>
+
+  <div class="rounded-xl border border-info/40 bg-info/5 p-4 space-y-1">
+    <p class="flex items-center gap-2 font-medium text-info">
+      <i data-lucide="building-2" class="w-5 h-5"></i> This phase applies, but is done externally
+    </p>
+    <p class="text-sm text-ink">
+      Unlike “Not Applicable”, External means the work is real and required — just executed by another
+      team rather than tracked here. It will stop counting towards pending work, and the assigned team(s)
+      are shown in the phase detail and the final report. An admin or lead can revert this later.
+    </p>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" class="space-y-4">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      {% if form.teams.field.queryset.all %}
+        <div>
+          <label class="block text-sm font-medium text-ink mb-2">{{ form.teams.label }}</label>
+          <div class="space-y-1.5">
+            {% for choice in form.teams %}
+              <label class="flex items-center gap-2 text-sm text-ink">
+                {{ choice.tag }} {{ choice.choice_label }}
+              </label>
+            {% endfor %}
+          </div>
+          {% for error in form.teams.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.new_teams.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          {{ form.new_teams.label }}
+        </label>
+        {{ form.new_teams }}
+        <p class="text-xs text-ink-muted mt-1">{{ form.new_teams.help_text }}</p>
+        {% for error in form.new_teams.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 bg-info hover:bg-info/90 text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="building-2" class="w-4 h-4"></i> Mark as External
+        </button>
+        <a href="{% url 'pocs:phase_detail' phase.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% comment %}
+Requirement sub_system title, editable inline. Self-swaps (outerHTML) via
+requirement_set_field. Context: req, can_manage, heading_class (Tailwind
+classes for the heading — differs between the preview modal's h3 and the
+detail page's h1), is_page_title (True on requirement_detail.html, renders
+an h1; False in the preview modal, renders an h3), field_ctx (echoed back
+as ?ctx= on the save request so the response re-renders with the same
+heading_class/is_page_title — "preview" if omitted).
+{% endcomment %}
+<div id="req-title-{{ req.pk }}">
+  {% if can_manage %}
+    <input type="text" name="value" value="{{ req.sub_system }}" placeholder="Requirement"
+           hx-post="{% url 'pocs:requirement_set_field' req.pk 'sub_system' %}?ctx={{ field_ctx|default:'preview' }}"
+           hx-trigger="change" hx-target="#req-title-{{ req.pk }}" hx-swap="outerHTML"
+           title="Quick change"
+           class="{{ heading_class }} bg-transparent border-b border-transparent hover:border-line focus:border-brand focus:outline-none w-full break-words" />
+  {% elif is_page_title %}
+    <h1 class="{{ heading_class }} break-words">{{ req.sub_system|default:"Requirement" }}</h1>
+  {% else %}
+    <h3 class="{{ heading_class }} break-words">{{ req.sub_system|default:"Requirement" }}</h3>
+  {% endif %}
+</div>

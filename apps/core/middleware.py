@@ -35,3 +35,27 @@ class CurrentUserMiddleware:
         finally:
             # Always clear so a pooled thread never leaks a user across requests.
             _state.user = None
+
+
+class NoBackCacheMiddleware:
+    """Stop the browser's back/forward cache (bfcache) from replaying a stale
+    authenticated page.
+
+    Data here changes from other pages (deleting a test on the phase page,
+    then hitting Back to the POC overview) — without this, some browsers
+    restore the previous DOM from bfcache instead of re-requesting it, so the
+    overview/status board looks stale until a hard refresh. Only applied to
+    logged-in users' HTML pages; static assets and anonymous (login) pages are
+    left cacheable as before.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        user = getattr(request, "user", None)
+        content_type = response.get("Content-Type", "")
+        if getattr(user, "is_authenticated", False) and content_type.startswith("text/html"):
+            response["Cache-Control"] = "no-store, must-revalidate"
+        return response

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% load static core_extras %}
+
+{% comment %}
+Use Case × Requirement matrix (improvement brief item 3). Rows = Use Cases
+(sticky left column, truncated + native tooltip); columns = Requirements
+(rotated headers, grouped/coloured by req_category via req.color_token — an
+index 0-3 into the app's own theme tokens, never a new hardcoded palette).
+Click a cell to toggle the link (JSON POST, static/js/uc_requirement_matrix.js);
+hovering a row or column HEADER for a moment opens the shared delayed
+hover-card (static/js/hover_card.js — same component as the POC graph, spec
+item 7) with that entity's full description. Export/Import reuse the existing
+Requirements/Use Cases endpoints (spec item 1) — no separate matrix format.
+{% endcomment %}
+
+{% block title %}Use Cases × Requirements · {{ poc.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Matrix</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-full space-y-4">
+  <div class="flex items-start justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold text-ink">Use Cases × Requirements</h1>
+      <p class="text-ink-muted text-sm mt-1">
+        {% if can_manage %}Click a cell to link/unlink.{% endif %}
+        Hover a row or column header to read its full description.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      {% url 'pocs:usecase_export' poc.pk as uc_export_url %}
+      {% include "pocs/partials/export_menu.html" with export_url=uc_export_url label="use cases" %}
+      {% url 'pocs:requirement_export' poc.pk as req_export_url %}
+      {% include "pocs/partials/export_menu.html" with export_url=req_export_url label="requirements" %}
+      {% if can_manage %}
+        <a href="{% url 'pocs:usecase_import' poc.pk %}" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="upload" class="w-4 h-4"></i> Import use cases
+        </a>
+        <a href="{% url 'pocs:requirement_import' poc.pk %}" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
+          <i data-lucide="upload" class="w-4 h-4"></i> Import requirements
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <div class="relative">
+      <i data-lucide="search" class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted"></i>
+      <input type="text" data-matrix-search placeholder="Search use cases…"
+             class="pl-8 pr-3 py-1.5 rounded-lg border border-line text-sm w-56 focus:outline-none focus:ring-2 focus:ring-brand/40">
+    </div>
+    <select data-matrix-subsystem class="px-3 py-1.5 rounded-lg border border-line text-sm">
+      <option value="">Sub-system: all</option>
+      {% for s in sub_systems %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <span class="text-xs text-ink-muted ml-auto">{{ use_cases|length }} use case{{ use_cases|length|pluralize }} × {{ requirements|length }} requirement{{ requirements|length|pluralize }}</span>
+  </div>
+
+  {% if not use_cases or not requirements %}
+    <div class="bg-surface border border-line rounded-xl p-8 text-center text-sm text-ink-muted">
+      Add at least one Use Case and one Requirement to use the matrix.
+    </div>
+  {% else %}
+    <div class="bg-surface border border-line rounded-xl overflow-auto" style="max-height: 75vh;" data-matrix-root>
+      <table class="border-collapse text-xs" data-matrix-table>
+        <thead>
+          <tr>
+            <th class="sticky top-0 left-0 z-30 bg-surface-elevated border-b border-r border-line p-2 text-left align-bottom" style="min-width: 16rem;">
+              Use Case
+            </th>
+            {% for req in requirements %}
+              <th class="sticky top-0 z-20 border-b border-line p-1 align-bottom cursor-default
+                {% if req.color_token == 0 %}bg-brand/10{% elif req.color_token == 1 %}bg-info/10{% elif req.color_token == 2 %}bg-warning/10{% else %}bg-danger/10{% endif %}"
+                  style="min-width: 30px; max-width: 30px; height: 150px;"
+                  data-req-col data-req-id="{{ req.id }}" data-sub-system="{{ req.sub_system }}"
+                  data-hover-card data-hc-title="{{ req.req_id }}"
+                  data-hc-description="{{ req.description|default:'No description.' }}">
+                <div class="h-full flex items-end justify-center pb-1">
+                  <span class="whitespace-nowrap text-[10px] font-semibold
+                    {% if req.color_token == 0 %}text-brand-dark{% elif req.color_token == 1 %}text-info{% elif req.color_token == 2 %}text-warning{% else %}text-danger{% endif %}"
+                        style="writing-mode: vertical-rl; transform: rotate(180deg);">
+                    {{ req.req_id }}
+                  </span>
+                </div>
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for uc in use_cases %}
+            <tr data-uc-row data-uc-title="{{ uc.title }}" data-uc-code="{{ uc.code }}">
+              <th class="sticky left-0 z-10 bg-surface-elevated border-r border-b border-line p-2 text-left font-medium text-ink whitespace-nowrap"
+                  style="max-width: 16rem;"
+                  data-hover-card data-hc-title="{{ uc.code }} · {{ uc.title }}"
+                  data-hc-description="{{ uc.description|default:'No description.' }}">
+                <span class="block truncate max-w-[15rem]">
+                  <span class="text-ink-muted font-mono">{{ uc.code }}</span> {{ uc.title }}
+                </span>
+              </th>
+              {% for req in requirements %}
+                <td class="border-b border-line text-center align-middle transition-soft
+                    {% if can_manage %}cursor-pointer hover:bg-canvas{% endif %}"
+                    style="width: 30px; height: 26px;"
+                    data-req-id="{{ req.id }}"
+                    {% if can_manage %}
+                      data-toggle-url="{% url 'pocs:matrix_toggle_link' poc.pk %}"
+                      data-usecase-id="{{ uc.id }}" data-requirement-id="{{ req.id }}"
+                    {% endif %}>
+                  {% if req.id in linked_map|get_item:uc.id %}
+                    <i data-lucide="check" class="w-3.5 h-3.5 mx-auto text-brand-dark" data-matrix-dot></i>
+                  {% else %}
+                    <i data-lucide="circle" class="w-2 h-2 mx-auto text-line" data-matrix-dot></i>
+                  {% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'js/uc_requirement_matrix.js' %}"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.initUCRequirementMatrix) window.initUCRequirementMatrix(document);
+    });
+  </script>
+{% endblock %}

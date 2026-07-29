@@ -1,0 +1,53 @@
+{% comment %}
+Requirement gravity/operation/category badges row, shared by
+requirement_preview.html and requirement_detail.html. Each editable select
+self-swaps this whole div (outerHTML) via requirement_set_gravity /
+requirement_set_field so it reflects immediately regardless of where it's
+shown. Context: req, can_manage, gravity_choices, operation_choices,
+category_choices.
+{% endcomment %}
+<div class="flex flex-wrap items-center gap-2 mt-2 text-xs" id="req-classification-{{ req.pk }}">
+  {% if can_manage %}
+    <select name="req_gravity"
+            hx-post="{% url 'pocs:requirement_set_gravity' req.pk %}"
+            hx-target="#req-classification-{{ req.pk }}" hx-swap="outerHTML"
+            title="Quick change"
+            class="rounded-full border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40">
+      {% for value, label in gravity_choices %}
+        <option value="{{ value }}" {% if req.req_gravity == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="value"
+            hx-post="{% url 'pocs:requirement_set_field' req.pk 'req_operation' %}"
+            hx-target="#req-classification-{{ req.pk }}" hx-swap="outerHTML"
+            title="Quick change"
+            class="rounded-full border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40">
+      {% for value, label in operation_choices %}
+        <option value="{{ value }}" {% if req.req_operation == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_functional_display }}</span>
+    <select name="value"
+            hx-post="{% url 'pocs:requirement_set_field' req.pk 'req_category' %}"
+            hx-target="#req-classification-{{ req.pk }}" hx-swap="outerHTML"
+            title="Quick change"
+            class="rounded-full border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40">
+      {% for value, label in category_choices %}
+        <option value="{{ value }}" {% if req.req_category == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  {% else %}
+    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
+    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_operation_display }}</span>
+    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_functional_display }}</span>
+    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_category_display }}</span>
+  {% endif %}
+  {% if req.is_validated %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Validated</span>
+  {% else %}
+    <span class="px-2 py-0.5 rounded-full bg-line text-ink-muted">Pending</span>
+  {% endif %}
+  {% if req.has_open_comment %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+  {% endif %}
+</div>

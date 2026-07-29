@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}{{ usecase.code }} · {{ usecase.title }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ usecase.code }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs active_tab=active_tab %}
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <p class="text-xs font-mono text-ink-muted">{{ usecase.code }}</p>
+      <h1 class="text-2xl font-semibold text-ink break-words">{{ usecase.title }}</h1>
+      <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+        <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ usecase.get_priority_display }}</span>
+        <span class="px-2 py-0.5 rounded-full {% if usecase.status == 'active' %}bg-brand/10 text-brand-dark{% elif usecase.status == 'deprecated' %}bg-line text-ink-muted{% elif usecase.status == 'rejected' %}bg-danger/10 text-danger{% else %}bg-info/10 text-info{% endif %}">{{ usecase.get_status_display }}</span>
+        {% if usecase.is_approved %}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Approved</span>
+        {% endif %}
+        {% if usecase.has_open_comment %}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Awaiting Lead Ack</span>
+        {% endif %}
+        {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Back">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+      </a>
+      {% if can_manage %}
+        <a href="{% url 'pocs:usecase_edit' usecase.pk %}" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Edit">
+          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+        </a>
+        <form method="post" action="{% url 'pocs:usecase_delete' usecase.pk %}" onsubmit="return confirm('Delete use case “{{ usecase.code|escapejs }}”?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5" title="Delete">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-6 {% if usecase.has_open_comment %}ring-2 ring-warning/40{% endif %}">
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+      {% if usecase.description %}
+        <div class="prose prose-sm max-w-none text-ink">{{ usecase.description|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No description.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked requirements</p>
+      {% if usecase.requirements.exists %}
+        <ul class="divide-y divide-line border border-line rounded-lg overflow-hidden" id="linked-requirements" data-usecase-pk="{{ usecase.pk }}">
+          {% for req in usecase.requirements.all %}
+            <li>
+              <button type="button"
+                      data-req-pk="{{ req.pk }}"
+                      onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}?next={{ request.path|urlencode }}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement'); markRequirementVisited({{ usecase.pk }}, {{ req.pk }});"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-ink hover:bg-canvas transition-soft">
+                <i data-lucide="link" class="w-3.5 h-3.5 shrink-0 text-ink-muted"></i>
+                <span class="font-mono text-xs text-ink-muted shrink-0">{{ req.req_id }}</span>
+                <span class="truncate">{% if req.sub_system %}{{ req.sub_system }}{% else %}—{% endif %}</span>
+                <span class="ml-auto text-xs text-ink-muted shrink-0">{{ req.get_req_gravity_display }}</span>
+              </button>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No linked requirements.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked tasks</p>
+      {% if usecase.tasks.exists %}
+        <div class="flex flex-wrap gap-1.5">
+          {% for t in usecase.tasks.all %}
+            {# Tasks now live only in the dedicated workspace (spec item 4). #}
+            <a href="{% url 'pocs:tasks' %}#task-{{ t.id }}"
+               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+               title="{{ t.get_status_display }}">
+              <i data-lucide="check-square" class="w-3 h-3"></i>{{ t.title }}
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No linked tasks.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Remarks</p>
+      {% if usecase.remarks %}
+        <div class="prose prose-sm max-w-none text-ink">{{ usecase.remarks|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No remarks.</p>
+      {% endif %}
+    </div>
+
+    <div class="border-t border-line pt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-muted">
+      <span>Created by {{ usecase.created_by }} · {{ usecase.created_date|date:"d M Y, H:i" }}</span>
+      {% if usecase.modified_by %}<span>Last modified by {{ usecase.modified_by }} · {{ usecase.modified_date|date:"d M Y, H:i" }}</span>{% endif %}
+    </div>
+  </div>
+
+  {% include "pocs/partials/comment_thread.html" with target=usecase target_kind=comment_target %}
+</div>
+{% endblock %}
+
+{% block extra_body %}
+  <script>
+    // Tracks which linked requirements have been opened from this Use Case
+    // page, purely as a visual work-session aid (dims the row). Scoped to
+    // this use case and kept in sessionStorage so it clears itself when the
+    // tab/browser closes — no server-side "read" state exists anywhere else
+    // in the app, and none is needed here either.
+    (function () {
+      function storageKey(usecasePk) { return 'visited_reqs:' + usecasePk; }
+
+      function visitedSet(usecasePk) {
+        try {
+          return new Set(JSON.parse(sessionStorage.getItem(storageKey(usecasePk)) || '[]'));
+        } catch (e) {
+          return new Set();
+        }
+      }
+
+      window.markRequirementVisited = function (usecasePk, reqPk) {
+        var visited = visitedSet(usecasePk);
+        visited.add(reqPk);
+        sessionStorage.setItem(storageKey(usecasePk), JSON.stringify(Array.from(visited)));
+        applyVisitedStyles(usecasePk);
+      };
+
+      function applyVisitedStyles(usecasePk) {
+        var list = document.getElementById('linked-requirements');
+        if (!list) return;
+        var visited = visitedSet(usecasePk);
+        list.querySelectorAll('[data-req-pk]').forEach(function (btn) {
+          var isVisited = visited.has(Number(btn.dataset.reqPk));
+          btn.classList.toggle('bg-canvas', isVisited);
+          btn.classList.toggle('text-ink-muted', isVisited);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var list = document.getElementById('linked-requirements');
+        if (list) applyVisitedStyles(Number(list.dataset.usecasePk));
+      });
+    })();
+  </script>
+{% endblock %}

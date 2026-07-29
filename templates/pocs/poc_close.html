@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Close POC · {{ poc.name }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'vendor/fontawesome/css/font-awesome.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/easymde.min.css' %}">
+{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[12rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">Official closure</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <h1 class="text-2xl font-semibold text-ink">Official closure — {{ poc.name }}</h1>
+
+  {# Warning #}
+  <div class="rounded-xl border border-danger/40 bg-danger/5 p-4 space-y-2">
+    <p class="flex items-center gap-2 font-medium text-danger">
+      <i data-lucide="alert-triangle" class="w-5 h-5"></i> This action is irreversible
+    </p>
+    <ul class="list-disc list-inside text-sm text-ink space-y-1">
+      <li>Once closed, <strong>nobody</strong> can modify anything in this POC (phases, tasks, tests, requirements, use cases, members).</li>
+      <li>Only an <strong>admin</strong> can later revert the closure.</li>
+      <li>The <strong>final report</strong> will be generated and sealed with your name and the closure date.</li>
+      {% if not all_approved %}
+        <li class="text-danger font-medium">Some phases are not approved yet — you can still close, but those phases will be marked as <em>pending / not approved</em> in the final report.</li>
+      {% else %}
+        <li>All phases are approved — the final report will be complete.</li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6">
+    <form method="post" class="space-y-4" data-unsaved-guard>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/30 text-danger">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.closure_date.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          Closure date <span class="text-danger">*</span>
+        </label>
+        {{ form.closure_date }}
+        {% for error in form.closure_date.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.closure_conclusion.id_for_label }}" class="block text-sm font-medium text-ink mb-1">
+          {{ form.closure_conclusion.label }}
+        </label>
+        <textarea id="md_conclusion" name="{{ form.closure_conclusion.html_name }}" rows="8"
+                  class="js-md w-full rounded-lg border border-line px-3 py-2 text-sm"
+                  placeholder="Final conclusion / notes for the final report (optional)…">{{ form.closure_conclusion.value|default:"" }}</textarea>
+        {% for error in form.closure_conclusion.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+      </div>
+
+      <label class="flex items-start gap-2 text-sm text-ink">
+        {{ form.confirm }} <span>{{ form.confirm.label }}</span>
+      </label>
+      {% for error in form.confirm.errors %}<p class="text-xs text-danger mt-1">{{ error }}</p>{% endfor %}
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 bg-danger hover:bg-danger/90 text-white font-medium rounded-lg px-4 py-2 text-sm transition-soft">
+          <i data-lucide="lock" class="w-4 h-4"></i> Close POC officially
+        </button>
+        <a href="{% url 'pocs:detail' poc.pk %}" class="text-sm font-medium text-ink-muted hover:text-ink">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_body %}
+<script src="{% static 'vendor/easymde.min.js' %}"></script>
+<script>
+(function () {
+  const UPLOAD_URL = "{% url 'pocs:poc_image_upload' poc.pk %}?ajax=1";
+  const csrf = document.querySelector('meta[name=csrf-token]').content;
+
+  function uploadAndInsert(editor) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+    input.onchange = function () {
+      const file = input.files[0];
+      if (!file) return;
+      const cm = editor.codemirror;
+      const placeholder = '![uploading…]()';
+      cm.replaceSelection(placeholder);
+      const fd = new FormData();
+      fd.append('image', file);
+      fetch(UPLOAD_URL, { method: 'POST', headers: { 'X-CSRFToken': csrf }, body: fd })
+        .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); }); })
+        .then(function (data) { cm.setValue(cm.getValue().replace(placeholder, data.snippet)); })
+        .catch(function (err) {
+          cm.setValue(cm.getValue().replace(placeholder, ''));
+          alert((err && err.error) || 'Image upload failed.');
+        });
+    };
+    input.click();
+  }
+
+  const el = document.querySelector('textarea.js-md');
+  if (el) {
+    const mde = new EasyMDE({
+      element: el,
+      spellChecker: false,
+      status: false,
+      minHeight: '220px',
+      toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'link',
+        { name: 'image-upload', className: 'fa fa-picture-o', title: 'Upload & insert image',
+          action: function (editor) { uploadAndInsert(editor); } },
+        'code', '|', 'preview', 'guide'],
+    });
+    const form = el.closest('form');
+    if (form) {
+      form.addEventListener('submit', function () { mde.codemirror.save(); });
+    }
+  }
+})();
+</script>
+{% endblock %}

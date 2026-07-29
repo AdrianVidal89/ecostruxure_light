@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
+from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView, View
@@ -161,6 +162,40 @@ class UserToggleActiveView(AdminRequiredMixin, View):
         target.save(update_fields=["is_active"])
         state = "activated" if target.is_active else "deactivated"
         messages.success(request, f"User “{target.username}” {state}.")
+        return redirect("accounts:user_list")
+
+
+class UserDeleteView(AdminRequiredMixin, View):
+    """Admin-only: permanently delete a user account (POST).
+
+    Double confirmation: the request must echo the username in
+    ``confirm_name`` (the UI requires typing it), mirroring
+    ``pocs.POCDeleteView``. Records the user authored (created_by FKs with
+    ``on_delete=PROTECT``, e.g. Requirement/UseCase) block the delete —
+    reassign or remove those first.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        target = get_object_or_404(User, pk=pk)
+        if target == request.user:
+            messages.error(request, "You cannot delete your own account.")
+            return redirect("accounts:user_list")
+        if request.POST.get("confirm_name", "").strip() != target.username:
+            messages.error(request, "Deletion cancelled — the typed username didn't match.")
+            return redirect("accounts:user_list")
+        username = target.username
+        try:
+            target.delete()
+        except ProtectedError:
+            messages.error(
+                request,
+                f"Can't delete “{username}” — they authored records (requirements, use cases, "
+                "or other data) that must be reassigned or removed first. Deactivate the account instead.",
+            )
+            return redirect("accounts:user_list")
+        messages.success(request, f"User “{username}” permanently deleted.")
         return redirect("accounts:user_list")
 
 

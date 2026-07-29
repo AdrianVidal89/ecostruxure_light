@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}{{ req.code }} · {{ app_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'pocs:detail' poc.pk %}" class="text-brand-dark font-semibold hover:text-brand truncate max-w-[10rem]">{{ poc.name }}</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="hover:text-ink">Use Cases &amp; Requirements</a>
+  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+  <span class="text-ink font-medium">{{ req.code }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs active_tab=active_tab %}
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <p class="text-sm font-semibold text-ink" title="OSPI Code">{{ req.req_id }}</p>
+      <p class="text-xs font-mono text-ink-muted">{{ req.code }}</p>
+      {% include "pocs/partials/requirement_title.html" %}
+      {% include "pocs/partials/requirement_classification.html" %}
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="{% url 'pocs:detail' poc.pk %}?tab=specs" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Back">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+      </a>
+      {% if can_manage %}
+        <a href="{% url 'pocs:requirement_edit' req.pk %}" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface" title="Edit">
+          <i data-lucide="pencil" class="w-4 h-4"></i> Edit
+        </a>
+        <form method="post" action="{% url 'pocs:requirement_delete' req.pk %}" onsubmit="return confirm('Delete requirement “{{ req.code|escapejs }}”?');">
+          {% csrf_token %}
+          <button type="submit" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium text-danger hover:bg-danger/5" title="Delete">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bg-surface border border-line rounded-xl p-6 space-y-6 {% if req.has_open_comment %}ring-2 ring-warning/40{% endif %}">
+    {% include "pocs/partials/requirement_lifecycle.html" %}
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Description</p>
+      {% if req.description %}
+        <p class="text-sm text-ink whitespace-pre-wrap">{{ req.description }}</p>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No description.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Validation criteria</p>
+      {% if req.validation_criteria %}
+        <div class="prose prose-sm max-w-none text-ink">{{ req.validation_criteria|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">None.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked use cases</p>
+      {% if req.use_cases.exists %}
+        <div class="flex flex-wrap gap-1.5">
+          {% for uc in req.use_cases.all %}
+            <button type="button"
+                    onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+              <i data-lucide="link" class="w-3 h-3"></i>{{ uc.code }} · {{ uc.title }}
+            </button>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No linked use cases.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Linked tasks</p>
+      {% if req.tasks.exists %}
+        <div class="flex flex-wrap gap-1.5">
+          {% for t in req.tasks.all %}
+            {# Tasks now live only in the dedicated workspace (spec item 4). #}
+            <a href="{% url 'pocs:tasks' %}#task-{{ t.id }}"
+               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft"
+               title="{{ t.get_status_display }}">
+              <i data-lucide="check-square" class="w-3 h-3"></i>{{ t.title }}
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No linked tasks.</p>
+      {% endif %}
+    </div>
+
+    {% if req.reference_documentations %}
+      <div>
+        <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Reference documentation</p>
+        <div class="prose prose-sm max-w-none text-ink">{{ req.reference_documentations|markdownify }}</div>
+      </div>
+    {% endif %}
+
+    <div>
+      <p class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">Remarks</p>
+      {% if req.remarks %}
+        <div class="prose prose-sm max-w-none text-ink">{{ req.remarks|markdownify }}</div>
+      {% else %}
+        <p class="text-sm text-ink-muted italic">No remarks.</p>
+      {% endif %}
+    </div>
+
+    <div class="border-t border-line pt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-muted">
+      <span>Created by {{ req.created_by }} · {{ req.created_date|date:"d M Y, H:i" }}</span>
+      {% if req.modified_by %}<span>Last modified by {{ req.modified_by }} · {{ req.modified_date|date:"d M Y, H:i" }}</span>{% endif %}
+    </div>
+  </div>
+
+  {% include "pocs/partials/comment_thread.html" with target=req target_kind=comment_target %}
+</div>
+{% endblock %}

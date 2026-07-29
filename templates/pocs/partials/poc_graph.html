@@ -1,0 +1,44 @@
+{% load static %}
+{% comment %}
+Obsidian-style map of the POC: POC -> Use Cases -> Requirements -> Tests.
+Scroll to zoom, drag the background to pan, drag a node to reposition it,
+click a node to read it (opens the same preview used elsewhere, or the test's
+row on its phase page). Context: poc.
+{% endcomment %}
+<div class="bg-surface border border-line rounded-xl p-4"
+     x-data
+     x-init="
+       $nextTick(() => {
+         const g = initPocGraph($refs.graphHost, '{% url 'pocs:poc_graph_data' poc.pk %}');
+         g.onClick(function (node) {
+           if (node.type === 'poc') return;
+           if (node.url) { openEntityPreview(node.url, node.detailUrl || null, node.detailLabel || null); return; }
+         });
+         $refs.resetBtn.addEventListener('click', () => g.resetView());
+       })
+     ">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="font-medium text-ink flex items-center gap-2"><i data-lucide="git-fork" class="w-4 h-4"></i> Map</h2>
+    <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+        <span class="inline-flex items-center gap-1" title="POC: active AND every use case green. Use case: every requirement green. Requirement: every linked test passed. Test: passed.">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand"></span>Active + all green / Passed / All green
+        </span>
+        <span class="inline-flex items-center gap-1" title="POC: not active, or active with a use case not fully green yet. Use case: not every requirement is green yet. Requirement: a linked test was skipped.">
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#f59e0b"></span>Draft or partial / Skipped
+        </span>
+        <span class="inline-flex items-center gap-1" title="Use case: an MVP (&quot;Imposes&quot;) requirement is red — a non-MVP one being red does not turn the use case red. Requirement: a linked test failed. Test: not passed.">
+          <span class="w-2.5 h-2.5 rounded-full bg-danger"></span>MVP requirement failed / Not passed
+        </span>
+        <span class="inline-flex items-center gap-1" title="No linked items yet, or none decided either way.">
+          <span class="w-2.5 h-2.5 rounded-full bg-line border border-ink-muted/40"></span>Latent / Not tested
+        </span>
+      </div>
+      <button type="button" x-ref="resetBtn" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line text-xs font-medium text-ink-muted hover:text-ink hover:bg-canvas shrink-0">
+        <i data-lucide="scan" class="w-3.5 h-3.5"></i> Reset view
+      </button>
+    </div>
+  </div>
+  <p class="text-xs text-ink-muted mb-2">POC → Use Cases → Requirements → Tests. Scroll to zoom, drag the background to pan, drag a node to move it, click a node to read it.</p>
+  <div x-ref="graphHost" class="rounded-lg border border-line bg-canvas/40 overflow-hidden"></div>
+</div>
