@@ -103,8 +103,12 @@
 {% block extra_body %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
   <script>
-    // Mount EasyMDE on the description textarea.
+    // Mount EasyMDE on the description textarea. This one keeps a bespoke
+    // toolbar (it has 'table'), so it claims the textarea with the same marker
+    // static/js/markdown_editor.js uses — otherwise the app-wide mounter would
+    // add a second editor on top of this one.
     const descEl = document.getElementById('{{ form.description.id_for_label }}');
+    if (descEl) descEl.setAttribute('data-mde-mounted', 'true');
     if (descEl && window.EasyMDE) {
       const mde = new EasyMDE({
         element: descEl,

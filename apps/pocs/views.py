@@ -3008,6 +3008,21 @@ def usecase_import_template(request, pk):
     return response
 
 
+def test_markdown(request, pk):
+    """Download one Test's full form as ``.md`` (spec: hand a test to a report,
+    a ticket or an LLM without retyping it). Same membership gate as the
+    detail page it is offered from."""
+    test = get_object_or_404(Test.objects.select_related("phase__poc"), pk=pk)
+    if not user_is_poc_member(request.user, test.phase.poc):
+        raise PermissionDenied
+    from .services import build_test_export_md
+
+    filename = f"{test.test_code or 'test'}.md"
+    response = HttpResponse(build_test_export_md(test), content_type="text/markdown")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 def requirement_export(request, pk):
     """Download every current Requirement of this POC as .xlsx or .md
     (``?format=``, defaults to xlsx) — edit it and re-upload via the importer

@@ -136,7 +136,10 @@
 {% block extra_body %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
   <script>
+    // Claims the textarea with the marker static/js/markdown_editor.js checks,
+    // so the app-wide mounter doesn't stack a second editor on this one.
     const descEl = document.getElementById('{{ form.description.id_for_label }}');
+    if (descEl) descEl.setAttribute('data-mde-mounted', 'true');
     if (descEl && window.EasyMDE) {
       const mde = new EasyMDE({ element: descEl, spellChecker: false, status: false, minHeight: '140px',
         toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });

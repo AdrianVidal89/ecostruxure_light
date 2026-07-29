@@ -1741,6 +1741,72 @@ class TestReportMarkdownTests(TestCase):
         self.assertIn("**Target date:**", md)
 
 
+class TestMarkdownExportTests(TestCase):
+    """Downloading one test's full form as .md, offered from its detail page."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            "tme_admin", password="x", is_active=True, role=User.Role.ADMIN
+        )
+        self.outsider = User.objects.create_user(
+            "tme_out", password="x", is_active=True, role=User.Role.TEAM_MEMBER
+        )
+        self.poc = POC.objects.create(name="TME POC", created_by=self.admin, status="active")
+        self.phase = Phase.objects.create(
+            poc=self.poc, name="System Testing", order=1, kind=PhaseKind.TEST
+        )
+        self.test = Test.objects.create(
+            phase=self.phase,
+            test_code="ST-001",
+            title="Gas Generator Failure",
+            description="Cut the gas plant feed.",
+            acceptance_criteria="BESS covers the shortfall.",
+            expected_result="Grid fallback within 5 s.",
+            execution_status=Test.ExecutionStatus.TEST_COMPLETED,
+            result=Test.Result.PASSED,
+        )
+
+    def test_download_carries_definition_and_outcome(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("pocs:test_markdown", args=[self.test.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/markdown")
+        self.assertIn('filename="ST-001.md"', response["Content-Disposition"])
+        body = response.content.decode("utf-8")
+        self.assertIn("# ST-001 — Gas Generator Failure", body)
+        self.assertIn("Cut the gas plant feed.", body)
+        self.assertIn("BESS covers the shortfall.", body)
+        self.assertIn("Grid fallback within 5 s.", body)
+        # The outcome matters as much as the definition — a test read without
+        # it is only half the story.
+        self.assertIn("**Execution status:** Test completed", body)
+        self.assertIn("**Result:** Passed", body)
+
+    def test_empty_fields_are_skipped_not_emitted_blank(self):
+        bare = Test.objects.create(phase=self.phase, test_code="ST-002", title="Bare")
+        self.client.force_login(self.admin)
+        body = self.client.get(
+            reverse("pocs:test_markdown", args=[bare.pk])
+        ).content.decode("utf-8")
+        self.assertIn("# ST-002 — Bare", body)
+        self.assertNotIn("## Description", body)
+        self.assertNotIn("## Acceptance criteria", body)
+
+    def test_non_member_is_denied(self):
+        self.client.force_login(self.outsider)
+        response = self.client.get(reverse("pocs:test_markdown", args=[self.test.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_detail_page_offers_export_instead_of_open_full_page(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(
+            reverse("pocs:test_detail", args=[self.test.pk])
+        ).content.decode("utf-8")
+        # The maximize control would only link to the page being read.
+        self.assertNotIn("Open full page", html)
+        self.assertIn(reverse("pocs:test_markdown", args=[self.test.pk]), html)
+
+
 class Fase7TaskOrderingTests(TestCase):
     """Fase 7: due-date ordering (completed last)."""
 
