@@ -102,14 +102,25 @@ def navigation(request):
             "icon": "file-text",
             "available": True,
         },
+        {
+            "label": "AI tools",
+            "url_name": "ai:tools",
+            "icon": "atom",
+            "available": True,
+            "mega_only": True,
+        },
     ]
 
     # Hide admin-only entries from non-admins; hide validator-only entries from
-    # users with nothing to validate (unless admin).
+    # users with nothing to validate (unless admin); hide Mega-only entries from
+    # everyone but Mega Users — including admins, since being an admin does not
+    # imply having connected an AI provider.
+    is_mega = bool(authed and getattr(user, "is_mega_user", False))
     visible = [
         i
         for i in nav_items
         if (not i.get("admin_only") or is_admin)
+        and (not i.get("mega_only") or is_mega)
         and (
             not i.get("show_if_badge_or_admin")
             or is_admin
@@ -124,6 +135,8 @@ def navigation(request):
         "validation_count": validation_count,
         "comment_count": comment_count,
         "branding": _branding(),
+        "is_mega_user": is_mega,
+        "mega_theme": bool(authed and getattr(user, "shows_mega_theme", False)),
     }
 
 

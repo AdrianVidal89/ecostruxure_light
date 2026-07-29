@@ -56,6 +56,11 @@
                 {% else %}bg-line text-ink-muted{% endif %}">
                 {{ u.get_role_display }}
               </span>
+              {% if u.is_mega_user %}
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand/10 text-brand-dark ml-1" title="Has access to the AI tools workspace">
+                  <i data-lucide="atom" class="w-3.5 h-3.5"></i> Mega
+                </span>
+              {% endif %}
             </td>
             <td class="px-4 py-3">
               {% if u.is_active %}
