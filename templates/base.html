@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full overflow-hidden">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -238,7 +238,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="h-full bg-canvas text-ink font-sans antialiased"
+<body class="h-full overflow-hidden bg-canvas text-ink font-sans antialiased"
       x-data="{ sidebarOpen: {% block sidebar_default_open %}true{% endblock %} }"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
