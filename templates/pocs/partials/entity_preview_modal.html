@@ -11,9 +11,9 @@ pushes a breadcrumb trail (#entity-preview-trail) instead of replacing the
 view outright — "Back" (#entity-preview-back) restores the previous context
 so the user never loses their place (e.g. Test -> Requirement -> Test again).
 {% endcomment %}
-<div id="entity-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+<div id="entity-preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 opacity-0 transition-opacity duration-200 ease-out"
      onclick="if (event.target === this) closeEntityPreview();">
-  <div class="bg-surface-elevated rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8" onclick="event.stopPropagation();">
+  <div id="entity-preview-panel" class="bg-surface-elevated rounded-xl shadow-xl max-w-5xl w-full min-h-[80vh] max-h-[92vh] overflow-y-auto p-8 opacity-0 scale-95 transition duration-200 ease-out" onclick="event.stopPropagation();">
     <div class="flex items-center justify-between gap-3 mb-4">
       <div class="flex items-center gap-2 min-w-0 flex-1">
         <button type="button" id="entity-preview-back" onclick="goBackEntityPreview();"

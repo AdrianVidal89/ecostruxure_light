@@ -227,6 +227,10 @@
     });
   </script>
 
+  {# EasyMDE (Markdown editor) — loaded globally: the Requirement/Use Case edit
+     form can be swapped into the entity-preview modal on any page, not just
+     spec_form.html, so it can't rely on a page-local extra_head/extra_body block. #}
+  <link rel="stylesheet" href="{% static 'vendor/easymde.min.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 
@@ -422,6 +426,18 @@
   {# Drag-and-drop file selection (avoids the blocked native file dialog). #}
   <script src="{% static 'js/filedrop.js' %}"></script>
 
+  {# EasyMDE (Markdown editor) JS + mount helper — see the CSS comment in <head>.
+     Mounted on normal page load AND after the entity-preview modal swaps in
+     an edit form via htmx (spec_form_fields.html has no extra_body of its own). #}
+  <script src="{% static 'vendor/easymde.min.js' %}"></script>
+  <script src="{% static 'js/markdown_editor.js' %}"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () { window.mountMarkdownEditors(document); });
+    document.body.addEventListener('htmx:afterSettle', function (evt) {
+      if (evt.target && evt.target.id === 'entity-preview-body') window.mountMarkdownEditors(evt.target);
+    });
+  </script>
+
   {# Shared read-only preview popup for Use Case / Requirement / Test / section links (see static/js/entity_preview.js). #}
   {% include "pocs/partials/entity_preview_modal.html" %}
   {% comment %}
@@ -430,7 +446,7 @@
     a manual cache-buster a browser can keep serving a stale cached copy across
     deploys (this is what made a just-shipped fix look like it "didn't appear").
   {% endcomment %}
-  <script src="{% static 'js/entity_preview.js' %}?v=2"></script>
+  <script src="{% static 'js/entity_preview.js' %}?v=3"></script>
 
   {# Shared "view large without leaving the tool" popup for uploaded PDFs/SVGs (see static/js/file_preview.js). #}
   {% include "components/file_preview_modal.html" %}

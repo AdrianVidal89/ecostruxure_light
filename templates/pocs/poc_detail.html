@@ -108,16 +108,7 @@
     </div>
   {% endif %}
 
-  {# Tabs #}
-  <div class="border-b border-line flex gap-1 overflow-x-auto">
-    {% for key, label in tabs %}
-      <button @click="tab = '{{ key }}'"
-              :class="tab === '{{ key }}' ? 'border-brand text-brand-dark' : 'border-transparent text-ink-muted hover:text-ink'"
-              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-soft whitespace-nowrap">
-        {{ label }}
-      </button>
-    {% endfor %}
-  </div>
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs spa_mode=True %}
 
   {# ---------- Overview ---------- #}
   <section x-show="tab === 'overview'" x-cloak class="space-y-6">
@@ -409,9 +400,10 @@
                 </div>
               </div>
               <div class="flex items-center gap-1 shrink-0">
-                <a href="{% url 'pocs:usecase_detail' uc.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></a>
+                <button type="button"
+                        onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                        class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
                 {% if can_manage %}
-                  <a href="{% url 'pocs:usecase_edit' uc.pk %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
                   <form method="post" action="{% url 'pocs:usecase_delete' uc.pk %}" onsubmit="return confirm('Delete use case “{{ uc.code|escapejs }}”?');" class="contents">
                     {% csrf_token %}
                     <button type="submit" class="p-1.5 rounded-lg text-ink-muted hover:text-danger hover:bg-canvas" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
@@ -453,11 +445,37 @@
     </div>
 
     {# Requirements #}
-    <div class="space-y-3" x-data="{ tableOpen: false, pendingReqModalOpen: false, assignedReqModalOpen: false }">
+    <div class="space-y-3"
+         x-data="{
+           tableOpen: false, pendingReqModalOpen: false, assignedReqModalOpen: false,
+           showFilters: false,
+           filters: { q: '', gravity: '', lifecycle: '' },
+           rows: [],
+           init() { this.rows = Array.from(this.$refs.reqGrid.querySelectorAll('[data-req-card]')); },
+           matches(el) {
+             const d = el.dataset;
+             const f = this.filters;
+             if (f.q && !d.reqid.toLowerCase().includes(f.q.toLowerCase()) && !d.subsystem.toLowerCase().includes(f.q.toLowerCase())) return false;
+             if (f.gravity && d.gravity !== f.gravity) return false;
+             if (f.lifecycle && d.lifecycle !== f.lifecycle) return false;
+             return true;
+           },
+           get anyVisible() { return this.rows.some(el => this.matches(el)); },
+           get activeFilterCount() { return Object.values(this.filters).filter(v => v).length; },
+           clearFilters() { this.filters = { q: '', gravity: '', lifecycle: '' }; },
+         }">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold text-ink">Requirements</h2>
         <div class="flex items-center gap-2">
           {% if requirements %}
+            <button type="button" @click="showFilters = !showFilters"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line text-sm font-medium text-ink-muted hover:text-ink hover:bg-surface"
+                    :class="showFilters && 'bg-surface text-ink'">
+              <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Filters
+              <span x-show="activeFilterCount > 0" x-cloak
+                    class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand/10 text-brand-dark text-xs font-semibold"
+                    x-text="activeFilterCount"></span>
+            </button>
             <button type="button" @click="tableOpen = true"
                     class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm font-medium hover:bg-surface">
               <i data-lucide="table" class="w-4 h-4"></i> Open table ({{ requirements|length }})
@@ -502,39 +520,75 @@
         </div>
       {% endif %}
 
-      {# Quick-read list: every requirement, OSPI Code + description + validation criteria + linked UC(s), for fast scanning without opening each one. #}
+      <div x-show="showFilters" x-cloak x-transition
+           class="bg-surface border border-line rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <input type="text" x-model="filters.q" placeholder="Search OSPI code or sub-system…"
+               class="px-3 py-1.5 rounded-lg border border-line text-sm w-56">
+        <select x-model="filters.gravity" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+          <option value="">Gravity: all</option>
+          {% for value, label in requirement_filter_fields.req_gravity %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select x-model="filters.lifecycle" class="px-3 py-1.5 rounded-lg border border-line text-sm">
+          <option value="">Lifecycle Status: all</option>
+          {% for value, label in requirement_filter_fields.life_cycle_phase %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" @click="clearFilters()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-ink hover:bg-canvas">
+          Clear filters
+        </button>
+      </div>
+
+      {# Requirement cards — same 2-column grid scheme as Use Cases: title, description and validation criteria at a glance, click to open the detail modal. #}
       {% if requirements %}
-        <div class="bg-surface border border-line rounded-xl">
-          <div class="px-4 py-2.5 border-b border-line">
-            <p class="text-sm font-semibold text-ink">All requirements — quick read</p>
-          </div>
-          <div class="divide-y divide-line max-h-[36rem] overflow-y-auto">
-            {% for req in requirements %}
-              <div class="p-4 space-y-1.5">
-                <div class="flex items-center justify-between gap-2 flex-wrap">
-                  <button type="button"
-                          onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')"
-                          class="text-sm font-semibold text-ink hover:text-brand-dark hover:underline" title="OSPI Code">
-                    {{ req.req_id }}
-                  </button>
-                  <div class="flex flex-wrap gap-1">
-                    {% for uc in req.use_cases.all %}
-                      <button type="button"
-                              onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
-                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
-                        <i data-lucide="link" class="w-3 h-3 shrink-0"></i> {{ uc.code }}
-                      </button>
-                    {% empty %}
-                      <span class="text-xs text-ink-muted">No linked UC</span>
-                    {% endfor %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" x-ref="reqGrid">
+          {% for req in requirements %}
+            <div class="bg-surface border rounded-xl p-4 cursor-pointer hover:border-brand transition-soft {% if req.has_open_comment %}border-warning ring-2 ring-warning/40{% else %}border-line{% endif %}"
+                 data-req-card x-show="matches($el)"
+                 data-reqid="{{ req.req_id }}" data-subsystem="{{ req.sub_system }}"
+                 data-gravity="{{ req.req_gravity }}" data-lifecycle="{{ req.life_cycle_phase }}"
+                 onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <p class="font-medium text-ink"><span class="text-xs font-mono text-ink-muted mr-1">{{ req.req_id }}</span>{{ req.sub_system }}</p>
+                  <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_req_gravity_display }}</span>
+                    <span class="px-2 py-0.5 rounded-full bg-canvas border border-line text-ink-muted">{{ req.get_life_cycle_phase_display }}</span>
+                    {% if req.is_validated %}
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand/10 text-brand-dark"><i data-lucide="check" class="w-3.5 h-3.5"></i> Validated</span>
+                    {% endif %}
+                    {% if req.has_open_comment %}
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning" title="Awaiting Lead Ack"><i data-lucide="message-square-warning" class="w-3.5 h-3.5"></i> Open comment</span>
+                    {% endif %}
                   </div>
                 </div>
-                {% if req.description %}<p class="text-sm text-ink-muted">{{ req.description }}</p>{% endif %}
-                {% if req.validation_criteria %}
-                  <p class="text-xs text-ink-muted"><span class="font-medium text-ink">Validation criteria:</span> {{ req.validation_criteria }}</p>
-                {% endif %}
+                <i data-lucide="eye" class="w-4 h-4 text-ink-muted shrink-0"></i>
               </div>
-            {% endfor %}
+              {% if req.description %}<div class="prose prose-sm max-w-none text-ink-muted mt-2 line-clamp-3">{{ req.description|markdownify }}</div>{% endif %}
+              {% if req.validation_criteria %}
+                <div class="mt-2">
+                  <p class="text-xs font-medium text-ink-muted uppercase tracking-wide">Validation criteria</p>
+                  <div class="prose prose-sm max-w-none text-ink-muted line-clamp-2">{{ req.validation_criteria|markdownify }}</div>
+                </div>
+              {% endif %}
+              <div class="mt-2 flex flex-wrap items-center gap-1.5" onclick="event.stopPropagation();">
+                {% for uc in req.use_cases.all %}
+                  <button type="button"
+                          onclick="openEntityPreview('{% url 'pocs:usecase_preview' uc.pk %}', '{% url 'pocs:usecase_detail' uc.pk %}', 'Go to Use Case')"
+                          class="inline-flex items-center gap-1 max-w-[14rem] px-2 py-0.5 rounded-full text-sm bg-canvas border border-line text-ink hover:border-brand hover:text-brand-dark transition-soft">
+                    <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
+                    <span class="truncate min-w-0">{{ uc.code }}</span>
+                  </button>
+                {% empty %}
+                  <span class="text-xs text-ink-muted">No linked use cases</span>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+          <div x-show="!anyVisible" x-cloak class="md:col-span-2 p-8 text-center text-sm text-ink-muted">
+            No requirements match the current filters.
           </div>
         </div>
       {% endif %}

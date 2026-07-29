@@ -12,6 +12,7 @@
 
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-6">
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs active_tab=active_tab %}
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0">
       <p class="text-xs font-mono text-ink-muted">{{ usecase.code }}</p>

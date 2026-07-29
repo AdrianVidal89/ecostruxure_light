@@ -29,6 +29,13 @@
       {% endif %}
       {% if usecase.actor %}<span class="text-ink-muted inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5"></i>{{ usecase.actor }}</span>{% endif %}
     </div>
+    {% if can_manage %}
+      <button type="button"
+              hx-get="{% url 'pocs:usecase_edit' usecase.pk %}" hx-target="#entity-preview-body" hx-swap="innerHTML"
+              class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+        <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Edit
+      </button>
+    {% endif %}
   </div>
 
   <div>
@@ -63,4 +70,6 @@
       <div class="prose prose-sm max-w-none text-ink">{{ usecase.remarks|markdownify }}</div>
     </div>
   {% endif %}
+
+  {% include "pocs/partials/comment_thread.html" with target=usecase target_kind="usecase" comments=comments comment_form=comment_form %}
 </div>
