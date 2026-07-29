@@ -14,7 +14,13 @@ never scrolls out of reach. Two render modes:
 Context: poc, tabs (list of (key, label)), active_tab (link mode only),
 spa_mode (optional, default False).
 {% endcomment %}
-<div class="sticky top-0 z-30 -mx-6 px-6 py-2 bg-canvas/90 backdrop-blur supports-[backdrop-filter]:bg-canvas/70 border-b border-line flex gap-1 overflow-x-auto">
+{% comment %}
+``-top-6`` (not ``top-0``): the scroll container is <main> in base.html, which
+carries ``p-6``. A sticky ``top-0`` pins to the *content* box, leaving a 24px
+transparent gap under the topbar that page content scrolls through. Pulling the
+stick point up by that same 24px pins the bar flush against the topbar.
+{% endcomment %}
+<div class="sticky -top-6 z-30 -mx-6 px-6 py-2 bg-canvas/90 backdrop-blur supports-[backdrop-filter]:bg-canvas/70 border-b border-line flex gap-1 overflow-x-auto">
   {% for key, label in tabs %}
     {% if spa_mode %}
       <button @click="tab = '{{ key }}'"
