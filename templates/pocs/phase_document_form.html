@@ -112,6 +112,11 @@
   <script>
   (function () {
     const contentEl = document.getElementById('{{ form.content.id_for_label }}');
+    // Claim it with the marker static/js/markdown_editor.js checks, before the
+    // early return below: this editor has a bespoke toolbar (image upload), and
+    // a locked section must stay a plain textarea — in both cases the app-wide
+    // mounter must keep its hands off.
+    if (contentEl) contentEl.setAttribute('data-mde-mounted', 'true');
     // Locked (Use Cases/Requirements) sections keep the plain, disabled textarea —
     // EasyMDE's own editing surface would otherwise ignore the disabled attribute.
     if (!contentEl || contentEl.disabled || !window.EasyMDE) return;

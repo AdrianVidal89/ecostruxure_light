@@ -176,6 +176,60 @@ def _usecases_section_markdown(poc):
     return "\n".join(lines).rstrip()
 
 
+def build_test_export_md(test):
+    """The complete test form as Markdown — everything the detail page shows.
+
+    Written for round-tripping into a report, a ticket or an LLM prompt, so it
+    carries the execution outcome and the linked requirements, not just the
+    definition: a test read without knowing whether it passed is only half the
+    story. Empty fields are skipped rather than emitted as blank headings.
+    """
+    heading = f"{test.test_code} — {test.title}" if test.test_code else test.title
+    lines = [f"# {heading}", ""]
+
+    poc = test.phase.poc
+    meta = [
+        ("POC", poc.name),
+        ("Phase", test.phase.name),
+        ("Assigned to", _user_label(test.assigned_to)),
+        ("Target date", test.target_date.isoformat() if test.target_date else ""),
+        ("Execution status", test.get_execution_status_display()),
+        ("Result", test.get_result_display() if test.result else ""),
+        ("Executed at", test.executed_at.strftime("%Y-%m-%d %H:%M") if test.executed_at else ""),
+        ("Executed by", _user_label(test.executed_by)),
+        ("Evidence URL", test.evidence_url or ""),
+    ]
+    for label, value in meta:
+        if value:
+            lines.append(f"**{label}:** {value}")
+    lines.append("")
+
+    for label, value in (
+        ("Description", test.description),
+        ("Acceptance criteria", test.acceptance_criteria),
+        ("Expected result", test.expected_result),
+        ("Actual result / notes", test.actual_result),
+    ):
+        if value:
+            lines += [f"## {label}", "", value, ""]
+
+    requirements = list(test.requirements.all())
+    if requirements:
+        lines += ["## Verified requirements", ""]
+        for req in requirements:
+            suffix = f" — {req.sub_system}" if req.sub_system else ""
+            lines.append(f"- **{req.req_id}**{suffix}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _user_label(user):
+    if not user:
+        return ""
+    return user.get_full_name() or user.username
+
+
 def locked_section_markdown(poc, section_kind):
     """Live Markdown for a locked (Use Cases/Requirements) FA section."""
     if section_kind == FunctionalAnalysisStep.SectionKind.REQUIREMENTS:

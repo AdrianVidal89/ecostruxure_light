@@ -10,7 +10,14 @@
  * fetched once, lazily, the first time mountMarkdownEditors() actually finds
  * a textarea to mount, using the URLs base.html exposes as
  * window.EASYMDE_CSS_URL / window.EASYMDE_JS_URL ({% static %} can't be
- * resolved from a plain .js file). */
+ * resolved from a plain .js file).
+ *
+ * ``data-mde-mounted`` is the opt-out contract, not just internal bookkeeping:
+ * a page that mounts its own EasyMDE with a bespoke toolbar (poc_form,
+ * task_form, phase_document_form) sets it on the textarea while parsing, and
+ * this mounter then leaves that field alone. Without it both run and EasyMDE
+ * builds a second CodeMirror on the same textarea — two stacked, mirrored
+ * editors per field, which is exactly the bug this note exists to prevent. */
 (function () {
   var assetsPromise = null;
 
