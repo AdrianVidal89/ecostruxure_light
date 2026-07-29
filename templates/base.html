@@ -227,10 +227,14 @@
     });
   </script>
 
-  {# EasyMDE (Markdown editor) — loaded globally: the Requirement/Use Case edit
-     form can be swapped into the entity-preview modal on any page, not just
-     spec_form.html, so it can't rely on a page-local extra_head/extra_body block. #}
-  <link rel="stylesheet" href="{% static 'vendor/easymde.min.css' %}">
+  {% comment %} EasyMDE (Markdown editor) vendor CSS/JS aren't loaded here —
+     most pages never show one. static/js/markdown_editor.js lazily injects
+     them (using these URLs — a plain .js file can't call {% static %} itself)
+     the first time it actually finds a .md-editor textarea to mount. {% endcomment %}
+  <script>
+    window.EASYMDE_CSS_URL = "{% static 'vendor/easymde.min.css' %}";
+    window.EASYMDE_JS_URL = "{% static 'vendor/easymde.min.js' %}";
+  </script>
   {% block extra_head %}{% endblock %}
 </head>
 
@@ -426,17 +430,11 @@
   {# Drag-and-drop file selection (avoids the blocked native file dialog). #}
   <script src="{% static 'js/filedrop.js' %}"></script>
 
-  {# EasyMDE (Markdown editor) JS + mount helper — see the CSS comment in <head>.
-     Mounted on normal page load AND after the entity-preview modal swaps in
-     an edit form via htmx (spec_form_fields.html has no extra_body of its own). #}
-  <script src="{% static 'vendor/easymde.min.js' %}"></script>
+  {% comment %} EasyMDE mount helper (see the comment in <head>) — self-wiring,
+     loaded on every page (tiny, no vendor weight of its own): mounts on
+     DOMContentLoaded (spec_form.html) and after the entity-preview modal
+     swaps in an edit form via htmx (spec_form_fields.html). {% endcomment %}
   <script src="{% static 'js/markdown_editor.js' %}"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', function () { window.mountMarkdownEditors(document); });
-    document.body.addEventListener('htmx:afterSettle', function (evt) {
-      if (evt.target && evt.target.id === 'entity-preview-body') window.mountMarkdownEditors(evt.target);
-    });
-  </script>
 
   {# Shared read-only preview popup for Use Case / Requirement / Test / section links (see static/js/entity_preview.js). #}
   {% include "pocs/partials/entity_preview_modal.html" %}
