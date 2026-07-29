@@ -183,7 +183,28 @@
   </section>
 
   {# ---------- Requirements & Use Cases ---------- #}
-  <section x-show="tab === 'specs'" x-cloak class="space-y-8">
+  <section x-show="tab === 'specs'" x-cloak class="space-y-8" x-data="{ search: '' }">
+
+    {% comment %}
+    Cross-cutting search: one box for BOTH lists, so content can be cross-checked
+    between use cases and requirements in a single pass. It matches the full text
+    (code/id, title/sub-system, description and validation criteria — see each
+    card's ``data-search``), not just the heading, which is the whole point:
+    finding where the same wording appears on either side. It lives above the
+    lists on purpose — the per-list "Filters" panels stay collapsed and keep
+    their own narrow, structured filters.
+    {% endcomment %}
+    <div class="relative">
+      <i data-lucide="search" class="w-5 h-5 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+      <input type="search" x-model.debounce.200ms="search"
+             placeholder="Search use cases and requirements — title, code and description…"
+             class="w-full pl-11 pr-10 py-3 rounded-xl border border-line bg-surface text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-soft">
+      <button type="button" x-show="search" x-cloak @click="search = ''"
+              class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas"
+              title="Clear search">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
 
     {# Contextual guideline / help (spec Fase 10b) #}
     <div class="bg-info/5 border border-info/30 rounded-xl p-4" x-data="{ open: false }">
@@ -234,6 +255,8 @@
            matches(el) {
              const d = el.dataset;
              const f = this.filters;
+             const s = (this.search || '').trim().toLowerCase();
+             if (s && !d.search.includes(s)) return false;
              if (f.q && !d.title.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
              if (f.status && d.status !== f.status) return false;
              if (f.priority && d.priority !== f.priority) return false;
@@ -379,7 +402,9 @@
           <div class="bg-surface border rounded-xl p-4 {% if uc.has_open_comment %}border-warning ring-2 ring-warning/40{% else %}border-line{% endif %}" x-data="{ showAllReqs: false }"
                data-uc-card x-show="matches($el)"
                data-code="{{ uc.code }}" data-title="{{ uc.title }}" data-status="{{ uc.status }}"
-               data-priority="{{ uc.priority }}" data-approved="{% if uc.is_approved %}yes{% else %}no{% endif %}">
+               data-priority="{{ uc.priority }}" data-approved="{% if uc.is_approved %}yes{% else %}no{% endif %}"
+               {# Pre-lowercased haystack for the cross-cutting search at the top of the tab. #}
+               data-search="{{ uc.code|lower }} {{ uc.title|lower }} {{ uc.actor|lower }} {{ uc.description|striptags|lower }}">
             <div class="flex items-start gap-3">
               {% if can_manage %}
                 <input type="checkbox" name="usecase_ids" value="{{ uc.pk }}" form="uc-bulk"
@@ -438,7 +463,7 @@
         {% endfor %}
         {% if use_cases %}
           <div x-show="!anyVisible" x-cloak class="md:col-span-2 p-8 text-center text-sm text-ink-muted">
-            No use cases match the current filters.
+            No use cases match the current search or filters.
           </div>
         {% endif %}
       </div>
@@ -455,6 +480,8 @@
            matches(el) {
              const d = el.dataset;
              const f = this.filters;
+             const s = (this.search || '').trim().toLowerCase();
+             if (s && !d.search.includes(s)) return false;
              if (f.q && !d.reqid.toLowerCase().includes(f.q.toLowerCase()) && !d.subsystem.toLowerCase().includes(f.q.toLowerCase())) return false;
              if (f.gravity && d.gravity !== f.gravity) return false;
              if (f.lifecycle && d.lifecycle !== f.lifecycle) return false;
@@ -549,6 +576,10 @@
                  data-req-card x-show="matches($el)"
                  data-reqid="{{ req.req_id }}" data-subsystem="{{ req.sub_system }}"
                  data-gravity="{{ req.req_gravity }}" data-lifecycle="{{ req.life_cycle_phase }}"
+                 {# Pre-lowercased haystack for the cross-cutting search at the top of the tab. #}
+                 data-search="{{ req.req_id|lower }} {{ req.sub_system|lower }} {{ req.description|striptags|lower }} {{ req.validation_criteria|striptags|lower }}"
+                 {# The card is not a cross-reference link — hovering it must not pop the hover card (the content is already on screen). #}
+                 data-no-hover-preview
                  onclick="openEntityPreview('{% url 'pocs:requirement_preview' req.pk %}', '{% url 'pocs:requirement_detail' req.pk %}', 'Go to Requirement')">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
@@ -588,7 +619,7 @@
             </div>
           {% endfor %}
           <div x-show="!anyVisible" x-cloak class="md:col-span-2 p-8 text-center text-sm text-ink-muted">
-            No requirements match the current filters.
+            No requirements match the current search or filters.
           </div>
         </div>
       {% endif %}
