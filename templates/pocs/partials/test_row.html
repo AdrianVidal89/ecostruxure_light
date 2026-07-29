@@ -2,8 +2,9 @@
 {% comment %}
 Single test row (#test-<id>). Re-rendered by HTMX after inline execution saves.
 Also reused as the body of the standalone test_detail.html page (spec item
-5) — the "Open full page" link is harmless there too (a permalink to the page
-you're already on). Context: test (with .can_execute, .can_validate),
+5), where the "Open full page" control would only point at the page you are
+already reading — so when ``expanded`` that slot carries the Markdown export
+instead. Context: test (with .can_execute, .can_validate),
 can_lead, test_execution_choices, test_result_choices, poc_requirements,
 exec_form (only set when a save failed), expanded (True on test_detail.html —
 opens the Description/Acceptance/Expected block immediately instead of
@@ -80,9 +81,16 @@ elements sharing one view-transition-name on the same document is invalid
     </div>
 
     <div class="flex items-center gap-1 shrink-0">
-      <a href="{% url 'pocs:test_detail' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Open full page">
-        <i data-lucide="maximize-2" class="w-4 h-4"></i>
-      </a>
+      {% if expanded %}
+        {# Already on the full page — offer the export instead of a link to here. #}
+        <a href="{% url 'pocs:test_markdown' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Download this test as Markdown">
+          <i data-lucide="file-down" class="w-4 h-4"></i>
+        </a>
+      {% else %}
+        <a href="{% url 'pocs:test_detail' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Open full page">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </a>
+      {% endif %}
       {% if can_lead %}
         <a href="{% url 'pocs:test_edit' test.id %}" class="p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas" title="Edit">
           <i data-lucide="pencil" class="w-4 h-4"></i>

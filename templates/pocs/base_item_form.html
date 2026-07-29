@@ -39,17 +39,6 @@
 {% endblock %}
 
 {% block extra_body %}
+  {# Mounting is done app-wide by static/js/markdown_editor.js — doing it here too gave two editors per field. #}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
-  <script>
-    if (window.EasyMDE) {
-      document.querySelectorAll('textarea.md-editor').forEach(function (el) {
-        var mde = new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '100px',
-          toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
-        // CodeMirror never writes back to the original (now-hidden) textarea on
-        // its own — keep it live on every keystroke instead of only at submit,
-        // since a required field's native validation runs before 'submit' fires.
-        mde.codemirror.on('change', function () { mde.codemirror.save(); });
-      });
-    }
-  </script>
 {% endblock %}

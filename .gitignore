@@ -22,6 +22,14 @@ db.sqlite3-journal
 .env.*
 !.env.example
 
+# Database dumps. These carry real data — accounts_user password hashes,
+# django_session keys, and every customer's POC content — so they must never
+# be committed, no matter how convenient it is to move one between machines.
+# Use the in-app Backup page (core:db_backup) or scp instead.
+*.dump
+*.sql
+*.sql.gz
+
 # --- Editors / OS ---
 .vscode/
 .idea/
@@ -36,3 +44,5 @@ Thumbs.db
 # --- Claude/graphify local artifacts ---
 /CLAUDE.md
 /graphify-out/
+# Playwright MCP scratch output (screenshots/snapshots from debugging sessions).
+/.playwright-mcp/

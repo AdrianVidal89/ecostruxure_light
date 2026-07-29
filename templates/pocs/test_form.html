@@ -119,18 +119,12 @@
 {% endblock %}
 
 {% block extra_body %}
+  {% comment %}
+  Only the vendor bundle: static/js/markdown_editor.js (loaded app-wide from
+  base.html) does the mounting for every ``.md-editor`` textarea. Mounting them
+  here as well produced TWO stacked editors per field — EasyMDE happily builds a
+  second CodeMirror on the same textarea, and its own guard lives in the shared
+  script, not here.
+  {% endcomment %}
   <script src="{% static 'vendor/easymde.min.js' %}"></script>
-  <script>
-    // Mount EasyMDE on every Markdown textarea (.md-editor).
-    if (window.EasyMDE) {
-      document.querySelectorAll('textarea.md-editor').forEach(function (el) {
-        var mde = new EasyMDE({ element: el, spellChecker: false, status: false, minHeight: '120px',
-          toolbar: ['bold','italic','heading','|','unordered-list','ordered-list','link','code','|','preview','guide'] });
-        // CodeMirror never writes back to the original (now-hidden) textarea on
-        // its own — keep it live on every keystroke instead of only at submit,
-        // since a required field's native validation runs before 'submit' fires.
-        mde.codemirror.on('change', function () { mde.codemirror.save(); });
-      });
-    }
-  </script>
 {% endblock %}
