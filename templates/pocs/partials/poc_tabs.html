@@ -1,0 +1,38 @@
+{% comment %}
+The POC's own tab bar (Overview / Use Cases & Requirements / Phases / Tests /
+Team / Audit Log / Reports), sticky at the top of the scroll container so it
+never scrolls out of reach. Two render modes:
+
+- SPA mode (spa_mode=True, poc_detail.html only): today's Alpine buttons —
+  ``tab`` is a client-only var, no navigation, unchanged behaviour.
+- Link mode (the default — usecase_detail.html, requirement_detail.html,
+  phase_detail.html, test_detail.html): plain links back to
+  ``pocs:detail?tab=<key>``, active tab decided server-side by ``active_tab``.
+  poc_detail.html's own Alpine tab state already reads ``?tab=`` on load
+  (see poc_detail.html), so a link-mode click lands on the right tab for free.
+
+Context: poc, tabs (list of (key, label)), active_tab (link mode only),
+spa_mode (optional, default False).
+{% endcomment %}
+{% comment %}
+``-top-6`` (not ``top-0``): the scroll container is <main> in base.html, which
+carries ``p-6``. A sticky ``top-0`` pins to the *content* box, leaving a 24px
+transparent gap under the topbar that page content scrolls through. Pulling the
+stick point up by that same 24px pins the bar flush against the topbar.
+{% endcomment %}
+<div class="sticky -top-6 z-30 -mx-6 px-6 py-2 bg-canvas/90 backdrop-blur supports-[backdrop-filter]:bg-canvas/70 border-b border-line flex gap-1 overflow-x-auto">
+  {% for key, label in tabs %}
+    {% if spa_mode %}
+      <button @click="tab = '{{ key }}'"
+              :class="tab === '{{ key }}' ? 'border-brand text-brand-dark' : 'border-transparent text-ink-muted hover:text-ink'"
+              class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-soft whitespace-nowrap">
+        {{ label }}
+      </button>
+    {% else %}
+      <a href="{% url 'pocs:detail' poc.pk %}?tab={{ key }}"
+         class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-soft whitespace-nowrap {% if key == active_tab %}border-brand text-brand-dark{% else %}border-transparent text-ink-muted hover:text-ink{% endif %}">
+        {{ label }}
+      </a>
+    {% endif %}
+  {% endfor %}
+</div>

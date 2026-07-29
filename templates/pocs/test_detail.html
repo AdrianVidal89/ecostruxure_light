@@ -23,6 +23,8 @@ so execution/notes/comments editing behaves identically to the phase page.
 
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-6">
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs active_tab=active_tab %}
+
   {% url 'pocs:phase_detail' phase.pk as back_url %}
   {% include "pocs/partials/back_button.html" with url=back_url label=phase.name plain=True icon="minimize-2" %}
 

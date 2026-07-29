@@ -416,6 +416,20 @@ class POCDeleteView(AdminRequiredMixin, View):
         return redirect("pocs:list")
 
 
+# The POC's own tab bar (spa buttons on POCDetailView itself, plain links
+# back to it on the detail pages one level down — see poc_tabs.html) — one
+# shared list so both render modes always agree on the tabs/labels/order.
+POC_TABS = [
+    ("overview", "Overview"),
+    ("specs", "Use Cases & Requirements"),
+    ("phases", "Phases"),
+    ("tests", "Tests"),
+    ("team", "Team"),
+    ("audit", "Audit Log"),
+    ("reports", "Reports"),
+]
+
+
 class POCDetailView(POCMemberRequiredMixin, DetailView):
     """POC detail with tabs. Visible to members and admins.
 
@@ -589,6 +603,45 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
             "status": UseCase.Status.choices,
             "priority": UseCase.Priority.choices,
         }
+        # Haystack for the cross-cutting search box on the Use Cases &
+        # Requirements tab (static/js/specs_search.js). Both entity types share
+        # one index on purpose: the point is finding where the same wording
+        # appears on *either* side, which is what makes cross-checking possible.
+        # Descriptions/criteria are included in full — searching only headings
+        # would miss exactly the content people need to reconcile.
+        ctx["specs_search_index"] = [
+            {
+                "kind": "uc",
+                "kindLabel": "Use Case",
+                "code": uc.code,
+                "title": uc.title,
+                "previewUrl": reverse("pocs:usecase_preview", args=[uc.pk]),
+                "detailUrl": reverse("pocs:usecase_detail", args=[uc.pk]),
+                "goLabel": "Go to Use Case",
+                "fields": [
+                    {"label": "Title", "text": uc.title},
+                    {"label": "Actor", "text": uc.actor},
+                    {"label": "Description", "text": uc.description},
+                ],
+            }
+            for uc in use_cases_qs
+        ] + [
+            {
+                "kind": "req",
+                "kindLabel": "Requirement",
+                "code": req.req_id,
+                "title": req.sub_system,
+                "previewUrl": reverse("pocs:requirement_preview", args=[req.pk]),
+                "detailUrl": reverse("pocs:requirement_detail", args=[req.pk]),
+                "goLabel": "Go to Requirement",
+                "fields": [
+                    {"label": "Sub-system", "text": req.sub_system},
+                    {"label": "Description", "text": req.description},
+                    {"label": "Validation criteria", "text": req.validation_criteria},
+                ],
+            }
+            for req in requirements_qs
+        ]
         # Tests tab (spec item 3 follow-up) — quick access to this POC's own
         # tests, grouped by phase, without leaving to the global Tests page.
         poc_tests = list(
@@ -606,15 +659,7 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
         ctx["poc_test_phase_groups"] = phase_groups
         ctx["poc_tests_total"] = len(poc_tests)
 
-        ctx["tabs"] = [
-            ("overview", "Overview"),
-            ("specs", "Use Cases & Requirements"),
-            ("phases", "Phases"),
-            ("tests", "Tests"),
-            ("team", "Team"),
-            ("audit", "Audit Log"),
-            ("reports", "Reports"),
-        ]
+        ctx["tabs"] = POC_TABS
         return ctx
 
 
@@ -1098,6 +1143,8 @@ class PhaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["can_lead"] = can_edit  # test rows use can_lead for CRUD controls
         ctx["test_execution_choices"] = Test.ExecutionStatus.choices
         ctx["test_result_choices"] = Test.Result.choices
+        ctx["tabs"] = POC_TABS
+        ctx["active_tab"] = "phases"
         return ctx
 
 
@@ -1970,8 +2017,19 @@ def comment_create(request, model, pk):
         )
         record_audit(comment, "comment_added", request.user)
         messages.success(request, "Comment added.")
+        form = CommentForm()
     else:
         messages.error(request, "Comment can't be empty.")
+    if request.headers.get("HX-Request"):
+        # Called from inside the entity-preview modal (or the full detail
+        # page, which shares this same partial) — swap the thread in place
+        # instead of a full-page redirect, so the caller never navigates.
+        return render(request, "pocs/partials/comment_thread.html", {
+            "target": obj,
+            "target_kind": model,
+            "comments": obj.comments.select_related("author", "closed_by").prefetch_related("messages__author"),
+            "comment_form": form,
+        })
     return redirect(_comment_target_url(obj))
 
 
@@ -2224,6 +2282,20 @@ class _SpecUpdateMixin(LoginRequiredMixin):
             return next_url
         return f"{reverse('pocs:detail', args=[self.poc.pk])}?tab=specs"
 
+    def get_template_names(self):
+        # Loaded into the entity-preview modal (htmx GET, from the "Edit"
+        # button in usecase_preview.html/requirement_preview.html) — return
+        # just the form body, no page chrome. Also what a form-error re-render
+        # (htmx POST) falls back to, since Django reuses get_template_names().
+        if self.request.headers.get("HX-Request"):
+            return ["pocs/partials/spec_form_fields.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["in_modal"] = bool(self.request.headers.get("HX-Request"))
+        return ctx
+
     def form_valid(self, form):
         old = self.model.objects.get(pk=self.object.pk)
         old_m2m_ids = None
@@ -2239,6 +2311,10 @@ class _SpecUpdateMixin(LoginRequiredMixin):
         if details:
             record_audit(self.object, f"{self.audit_kind}_updated", self.request.user, details)
         messages.success(self.request, self.success_message)
+        if self.request.headers.get("HX-Request"):
+            # Stay in the modal: hand back to its normal (now updated) read
+            # view instead of redirecting away from wherever it was opened.
+            return render(self.request, self.preview_template, self.get_preview_context())
         return response
 
 
@@ -2261,6 +2337,7 @@ class RequirementUpdateView(_SpecUpdateMixin, UpdateView):
     model = Requirement
     form_class = RequirementForm
     template_name = "pocs/spec_form.html"
+    preview_template = "pocs/partials/requirement_preview.html"
     success_message = "Requirement updated."
     audit_kind = "requirement"
     audit_m2m_field = "use_cases"
@@ -2271,6 +2348,9 @@ class RequirementUpdateView(_SpecUpdateMixin, UpdateView):
         ctx["title"] = f"Edit requirement · {self.object.code}"
         ctx["kind_label"] = "requirement"
         return ctx
+
+    def get_preview_context(self):
+        return _requirement_preview_ctx(self.request, self.object)
 
 
 class UseCaseCreateView(_SpecCreateMixin, CreateView):
@@ -2310,6 +2390,8 @@ class UseCaseDetailView(POCMemberRequiredMixin, DetailView):
         ctx["comments"] = self.object.comments.select_related("author", "closed_by").prefetch_related("messages__author")
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "usecase"
+        ctx["tabs"] = POC_TABS
+        ctx["active_tab"] = "specs"
         return ctx
 
 
@@ -2342,6 +2424,8 @@ class RequirementDetailView(POCMemberRequiredMixin, DetailView):
         ctx.update(_requirement_classification_ctx(self.request, self.object))
         ctx.update(_requirement_lifecycle_ctx(self.request, self.object))
         ctx.update(_requirement_title_ctx(self.request, self.object, field_ctx="detail"))
+        ctx["tabs"] = POC_TABS
+        ctx["active_tab"] = "specs"
         return ctx
 
 
@@ -2383,6 +2467,8 @@ def _requirement_preview_ctx(request, req, next_url=None):
     ctx.update(_requirement_classification_ctx(request, req))
     ctx.update(_requirement_lifecycle_ctx(request, req))
     ctx.update(_requirement_title_ctx(request, req, field_ctx="preview"))
+    ctx["comments"] = req.comments.select_related("author", "closed_by").prefetch_related("messages__author")
+    ctx["comment_form"] = CommentForm()
     return ctx
 
 
@@ -2492,6 +2578,8 @@ def _usecase_preview_ctx(request, uc):
         "usecase": uc,
         "can_manage": user_can_lead_poc(request.user, uc.poc) and not uc.poc.is_closed,
         "status_choices": UseCase.Status.choices,
+        "comments": uc.comments.select_related("author", "closed_by").prefetch_related("messages__author"),
+        "comment_form": CommentForm(),
     }
 
 
@@ -2587,6 +2675,8 @@ class TestDetailView(POCMemberRequiredMixin, DetailView):
         ctx["comment_form"] = CommentForm()
         ctx["comment_target"] = "test"
         ctx["can_manage"] = can_edit
+        ctx["tabs"] = POC_TABS
+        ctx["active_tab"] = "tests"
         return ctx
 
 
@@ -2661,6 +2751,7 @@ class UseCaseUpdateView(_SpecUpdateMixin, UpdateView):
     model = UseCase
     form_class = UseCaseForm
     template_name = "pocs/spec_form.html"
+    preview_template = "pocs/partials/usecase_preview.html"
     success_message = "Use case updated."
     audit_kind = "usecase"
     audit_m2m_field = "requirements"
@@ -2671,6 +2762,9 @@ class UseCaseUpdateView(_SpecUpdateMixin, UpdateView):
         ctx["title"] = f"Edit use case · {self.object.code}"
         ctx["kind_label"] = "use case"
         return ctx
+
+    def get_preview_context(self):
+        return _usecase_preview_ctx(self.request, self.object)
 
 
 class _SpecDeleteMixin(LoginRequiredMixin):

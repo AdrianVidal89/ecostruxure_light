@@ -6,9 +6,11 @@
     {% include "pocs/partials/requirement_title.html" %}
     {% include "pocs/partials/requirement_classification.html" %}
     {% if can_manage %}
-      <a href="{% url 'pocs:requirement_edit' req.pk %}{% if next_url %}?next={{ next_url|urlencode }}{% endif %}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
+      <button type="button"
+              hx-get="{% url 'pocs:requirement_edit' req.pk %}" hx-target="#entity-preview-body" hx-swap="innerHTML"
+              class="inline-flex items-center gap-1 text-xs font-medium text-brand-dark hover:underline mt-2">
         <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Edit
-      </a>
+      </button>
     {% endif %}
   </div>
 
@@ -60,4 +62,6 @@
       <div class="prose prose-sm max-w-none text-ink">{{ req.remarks|markdownify }}</div>
     </div>
   {% endif %}
+
+  {% include "pocs/partials/comment_thread.html" with target=req target_kind="requirement" comments=comments comment_form=comment_form %}
 </div>

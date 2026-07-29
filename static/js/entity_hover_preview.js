@@ -41,6 +41,12 @@
   // attributes directly.
   function findTrigger(el) {
     while (el && el.nodeType === 1) {
+      // Opt-out for containers that open a preview on click but are not
+      // cross-reference links — a card whose description is already on screen
+      // has nothing to reveal, so a hover card there is pure noise. Checked
+      // before the trigger test, and the walk is bottom-up, so chips *inside*
+      // an opted-out card still get their own hover card.
+      if (el.hasAttribute('data-no-hover-preview')) return null;
       var raw = (el.getAttribute('onclick') || "")
         + (el.getAttribute('@click.prevent') || "")
         + (el.getAttribute('@click') || "");

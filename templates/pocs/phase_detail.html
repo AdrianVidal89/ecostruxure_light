@@ -21,6 +21,8 @@
 {# Tests tab (spec item 10 follow-up) gets more width — the tests + unlinked-requirements two-column layout is cramped at max-w-4xl. Every other tab keeps the narrower reading width. #}
 <div class="{% if is_leaf and is_test %}max-w-7xl{% else %}max-w-4xl{% endif %} mx-auto space-y-6">
 
+  {% include "pocs/partials/poc_tabs.html" with poc=poc tabs=tabs active_tab=active_tab %}
+
   {% if phase.parent %}
     {% url 'pocs:phase_detail' phase.parent.pk as back_url %}
     {% include "pocs/partials/back_button.html" with url=back_url label=phase.parent.name plain=True %}
