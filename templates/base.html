@@ -1,6 +1,12 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full overflow-hidden">
+{% comment %}
+``mega`` swaps the accent palette to the Mega User red (see the CSS below).
+It's a class on <html> for the same reason ``dark`` is: every colour in the app
+resolves through CSS variables, so re-theming is a variable swap and no
+component needs to know the Mega User feature exists.
+{% endcomment %}
+<html lang="en" class="h-full overflow-hidden{% if mega_theme %} mega{% endif %}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -76,6 +82,30 @@
       --color-danger: 248 113 113;      /* desaturated */
       --color-warning: 251 191 36;      /* desaturated */
       --color-info: 96 165 250;         /* desaturated */
+    }
+    /* --- Mega User palette ------------------------------------------------
+       Only the accent moves: the whole design system already routes its glows,
+       focus rings and progress fills through --color-brand, so overriding two
+       variables re-themes every screen.
+
+       --color-danger deliberately moves to amber here. In the green theme, red
+       IS the destructive colour; leaving it red while the accent is also red
+       would make "Delete" read as just another accented button. Amber keeps
+       destructive actions distinguishable from the accent at a glance.
+    */
+    html.mega {
+      --color-brand: 220 38 38;         /* #DC2626 */
+      --color-brand-dark: 127 29 29;    /* #7F1D1D — readable accent on light surfaces */
+      --color-danger: 217 119 6;        /* #D97706 — amber, so "destructive" ≠ "accent" */
+    }
+    html.mega.dark {
+      --color-brand: 255 61 61;         /* #FF3D3D — the accent glow on dark surfaces */
+      --color-brand-dark: 255 214 214;  /* #FFD6D6 — readable accent tone on DARK surfaces */
+      --color-canvas: 20 14 15;         /* near-black with a red cast */
+      --color-surface: 32 22 24;
+      --color-surface-elevated: 42 29 31;
+      --color-line: 122 96 100;         /* keeps the 3:1 non-text contrast of the base theme */
+      --color-danger: 251 191 36;       /* amber, desaturated for dark */
     }
     [x-cloak] { display: none !important; }
     /* Subtle, non-distracting transitions only. */

@@ -37,6 +37,26 @@ class User(AbstractUser):
         help_text="Global role governing application-wide permissions.",
     )
 
+    # Deliberately NOT a third Role: being a Mega User grants no authority over
+    # other people's data — it unlocks the AI tools workspace over the POCs this
+    # user can already see. Keeping it orthogonal to ``role`` means an admin can
+    # grant it to a team member without promoting them, and revoking it never
+    # touches their permissions.
+    is_mega_user = models.BooleanField(
+        default=False,
+        verbose_name="Mega User",
+        help_text=(
+            "Unlocks the AI tools workspace: connect an AI provider and query "
+            "this user's own POCs. Grantable by admins only."
+        ),
+    )
+    # Mega Users get the red interface by default; this lets an individual opt
+    # back into the standard palette without giving up the AI tools.
+    mega_theme_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the Mega User (red) interface. Ignored for non-Mega Users.",
+    )
+
     class Meta:
         ordering = ["username"]
 
@@ -53,3 +73,8 @@ class User(AbstractUser):
     @property
     def is_team_member(self):
         return self.role == self.Role.TEAM_MEMBER
+
+    @property
+    def shows_mega_theme(self):
+        """True when this user's UI should render in the Mega User palette."""
+        return self.is_mega_user and self.mega_theme_enabled
