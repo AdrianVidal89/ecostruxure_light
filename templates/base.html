@@ -450,6 +450,9 @@
   {% include "components/file_preview_modal.html" %}
   <script src="{% static 'js/file_preview.js' %}"></script>
 
+  {# Cross-cutting Use Case + Requirement search on the POC detail tab. #}
+  <script src="{% static 'js/specs_search.js' %}?v=1"></script>
+
   {# Shared delayed hover-card (graph nodes + UC×Requirement matrix headers). #}
   <script src="{% static 'js/hover_card.js' %}"></script>
   {# Auto-wires the same hover-card onto every openEntityPreview(...) chip app-wide. #}

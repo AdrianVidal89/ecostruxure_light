@@ -183,28 +183,8 @@
   </section>
 
   {# ---------- Requirements & Use Cases ---------- #}
-  <section x-show="tab === 'specs'" x-cloak class="space-y-8" x-data="{ search: '' }">
-
-    {% comment %}
-    Cross-cutting search: one box for BOTH lists, so content can be cross-checked
-    between use cases and requirements in a single pass. It matches the full text
-    (code/id, title/sub-system, description and validation criteria — see each
-    card's ``data-search``), not just the heading, which is the whole point:
-    finding where the same wording appears on either side. It lives above the
-    lists on purpose — the per-list "Filters" panels stay collapsed and keep
-    their own narrow, structured filters.
-    {% endcomment %}
-    <div class="relative">
-      <i data-lucide="search" class="w-5 h-5 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-      <input type="search" x-model.debounce.200ms="search"
-             placeholder="Search use cases and requirements — title, code and description…"
-             class="w-full pl-11 pr-10 py-3 rounded-xl border border-line bg-surface text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-soft">
-      <button type="button" x-show="search" x-cloak @click="search = ''"
-              class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas"
-              title="Clear search">
-        <i data-lucide="x" class="w-4 h-4"></i>
-      </button>
-    </div>
+  <section x-show="tab === 'specs'" x-cloak class="space-y-8"
+           x-data="specsSearch(JSON.parse(document.getElementById('specs-search-index').textContent))">
 
     {# Contextual guideline / help (spec Fase 10b) #}
     <div class="bg-info/5 border border-info/30 rounded-xl p-4" x-data="{ open: false }">
@@ -243,6 +223,73 @@
       <i data-lucide="grid-3x3" class="w-4 h-4"></i> Open Use Case × Requirement matrix
     </a>
 
+    {% comment %}
+    Cross-cutting search over BOTH lists. Two things happen while typing:
+    (a) the grids below narrow down (each card's ``data-search``), and (b) the
+    panel here lists every *mention* with its surrounding sentence, so the same
+    wording can be reconciled across use cases and requirements without opening
+    them one by one. A hit opens the shared preview modal, which carries the
+    "Go to …" link for editing/commenting — search leads into the normal flow.
+    Index built by POCDetailView (``specs_search_index``).
+    {% endcomment %}
+    {{ specs_search_index|json_script:"specs-search-index" }}
+    <div class="space-y-2">
+      <div class="relative">
+        <i data-lucide="search" class="w-5 h-5 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        <input type="search" x-model.debounce.200ms="search" @keydown.escape.stop="clear()"
+               placeholder="Search use cases and requirements — title, code, description, validation criteria…"
+               class="w-full pl-11 pr-10 py-3 rounded-xl border border-line bg-surface text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-soft">
+        <button type="button" x-show="search" x-cloak @click="clear()"
+                class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-canvas"
+                title="Clear search (Esc)">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div x-show="searching" x-cloak x-transition.opacity
+           class="bg-surface border border-line rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-4 py-2 border-b border-line bg-canvas/60">
+          <p class="text-xs text-ink-muted">
+            <span class="font-medium text-ink" x-text="mentionCount"></span>
+            <span x-text="mentionCount === 1 ? 'mention' : 'mentions'"></span> in
+            <span class="font-medium text-ink" x-text="results.length"></span>
+            <span x-text="results.length === 1 ? 'item' : 'items'"></span>
+          </p>
+          <p class="text-xs text-ink-muted hidden sm:block">Click a line to open it</p>
+        </div>
+
+        <div class="max-h-[26rem] overflow-y-auto divide-y divide-line">
+          <template x-for="group in results" :key="group.item.previewUrl">
+            <div>
+              <div class="flex items-center gap-2 px-4 py-2 bg-canvas/40 sticky top-0 backdrop-blur">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                      :class="group.item.kind === 'uc' ? 'bg-info/10 text-info' : 'bg-brand/10 text-brand-dark'"
+                      x-text="group.item.kind === 'uc' ? 'UC' : 'REQ'"></span>
+                <span class="text-xs font-mono text-ink-muted shrink-0" x-text="group.item.code"></span>
+                <span class="text-sm font-medium text-ink truncate" x-text="group.item.title"></span>
+                <span class="ml-auto text-xs text-ink-muted shrink-0" x-text="group.total"></span>
+              </div>
+              <template x-for="(hit, i) in group.hits" :key="i">
+                <button type="button" @click="open(group.item)"
+                        class="w-full text-left px-4 py-2 hover:bg-canvas transition-soft group/hit">
+                  <span class="block text-[10px] uppercase tracking-wide text-ink-muted" x-text="hit.label"></span>
+                  <span class="block text-sm text-ink-muted leading-relaxed"><span
+                        x-text="hit.pre"></span><mark class="bg-warning/30 text-ink rounded px-0.5" x-text="hit.hit"></mark><span
+                        x-text="hit.post"></span></span>
+                </button>
+              </template>
+              <p x-show="group.extra > 0" class="px-4 pb-2 text-xs text-ink-muted"
+                 x-text="'+' + group.extra + ' more in this item'"></p>
+            </div>
+          </template>
+
+          <div x-show="results.length === 0" class="px-4 py-8 text-center text-sm text-ink-muted">
+            Nothing mentions “<span x-text="search.trim()"></span>” in this POC's use cases or requirements.
+          </div>
+        </div>
+      </div>
+    </div>
+
     {# Use Cases #}
     <div class="space-y-3"
          x-data="{
@@ -255,7 +302,8 @@
            matches(el) {
              const d = el.dataset;
              const f = this.filters;
-             const s = (this.search || '').trim().toLowerCase();
+             {# `searching` (not just a non-empty box) so the grids and the results panel above switch on together. #}
+             const s = this.searching ? this.query : '';
              if (s && !d.search.includes(s)) return false;
              if (f.q && !d.title.toLowerCase().includes(f.q.toLowerCase()) && !d.code.toLowerCase().includes(f.q.toLowerCase())) return false;
              if (f.status && d.status !== f.status) return false;
@@ -480,7 +528,8 @@
            matches(el) {
              const d = el.dataset;
              const f = this.filters;
-             const s = (this.search || '').trim().toLowerCase();
+             {# `searching` (not just a non-empty box) so the grids and the results panel above switch on together. #}
+             const s = this.searching ? this.query : '';
              if (s && !d.search.includes(s)) return false;
              if (f.q && !d.reqid.toLowerCase().includes(f.q.toLowerCase()) && !d.subsystem.toLowerCase().includes(f.q.toLowerCase())) return false;
              if (f.gravity && d.gravity !== f.gravity) return false;

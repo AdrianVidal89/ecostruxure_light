@@ -603,6 +603,45 @@ class POCDetailView(POCMemberRequiredMixin, DetailView):
             "status": UseCase.Status.choices,
             "priority": UseCase.Priority.choices,
         }
+        # Haystack for the cross-cutting search box on the Use Cases &
+        # Requirements tab (static/js/specs_search.js). Both entity types share
+        # one index on purpose: the point is finding where the same wording
+        # appears on *either* side, which is what makes cross-checking possible.
+        # Descriptions/criteria are included in full — searching only headings
+        # would miss exactly the content people need to reconcile.
+        ctx["specs_search_index"] = [
+            {
+                "kind": "uc",
+                "kindLabel": "Use Case",
+                "code": uc.code,
+                "title": uc.title,
+                "previewUrl": reverse("pocs:usecase_preview", args=[uc.pk]),
+                "detailUrl": reverse("pocs:usecase_detail", args=[uc.pk]),
+                "goLabel": "Go to Use Case",
+                "fields": [
+                    {"label": "Title", "text": uc.title},
+                    {"label": "Actor", "text": uc.actor},
+                    {"label": "Description", "text": uc.description},
+                ],
+            }
+            for uc in use_cases_qs
+        ] + [
+            {
+                "kind": "req",
+                "kindLabel": "Requirement",
+                "code": req.req_id,
+                "title": req.sub_system,
+                "previewUrl": reverse("pocs:requirement_preview", args=[req.pk]),
+                "detailUrl": reverse("pocs:requirement_detail", args=[req.pk]),
+                "goLabel": "Go to Requirement",
+                "fields": [
+                    {"label": "Sub-system", "text": req.sub_system},
+                    {"label": "Description", "text": req.description},
+                    {"label": "Validation criteria", "text": req.validation_criteria},
+                ],
+            }
+            for req in requirements_qs
+        ]
         # Tests tab (spec item 3 follow-up) — quick access to this POC's own
         # tests, grouped by phase, without leaving to the global Tests page.
         poc_tests = list(
